@@ -7,14 +7,6 @@ import shlex
 import subprocess
 import sys
 
-import pytest
-
-
-@pytest.fixture(scope="session")
-def ev(tracker):
-    from conftest import _load
-    return _load("evidence_export")
-
 
 def run(ev, argv, cwd, gh=None):
     out, err = io.StringIO(), io.StringIO()

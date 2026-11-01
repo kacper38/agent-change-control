@@ -202,3 +202,68 @@ def test_hook_is_silent_when_nothing_applies(lt, tmp_path):
     assert hook(lt, {"tool_name": "Bash", "tool_input": {"command": "cat Dockerfile"}}) == (0, "")
     assert hook(lt, "{{{") == (0, "") and hook(lt, "[1]") == (0, "")
     assert hook(lt, {"toolName": "create", "toolArgs": "not json", "timestamp": 1}) == (0, "")
+
+
+@pytest.mark.parametrize("path,kind", [
+    ("azure-pipelines.yml", "pipelines"), ("ci/azure-pipelines-label-lint.yml", "pipelines"),
+    ("x/azure-pipelines.yaml", "pipelines"), ("pipelines/build.yml", None), ("azure-pipelines.md", None),
+])
+def test_kind_of_azure_pipelines(lt, path, kind):
+    assert lt.kind_of(path) == kind
+
+
+PIPELINES = """\
+trigger: [main]
+resources:
+  containers:
+  - container: linux
+    image: ubuntu:24.04
+  - container: tools
+    image: ghcr.io/o/tools
+  - image: python:latest
+    container: py
+pool:
+  vmImage: ubuntu-latest
+jobs:
+- job: a
+  container: linux
+  services:
+    cache: redis
+  steps:
+  - script: echo hi
+    target:
+      container: tools
+- job: b
+  container: node
+- job: c
+  container:
+    image: mcr.microsoft.com/dotnet/sdk
+- job: d
+  container: ubuntu:24.04
+- job: e
+  container: $(image)
+"""
+PIPELINE_FINDINGS = [(7, "no tag (floats to :latest)"), (8, ":latest tag"), (22, "no tag (floats to :latest)"),
+                     (25, "no tag (floats to :latest)")]
+
+
+def test_scan_pipelines_judges_images_not_aliases(lt):
+    found = lt.scan_text(PIPELINES, "pipelines")
+    assert [(n, r) for n, r, _ in found] == PIPELINE_FINDINGS
+    assert found[2][2] == "container: node", "a job container that names no resources.containers alias is an image"
+    assert [n for n, _, _ in lt.scan_text(PIPELINES, "yaml")][:1] == [4], "the generic reader takes aliases for images"
+
+
+def test_scan_pipelines_in_tree_by_name_and_hook(lt, tmp_path):
+    git(tmp_path, "init", "-q", "-b", "main")
+    (tmp_path / "ci").mkdir()
+    pipeline = tmp_path / "ci" / "azure-pipelines.yml"
+    pipeline.write_text(PIPELINES)
+    git(tmp_path, "add", ".")
+    expected = [f"ci/azure-pipelines.yml:{n}: {r}" for n, r in PIPELINE_FINDINGS]
+    for argv in (["scan"], ["scan", "ci/azure-pipelines.yml"], ["scan", "ci"]):
+        code, out, err = run(lt, argv, tmp_path)
+        assert code == 1 and [": ".join(ln.split(": ")[:2]) for ln in out.splitlines()] == expected, argv
+        assert "4 finding(s) in 1 file(s)" in err
+    code, out = hook(lt, {"tool_name": "Write", "tool_input": {"file_path": str(pipeline)}})
+    assert code == 0 and "azure-pipelines.yml:8: :latest tag: - image: python:latest" in json.loads(out)["reason"]

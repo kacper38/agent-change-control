@@ -34,7 +34,12 @@ No paperwork theater: everything here is generated from real artifacts.
    the issues they reference and those closed in the window, rulesets, captures re-hashed).
    Add `git log --oneline` for the scope, PR links +
    approvers, deployment approval records (environment protection), and
-   DECISIONS.md entries relevant to this unit.
+   DECISIONS.md entries relevant to this unit. On Azure DevOps the same trail
+   is reviewer votes, builds and policy evaluations on the merge commit, the
+   PR's completion options, branch policy configurations and Environment
+   approval records. `export` has no Azure DevOps reader yet (plan step A6):
+   until it lands, record those in `SUMMARY.md` by hand (the GETs for the
+   settings are in `docs/ADO-ADMIN.md`) and list the missing export under Gaps.
 5. **System description.** Confirm `docs/SYSTEM.md` still matches reality
    (fields per task-intake); update it within this release's scope. Auditors
    read it before any evidence pack.

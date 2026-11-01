@@ -26,7 +26,11 @@ before moving on. Skip or reorder stages only when the plan says so — and say 
    where a lockfile exists). `permissions: {id-token: write, contents: read}`;
    OIDC role, no stored cloud keys; tag = `${{ github.sha }}`. Node/Next.js
    chain: `npm ci` → `eslint` → `tsc --noEmit` → test → `next build` → docker
-   build (actions/setup-node with npm cache, version from `.nvmrc`). Verify:
+   build (actions/setup-node with npm cache, version from `.nvmrc`). Azure
+   Pipelines, same chain in `azure-pipelines.yml`: tag = `$(Build.SourceVersion)`;
+   a workload identity federation service connection, no stored keys; PR runs
+   come from a build-validation branch policy (YAML `pr:` is ignored on Azure
+   Repos); tasks pinned `Name@X.Y.Z`, script steps preferred. Verify:
    workflow syntax (act or push), steps ordered fail-fast, scan gating before
    push.
 4. **IaC** — Terraform module skeleton: `modules/network`, `modules/service`
@@ -44,7 +48,9 @@ before moving on. Skip or reorder stages only when the plan says so — and say 
    Verify: `terraform fmt -check`, `terraform validate`, review `plan` output
    with the user.
 5. **CD** — deploy job gated on CI and pinned to the CI-built SHA; GitHub
-   Environments with protection rules, required reviewers on prod. The
+   Environments with protection rules, required reviewers on prod (Azure
+   Pipelines: deployment jobs against Environments with approvals and checks,
+   Branch control on prod). The
    recorded approval + deployment log is validation evidence — the
    validation-evidence pack captures it. Verify: pipeline graph makes sense
    end-to-end; prod deploy blocked without approval.

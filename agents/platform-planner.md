@@ -31,7 +31,8 @@ environment. Your output is a plan, never code.
   often runs EKS/AKS). Greenfield: prefer boring, managed services (ECS
   Fargate / Container Apps) over a new cluster. Say why in one line.
 - Every plan ends with: which files will exist at the end (README.md,
-  DECISIONS.md, Dockerfile, .github/workflows/ci.yml, terraform/...).
+  DECISIONS.md, Dockerfile, .github/workflows/ci.yml or azure-pipelines.yml,
+  terraform/...).
 - If the task involves LLM/RAG components, include traceability of sources
   and cost controls as explicit plan steps — in GxP, "which sources fed this
   answer" is a first-class requirement.

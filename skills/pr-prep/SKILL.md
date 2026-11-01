@@ -26,7 +26,8 @@ When the user runs `/pr-prep`:
    claimed — `python3 tools/tracker/tracker.py list --status in-progress` —
    and `show N` for its acceptance criteria. They go into the PR checklist
    verbatim; the body carries `Refs #N`. Never `Fixes`/`Closes`/`Resolves`:
-   closing is the owner's protocol (`tracker owner done`), not GitHub's.
+   closing is the owner's protocol (`tracker owner done`), not the forge's. On
+   Azure Repos any state name before `#N` (`Done #N`, `Review #N`) counts too.
 
 4. **Generate PR description**:
 
@@ -67,4 +68,12 @@ Refs #N
    (in-progress → review; refused if the head is not the claimed branch or the
    body lacks `Refs #N`) and post the /verify summary with
    `python3 tools/tracker/tracker.py note N "verify: <one line per check>"`.
+   On Azure Repos (origin on `dev.azure.com` or `*.visualstudio.com`):
+   `az repos pr create --title … --description "$(cat <file>)" --query pullRequestId -o tsv`,
+   with `Refs #N` on the first line of the body: descriptions are capped at
+   4000 characters, so trim the body below that, never the link. No
+   `--auto-complete`, `--transition-work-items` or `--bypass-policy` (the
+   guard denies the last two). Pass the web URL
+   `https://dev.azure.com/{org}/{project}/_git/{repo}/pullrequest/{id}` or the
+   bare id to `tracker review N --pr …`, not the API `url` the CLI prints.
    Without a tracker in the repo, stop at the ready-to-use PR body.

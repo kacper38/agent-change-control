@@ -19,7 +19,11 @@ immediately with user approval.
    image pinned? no `latest` anywhere (`grep -rnE ':latest' . --include='Dockerfile*'
    --include='*.yml' --include='*.yaml' --include='*.tf' --exclude-dir=.git 2>/dev/null`)
 3. **CI hygiene:** `permissions:` block present and minimal? OIDC not static
-   keys (`grep -rn 'AWS_SECRET\|AZURE_CLIENT_SECRET' .github/`)? image tagged by SHA?
+   keys (`grep -rn 'AWS_SECRET\|AZURE_CLIENT_SECRET' .github/ $(git ls-files '*azure-pipelines*.yml')`)?
+   image tagged by SHA? Azure Pipelines: service connections with workload
+   identity federation, `System.AccessToken` mapped only into the steps that
+   call the REST API, no secret values in variable groups (secret variables or
+   Key Vault links instead)
 4. **IaC hygiene:** `terraform fmt -check -recursive`, then
    `terraform init -backend=false -input=false >/dev/null && terraform validate`
    (independent checks — a fmt failure must not mask validate; `-backend=false`

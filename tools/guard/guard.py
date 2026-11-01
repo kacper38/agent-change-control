@@ -1027,6 +1027,10 @@ _SECRET_RES = [
     re.compile(r"xox[abprs]-[A-Za-z0-9-]{10,}"),
     re.compile(r"AGE-SECRET-KEY-1[0-9A-Z]{20,}"),
     re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----"),
+    # Azure DevOps PAT, current format: 84 chars, `AZDO` at [76:80]; the legacy 52-char base32 form is left
+    # out (it matches any lower-case base32 run). Same pattern as the egress screen.
+    re.compile(r"(?<![A-Za-z0-9_-])[A-Za-z0-9_-]{76}AZDO[A-Za-z0-9_-]{4}(?![A-Za-z0-9_-])"),
+    re.compile(r"eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}"),  # JWT: Entra tokens for ADO
 ]
 
 

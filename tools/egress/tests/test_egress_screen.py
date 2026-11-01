@@ -37,6 +37,19 @@ def test_clean_text(egress, text):
     assert egress.secret_hits(text) == []
 
 
+ADO_PAT = "Ab3x" * 19 + "AZDO" + "Q7rT"  # synthetic, built at runtime: 84 chars, AZDO at [76:80]
+
+
+def test_ado_pat_current_format_only(egress):
+    assert len(ADO_PAT) == 84 and ADO_PAT[76:80] == "AZDO"
+    assert egress.secret_hits(f"AZURE_DEVOPS_EXT_PAT={ADO_PAT}\n") == ["azure-devops-pat"]
+    assert egress.secret_hits("https://u:" + ADO_PAT + "@dev.azure.com/o") == ["azure-devops-pat"]
+    legacy = "abcdefghijklmnopqrstuvwxyz234567" + "abcdefghijklmnopqrst"  # 52-char base32: left out on purpose
+    assert len(legacy) == 52 and egress.secret_hits(legacy) == []
+    assert egress.secret_hits(ADO_PAT[:76] + "AZDX" + ADO_PAT[80:]) == []
+    assert egress.secret_hits("x" + ADO_PAT) == [], "an 85-char run is not the token shape"
+
+
 def test_planted_token_is_held_exit_3(egress, tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     out, err = io.StringIO(), io.StringIO()

@@ -78,6 +78,15 @@ def test_capture_writes_redacted_file(guard_path, tmp_path, monkeypatch):
     assert "ghp_" not in text and "<redacted>" in text
 
 
+def test_redact_masks_ado_pats_and_entra_tokens(guard):
+    pat = "Ab3x" * 19 + "AZDO" + "Q7rT"  # synthetic, built at runtime: 84 chars, AZDO at [76:80]
+    jwt = "eyJ" + "hbGciOiJSUzI1NiJ9" + ".eyJ" + "hdWQiOiI0OTliODRhYyJ9" + "." + "c2lnbmF0dXJlLXBhcnQ"
+    out = guard.redact({"command": f"echo {pat}", "tool_response": {"stdout": jwt + "\n"}})
+    assert out == {"command": "echo <redacted>", "tool_response": {"stdout": "<redacted>\n"}}
+    legacy = "abcdefghijklmnopqrstuvwxyz234567" + "abcdefghijklmnopqrst"  # 52-char base32 PAT: left out on purpose
+    assert guard.redact(legacy) == legacy
+
+
 def test_help_version_rules(guard, guard_path):
     assert run(guard_path, ["version"], "").stdout.strip().decode() == guard.VERSION
     assert b"delete-guard" in run(guard_path, ["rules"], "").stdout

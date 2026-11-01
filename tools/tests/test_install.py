@@ -94,3 +94,28 @@ def test_uninstall_without_any_manifest_refuses(tmp_path: pathlib.Path) -> None:
     assert r.returncode == 1
     assert "nothing to uninstall" in r.stderr
     assert not list(dest.iterdir())
+
+
+def test_manifest_entries_outside_claude_dir_are_skipped(tmp_path: pathlib.Path) -> None:
+    dest = tmp_path / "claude"
+    dest.mkdir()
+    outside = tmp_path / "outside.txt"
+    outside.write_text("keep\n")
+    (dest / "agents").mkdir()
+    (dest / "agents/ok.md").write_text("old\n")
+    (dest / LEGACY).write_text(f"# legacy\n{outside}\n../outside.txt\nagents/ok.md\n")
+
+    r = run(dest)  # a reinstall merges the legacy manifest
+
+    assert r.returncode == 0, r.stderr
+    entries = listed(dest / NEW)
+    assert "agents/ok.md" in entries
+    assert not any(e.startswith("/") or ".." in e for e in entries)
+
+    (dest / NEW).write_text(f"# new\n{outside}\n../outside.txt\nagents/ok.md\n")
+    r = run(dest, "--uninstall")
+
+    assert r.returncode == 0, r.stderr
+    assert outside.read_text() == "keep\n"
+    assert "unsafe manifest entry" in r.stderr
+    assert not (dest / "agents/ok.md").exists()

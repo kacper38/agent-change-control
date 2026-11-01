@@ -185,6 +185,8 @@ def load_config(start: str) -> dict:
     if env is not None:
         cfg["rules_off"] = [r.strip() for r in env.split(",") if r.strip()]
     if not relaxable:
+        if cfg["rules_off"]:
+            print("guard: rules_off ignored: the root's committed guard.json must say boundary own", file=sys.stderr)
         cfg["rules_off"] = []  # no committed policy at the repo root that says own: nothing to relax
     off = cfg["rules_off"]
     if not (isinstance(off, list) and all(isinstance(r, str) for r in off)):

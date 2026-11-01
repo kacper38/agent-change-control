@@ -30,10 +30,12 @@ def test_local_file_sets_rules_off_and_nothing_else(guard, tmp_path, monkeypatch
     assert guard.load_config(_repo(tmp_path / "c", policy=policy))["rules_off"] == ["scratch-md"], "committed: policy"
 
 
-def test_override_needs_a_root_policy_that_says_own(guard, tmp_path, monkeypatch):
+def test_override_needs_a_root_policy_that_says_own(guard, tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("KZ_RULES_OFF", "delete-guard")
-    assert guard.load_config(str(tmp_path / "none")) ["rules_off"] == [], "no guard.json above: nothing to relax"
+    assert guard.load_config(str(tmp_path / "none"))["rules_off"] == [], "no guard.json above: nothing to relax"
+    assert "rules_off ignored" in capsys.readouterr().err
     assert guard.load_config(_repo(tmp_path / "a"))["rules_off"] == ["delete-guard"]
+    assert capsys.readouterr().err == ""
     monkeypatch.delenv("KZ_RULES_OFF")
     local = {"rules_off": ["delete-guard"]}
     cases = {
@@ -44,6 +46,7 @@ def test_override_needs_a_root_policy_that_says_own(guard, tmp_path, monkeypatch
     for why, kw in cases.items():
         cwd = _repo(tmp_path / why.split(" ")[0] / "x", local, **kw)
         assert guard.load_config(cwd)["rules_off"] == [], why
+        assert "rules_off ignored" in capsys.readouterr().err, why
     monkeypatch.setenv("KZ_BOUNDARY", "own")
     cwd = _repo(tmp_path / "client", local, policy=json.dumps({"boundary": "client"}))
     assert guard.load_config(cwd)["rules_off"] == [], "the env cannot turn a committed client policy into own"

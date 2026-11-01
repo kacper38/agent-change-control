@@ -129,7 +129,7 @@ DEFAULTS = {
     "protected_branches": ["main"],
     "boundary": "own",
     "scratch_md_mode": "ask",  # ask | deny | off
-    "rules_off": [],  # rules switched off by .claude/guard.local.json or KZ_RULES_OFF; own boundary only
+    "rules_off": [],  # rules switched off (own boundary only): guard.json, guard.local.json or KZ_RULES_OFF
     "scratch_md_allow": [
         "docs/", ".claude/", ".github/", "skills/", "agents/", ".agents/", "evidence/",
         "README.md", "DECISIONS.md", "AGENTS.md", "CLAUDE.md", "CHANGELOG.md", "CONTRIBUTING.md",
@@ -145,9 +145,11 @@ def load_config(start: str) -> dict:
     session can switch rules off without a diff in the reviewable policy and nothing else moves."""
     cfg = dict(DEFAULTS)
     d = os.path.abspath(start)
+    found = False
     while True:
         candidate = os.path.join(d, ".claude", "guard.json")
         if os.path.isfile(candidate):
+            found = True
             for path in (candidate, os.path.join(d, ".claude", "guard.local.json")):
                 if not os.path.isfile(path):
                     continue
@@ -180,6 +182,8 @@ def load_config(start: str) -> dict:
     env = os.environ.get("KZ_RULES_OFF")
     if env is not None:
         cfg["rules_off"] = [r.strip() for r in env.split(",") if r.strip()]
+    if not found:
+        cfg["rules_off"] = []  # no committed policy, nothing to relax: the override needs a guard.json
     off = cfg["rules_off"]
     if not (isinstance(off, list) and all(isinstance(r, str) for r in off)):
         print("guard: ignoring rules_off: expected a list of rule names", file=sys.stderr)
@@ -1126,29 +1130,33 @@ def run_hook(target: str, wrapper: Optional[str]) -> int:
     if wrapper == "claude" and ev.harness == "copilot":
         return 0
     names = PRE_RULES if target == "pre" else [target]
-    # rules_off is the owner's convenience for own repos; inside a client boundary the committed policy is whole
-    off = set(cfg.get("rules_off") or []) if str(cfg.get("boundary") or "own") != "client" else set()
+    # rules_off is the owner's convenience for own repos; anything but an explicit own boundary keeps the whole policy
+    off = set(cfg["rules_off"]) if cfg.get("boundary") == "own" else set()
     decisions: list[Decision] = []
     fired: dict[str, str] = {}
+    skipped: dict[str, str] = {}
     for name in names:
         rule = RULES.get(name)
         if rule is None:
             raise ValueError(f"unknown rule: {name}")
-        if name in off:
-            continue
         d = rule(ev, cfg)
-        if d:
+        if d and name in off:  # the rule still runs, so the log shows how often the override spoke for it
+            skipped[name] = "skipped"
+        elif d:
             decisions.append(d)
             fired[name] = d[0]
     final = combine(decisions)
     if final:
         log_decision(final, fired, ev, cfg)
+    if skipped:
+        log_decision(("skipped", "rules_off"), skipped, ev, cfg)
     return respond(final, ev.event or "PreToolUse")
 
 
 def log_decision(decision: Decision, fired: dict[str, str], ev: Event, cfg: dict) -> None:
     """One line per ask/deny in <telemetry>/decisions.jsonl, so `ledger.py cost` can show prompt fatigue per rule.
-    `rules` maps each rule that spoke to its own verdict; `verdict` is the combined one.
+    `rules` maps each rule that spoke to its own verdict; `verdict` is the combined one. A rule that would have
+    spoken but is in `rules_off` is logged as `skipped` (its own line), so a month-long override stays visible.
     No command text or paths: the rule names and the tool are enough to tune thresholds."""
     entry = {
         "ts": _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),

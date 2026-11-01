@@ -141,8 +141,8 @@ DEFAULTS = {
 def load_config(start: str) -> dict:
     """Merge DEFAULTS <- nearest .claude/guard.json (walking up) <- its sibling guard.local.json <- KZ_* env.
 
-    guard.local.json is the owner's uncommitted override (gitignored): the same keys except `boundary`,
-    applied on top, so a session can switch rules off without a diff in the reviewable policy."""
+    guard.local.json is the owner's uncommitted override (gitignored): only its `rules_off` is read, so a
+    session can switch rules off without a diff in the reviewable policy and nothing else moves."""
     cfg = dict(DEFAULTS)
     d = os.path.abspath(start)
     while True:
@@ -155,8 +155,8 @@ def load_config(start: str) -> dict:
                     with open(path, encoding="utf-8") as fh:
                         data = json.load(fh)
                     if isinstance(data, dict):
-                        if path != candidate:
-                            data.pop("boundary", None)  # the boundary is the committed policy's to set
+                        if path != candidate:  # the local file carries rules_off and nothing else
+                            data = {k: v for k, v in data.items() if k == "rules_off"}
                         cfg.update(data)
                 except (OSError, ValueError) as exc:  # a broken config must not silently vanish
                     print(f"guard: ignoring unreadable {path}: {exc}", file=sys.stderr)
@@ -180,6 +180,13 @@ def load_config(start: str) -> dict:
     env = os.environ.get("KZ_RULES_OFF")
     if env is not None:
         cfg["rules_off"] = [r.strip() for r in env.split(",") if r.strip()]
+    off = cfg["rules_off"]
+    if not (isinstance(off, list) and all(isinstance(r, str) for r in off)):
+        print("guard: ignoring rules_off: expected a list of rule names", file=sys.stderr)
+        cfg["rules_off"] = []  # a malformed override switches nothing off
+    else:
+        for name in sorted(set(off) - set(RULES)):
+            print(f"guard: rules_off names no rule {name!r}", file=sys.stderr)
     return cfg
 
 

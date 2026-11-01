@@ -12,13 +12,23 @@ def _repo(tmp_path, local=None):
     return str(tmp_path)
 
 
-def test_local_file_merges_on_top_of_guard_json(guard, tmp_path, monkeypatch):
+def test_local_file_sets_rules_off_and_nothing_else(guard, tmp_path, monkeypatch):
     monkeypatch.delenv("KZ_RULES_OFF", raising=False)
     assert guard.load_config(_repo(tmp_path))["rules_off"] == []
-    cwd = _repo(tmp_path / "b", {"rules_off": ["delete-guard"], "boundary": "client"})
-    cfg = guard.load_config(cwd)
+    local = {"rules_off": ["delete-guard"], "boundary": "client", "protected_branches": [], "scratch_md_mode": "off"}
+    cfg = guard.load_config(_repo(tmp_path / "b", local))
     assert cfg["rules_off"] == ["delete-guard"]
-    assert cfg["boundary"] == "own", "the local file cannot move the boundary"
+    assert (cfg["boundary"], cfg["protected_branches"], cfg["scratch_md_mode"]) == ("own", ["main"], "ask")
+
+
+def test_malformed_or_unknown_rules_off_is_reported(guard, tmp_path, monkeypatch, capsys):
+    monkeypatch.delenv("KZ_RULES_OFF", raising=False)
+    assert guard.load_config(_repo(tmp_path, {"rules_off": "delete-guard"}))["rules_off"] == []
+    assert "ignoring rules_off" in capsys.readouterr().err
+    assert guard.load_config(_repo(tmp_path / "b", {"rules_off": ["delete-gaurd"]}))["rules_off"] == ["delete-gaurd"]
+    assert "no rule 'delete-gaurd'" in capsys.readouterr().err
+    guard.load_config(_repo(tmp_path / "c", {"rules_off": ["delete-guard"]}))
+    assert capsys.readouterr().err == ""
 
 
 def test_env_overrides_the_file(guard, tmp_path, monkeypatch):

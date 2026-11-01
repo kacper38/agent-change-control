@@ -1,4 +1,5 @@
-"""evidence_export: captures with hashes and tool versions, change records from a fake gh api (plan step 3.7)."""
+"""evidence_export: captures with hashes and tool versions, change records from a fake gh api (plan step 3.7)
+and from the fake Azure DevOps REST API (plan A6)."""
 import hashlib
 import io
 import json
@@ -6,6 +7,8 @@ import os
 import shlex
 import subprocess
 import sys
+
+import pytest
 
 
 def run(ev, argv, cwd, gh=None):
@@ -181,6 +184,10 @@ def test_collect_assembles_prs_issues_rulesets_and_captures(ev, tracker, tmp_pat
     assert caps["gone"]["sha256_now"] is None
     assert not any(path.endswith("/pulls/8") for path, _ in api.calls), "paging stopped at the first old PR"
     assert [p for p, q in api.calls if p == "repos/o/r/issues" and q.get("since") == SINCE], "window from the range"
+    # schema /2: the source is named, the Azure DevOps sections are null on GitHub
+    assert (rec["forge"], rec["api_version"]) == ("github", "2022-11-28")
+    assert [rec[k] for k in ("policies", "branch_acl", "branch_acl_note", "retention")] == [None] * 4
+    assert p["completion_options"] is None and all(i["revisions"] is None for i in rec["issues"])
 
 
 def git(cwd, *args, date=None):
@@ -204,19 +211,24 @@ class FakeGh:
         return "me"
 
 
+def two_commits(cwd):
+    """A repository whose two commits span the window SINCE..UNTIL; returns (first, head)."""
+    git(cwd, "init", "-q", "-b", "main")
+    git(cwd, "config", "user.email", "t@example.com")
+    git(cwd, "config", "user.name", "t")
+    git(cwd, "config", "commit.gpgsign", "false")
+    (cwd / "a").write_text("a")
+    git(cwd, "add", ".")
+    git(cwd, "commit", "-qm", "first", date="2026-10-29T13:00:00+01:00")  # the window of make_api
+    first = git(cwd, "rev-parse", "HEAD")
+    (cwd / "b").write_text("b")
+    git(cwd, "add", ".")
+    git(cwd, "commit", "-qm", "second", date="2026-10-29T15:00:00+01:00")
+    return first, git(cwd, "rev-parse", "HEAD")
+
+
 def test_export_cli_writes_the_records_file_with_tool_versions(ev, tracker, tmp_path):
-    git(tmp_path, "init", "-q", "-b", "main")
-    git(tmp_path, "config", "user.email", "t@example.com")
-    git(tmp_path, "config", "user.name", "t")
-    git(tmp_path, "config", "commit.gpgsign", "false")
-    (tmp_path / "a").write_text("a")
-    git(tmp_path, "add", ".")
-    git(tmp_path, "commit", "-qm", "first", date="2026-10-29T13:00:00+01:00")  # the window of make_api
-    first = git(tmp_path, "rev-parse", "HEAD")
-    (tmp_path / "b").write_text("b")
-    git(tmp_path, "add", ".")
-    git(tmp_path, "commit", "-qm", "second", date="2026-10-29T15:00:00+01:00")
-    head = git(tmp_path, "rev-parse", "HEAD")
+    first, head = two_commits(tmp_path)
     (tmp_path / ".claude").mkdir()
     (tmp_path / ".claude" / "kit-version").write_text("commit: deadbeef\n")
     api = make_api(tracker, in_range_sha=head)
@@ -227,14 +239,184 @@ def test_export_cli_writes_the_records_file_with_tool_versions(ev, tracker, tmp_
     assert out.startswith("wrote evidence/rel-1/change-records.json: 1 pull request(s), 3 issue(s), 1 ruleset(s), ")
     assert out.rstrip().endswith(hashlib.sha256(path.read_bytes()).hexdigest())
     doc = json.loads(path.read_text())
-    assert doc["schema"] == ev.SCHEMA and doc["tag"] == "rel-1" and doc["generated_by"] == "me"
+    assert doc["schema"] == ev.SCHEMA == "agent-change-control/change-records/2"
+    assert doc["tag"] == "rel-1" and doc["generated_by"] == "me" and doc["forge"] == "github"
     assert doc["repo"] == "o/r" and doc["range"]["since"] == SINCE and doc["range"]["until"] == UNTIL
     assert doc["range"]["from_sha"] == first and doc["range"]["to_sha"] == head and doc["range"]["to"] == "HEAD"
     assert doc["pull_requests"][0]["merge_sha"] == head and doc["captures"] == []
     assert doc["tools"]["evidence_export"] == ev.VERSION and doc["tools"]["tracker"] == tracker.VERSION
     assert doc["tools"]["kit_version"] == "commit: deadbeef" and doc["tools"]["python"] == sys.version.split()[0]
-    assert set(doc["tools"]) == {"evidence_export", "tracker", "gh", "git", "python", "kit_version"}
+    assert set(doc["tools"]) == {"evidence_export", "tracker", "gh", "git", "python", "kit_version", "transport"}
+    assert doc["tools"]["transport"] == doc["tools"]["gh"], "on GitHub the transport is gh"
     assert run(ev, ["export", "--tag", "bad tag", "--from", first], tmp_path, gh=gh)[0] == 2
     code, _, err = run(ev, ["export", "--tag", "rel-2", "--from", "no-such-ref"], tmp_path, gh=gh)
     assert code == 1 and "TrackerError" in err
     assert run(ev, [], tmp_path)[0] == 0 and run(ev, ["bogus"], tmp_path)[0] == 2
+
+
+# --- the three normalisations Azure DevOps needs (plan A6) -----------------------------------------
+
+
+def test_timestamps_compare_as_datetimes(ev):
+    assert ev.parse_ts("2026-10-29T13:00:00+01:00") == ev.parse_ts(SINCE) == ev.parse_ts("2026-10-29T12:00:00")
+    assert ev.parse_ts("2026-10-29T12:00:00.1234567Z").microsecond == 123456, "seven digits parse on Python 3.9"
+    since, until = ev.parse_ts(SINCE), ev.parse_ts(UNTIL)
+    assert "2026-10-29T12:00:00.5Z" < SINCE and "2026-10-29T14:00:00.5Z" < UNTIL, "as strings: both misfiled"
+    assert ev.within("2026-10-29T12:00:00.5Z", since, until) and not ev.within("2026-10-29T14:00:00.5Z", since, until)
+    assert ev.within(SINCE, since, until) and ev.within(UNTIL, since, until), "the bounds are inside"
+    assert ev.parse_ts("") is None and not ev.within(None, since, until) and ev.before(None, since)
+    with pytest.raises(ValueError, match="not an ISO 8601 timestamp"):
+        ev.parse_ts("yesterday")
+
+
+def test_votes_builds_and_policy_evaluations_normalise(ev, ado):
+    votes = [ev.vote_state(v) for v in (10, 5, 0, -5, -10, 7)]
+    assert votes == ["APPROVED", "APPROVED", "COMMENTED", "COMMENTED", "CHANGES_REQUESTED", "COMMENTED"]
+
+    def build(status="completed", result=None):
+        return ev.build_record({"definition": {"name": "ci"}, "status": status, "result": result})
+
+    results = [build(result=r) for r in ("succeeded", "partiallySucceeded", "failed", "canceled")]
+    assert [(b["conclusion"], b["raw_result"]) for b in results] == [
+        ("success", "succeeded"), ("failure", "partiallySucceeded"), ("failure", "failed"), ("failure", "canceled")]
+    assert (build("inProgress")["status"], build("inProgress")["conclusion"]) == ("in_progress", "")
+
+    def policy(status):
+        return ev.policy_record({"status": status, "configuration": {"isBlocking": False,
+                                                                     "type": {"displayName": "Build"}}})
+
+    seen = [(policy(s)["status"], policy(s)["conclusion"])
+            for s in ("approved", "rejected", "broken", "notApplicable", "queued", "running")]
+    assert seen == [("completed", "success"), ("completed", "failure"), ("completed", "failure"),
+                    ("completed", "skipped"), ("queued", ""), ("in_progress", "")]
+    assert policy("approved")["blocking"] is False and policy("approved")["name"] == "Build"
+
+
+# --- change records through the fake Azure DevOps API ------------------------------------------------
+
+HUMAN = "4b1c2d3e-0000-4000-8000-0000000000aa"
+REVIEWER = "5c2d3e4f-0000-4000-8000-0000000000bb"
+CLOSED_DATE = "Microsoft.VSTS.Common.ClosedDate"
+PR_BODY = "Summary.\n\n" + "x" * 500 + "\n\nRefs #1"  # past the list item's cut: only the PR detail has the ref
+
+
+def seed_ado(tracker, backend, fake, merge_sha="bbb"):
+    """PR 7 completed into main (two votes, one build, one policy evaluation) and work item 1 with ready, claim,
+    review and done markers and three revisions; plus the PRs and items the window must sort out."""
+    fake.now = "2026-10-29T12:20:00.1234567Z"
+    n = fake.seed_item("do it", "## Acceptance criteria\n\n- [x] one\n- [ ] two\n")  # rev 1
+    for kind in ("ready", "claim", "review"):
+        backend.comment(n, tracker.mark(kind, by=HUMAN))
+    backend.add_labels(n, ["type/todo", "status/done"])  # rev 2
+    fake.seed_item("closed just after since", **{"System.State": "Closed", CLOSED_DATE: "2026-10-29T12:00:00.1234567Z"})
+    fake.seed_item("closed just after until", **{"System.State": "Closed", CLOSED_DATE: "2026-10-29T14:00:00.5Z"})
+    fake.seed_item("closed weeks before", **{"System.State": "Closed", CLOSED_DATE: "2026-10-01T10:00:00Z"})
+    fake.now = "2026-10-29T12:40:00Z"
+    fake.add_pr(7, source="step-1", description=PR_BODY)
+    fake.vote(7, REVIEWER, -5)
+    fake.comment_pr(7, "one question")
+    fake.vote(7, REVIEWER, 10)
+    fake.add_evaluation(7, fake.add_policy("Minimum number of reviewers", minimumApproverCount=1), "approved")
+    fake.now = "2026-10-29T13:00:00.5Z"
+    fake.complete_pr(7, merge_sha=merge_sha, closed_by=HUMAN, transitionWorkItems=False, bypassPolicy=False,
+                     mergeStrategy="noFastForward")
+    fake.add_build(merge_sha, result="partiallySucceeded")
+    fake.add_build("zzz")
+    fake.now = "2026-10-29T13:05:00.25Z"
+    backend.close_issue(n)  # rev 3: the server stamps ClosedDate
+    backend.comment(n, tracker.mark("done", by=HUMAN, merge_sha=merge_sha, pr=backend.pr_url(7)) + "\nDone.")
+    fake.add_pr(8)
+    fake.now = "2026-10-29T12:59:59.9Z"
+    fake.complete_pr(8, merge_sha="zzz")  # completed in the window, but not into this range
+    fake.add_pr(6)
+    fake.now = "2026-10-01T10:00:00Z"
+    fake.complete_pr(6, merge_sha="yyy")  # before the window
+    fake.add_pr(9, target="release")
+    fake.complete_pr(9, merge_sha=merge_sha)  # not into the default branch: not listed
+    fake.add_pr(10)  # still active
+    return n
+
+
+def test_collect_ado_reads_the_records_through_the_fake_api(ev, tracker, ado_fake, tmp_path):
+    backend, fake = ado_fake()
+    n = seed_ado(tracker, backend, fake)
+    fake.calls.clear()
+    rec = ev.collect_ado(ev.AdoReader(backend), fake_git, "org/proj/repo", "v1", "HEAD", str(tmp_path))
+    github = ev.collect(make_api(tracker), fake_git, "o/r", "v1", "HEAD", str(tmp_path))
+    assert set(rec) == set(github), "the same top-level keys on both forges"
+    assert (rec["forge"], rec["api_version"], rec["repo"]) == ("ado", "7.1", "org/proj/repo")
+    assert rec["range"] == github["range"]
+    assert [p["number"] for p in rec["pull_requests"]] == [7] and rec["pull_requests_merged_elsewhere"] == [8]
+    p = rec["pull_requests"][0]
+    assert (p["author"], p["merged_by"], p["merge_sha"], p["head"], p["base"]) == (fake.user, HUMAN, "bbb",
+                                                                                    "step-1", "main")
+    assert p["refs"] == [1], "Refs #N comes from the PR detail, past the list item's cut"
+    assert p["merged_at"] == "2026-10-29T13:00:00.5Z" and p["url"] == backend.pr_url(7)
+    assert p["completion_options"] == {"transitionWorkItems": False, "bypassPolicy": False, "bypassReason": None,
+                                       "mergeStrategy": "noFastForward"}
+    # votes: the history from the threads (the text thread is skipped), then the reviewer's current vote
+    assert [(r["source"], r["vote"], r["state"]) for r in p["reviews"]] == [
+        ("thread", -5, "COMMENTED"), ("thread", 10, "APPROVED"), ("reviewer", 10, "APPROVED")]
+    assert {r["user"] for r in p["reviews"]} == {REVIEWER} and all(r["commit_id"] is None for r in p["reviews"])
+    assert [r["submitted_at"] for r in p["reviews"]] == ["2026-10-29T12:40:00Z"] * 2 + [None]
+    build, policy = p["checks"]
+    assert (build["name"], build["status"], build["conclusion"], build["raw_result"], build["app"]) == (
+        "ci", "completed", "failure", "partiallySucceeded", "azure-pipelines"), "only the build on the merge SHA"
+    assert build["url"].endswith("buildId=1") and build["completed_at"] == "2026-10-29T13:00:00.5Z"
+    assert (policy["name"], policy["conclusion"], policy["blocking"], policy["app"]) == (
+        "Minimum number of reviewers", "success", True, "azure-repos-policy")
+    # issues: the referenced one, plus the one closed 0.12 s after `since`; not the one 0.5 s after `until`
+    assert [i["number"] for i in rec["issues"]] == [n, n + 1]
+    one = rec["issues"][0]
+    assert (one["type"], one["status"], one["state"], one["pull_requests"]) == ("todo", "done", "closed", [7])
+    assert (one["closed_by"], one["closed_at"]) == (fake.user, "2026-10-29T13:05:00.25Z")
+    assert one["acceptance"] == [{"checked": True, "text": "one"}, {"checked": False, "text": "two"}]
+    assert [m["kind"] for m in one["markers"]] == ["ready", "claim", "review", "done"]
+    assert {m["author"] for m in one["markers"]} == {fake.user} and one["markers"][-1]["merge_sha"] == "bbb"
+    revs = one["revisions"]
+    assert [(r["rev"], r["revised_by"]) for r in revs] == [(1, fake.user), (2, fake.user), (3, fake.user)]
+    assert revs[2]["revised_at"] == "2026-10-29T13:05:00.25Z"
+    assert {"System.State", CLOSED_DATE} <= set(revs[2]["fields"])
+    assert "System.Tags" in revs[1]["fields"] and "System.Description" in revs[0]["fields"]
+    assert "Acceptance" not in json.dumps(revs), "field names only, never their values"
+    assert rec["issues"][1]["pull_requests"] == [] and len(rec["issues"][1]["revisions"]) == 1
+    # branch protection and retention
+    assert rec["rulesets"] is None and rec["branch_acl"] is None
+    assert f"repoV2/{fake.project_id}/{fake.repo_id}/refs/heads/main" in rec["branch_acl_note"]
+    assert [(c["id"], c["type"], c["isEnabled"], c["isBlocking"]) for c in rec["policies"]] == [
+        (1, "Minimum number of reviewers", True, True)]
+    assert rec["policies"][0]["settings"]["minimumApproverCount"] == 1 and rec["retention"] == fake.retention
+    # read-only, and every list read to its end
+    assert [(m, path) for m, path, _, _ in fake.calls if m != "GET"] == [("POST", "/org/proj/_apis/wit/wiql")]
+    assert len([c for c in fake.calls if c[1].endswith("/pullrequests")]) == 3, "two pages and the empty one"
+
+
+def test_export_cli_on_azure_devops_writes_schema_2(ev, tracker, ado_fake, tmp_path):
+    first, head = two_commits(tmp_path)
+    backend, fake = ado_fake()
+    seed_ado(tracker, backend, fake, merge_sha=head)
+    code, out, err = run(ev, ["export", "--tag", "ado-1", "--from", first], tmp_path, gh=ev.AdoReader(backend))
+    assert code == 0 and err == "", err
+    assert out.startswith("wrote evidence/ado-1/change-records.json: 1 pull request(s), 2 issue(s), "
+                          "1 policy configuration(s), 0 capture(s); sha256 ")
+    doc = json.loads((tmp_path / "evidence" / "ado-1" / "change-records.json").read_text())
+    assert doc["schema"] == "agent-change-control/change-records/2" and doc["forge"] == "ado"
+    assert doc["generated_by"] == fake.user and doc["repo"] == "org/proj/repo"
+    assert doc["tools"]["transport"] == "urllib" and doc["tools"]["gh"] is None
+    assert doc["pull_requests"][0]["merge_sha"] == head and doc["range"]["since"] == SINCE
+
+
+def test_the_reader_follows_the_backend_choice(ev, ado_fake, monkeypatch, tmp_path):
+    ado_fake()  # a clean Azure DevOps environment
+    monkeypatch.setenv("KZ_TRACKER_BACKEND", "ado")
+    reader = ev.reader_for("org/proj/repo")
+    assert isinstance(reader, ev.AdoReader) and reader.repo() == "org/proj/repo"
+    for k, v in (("SYSTEM_COLLECTIONURI", "https://org2.visualstudio.com/"), ("SYSTEM_TEAMPROJECT", "p 2"),
+                 ("BUILD_REPOSITORY_NAME", "r2")):
+        monkeypatch.setenv(k, v)
+    assert ev.reader_for(None).repo() == "org2/p 2/r2"
+    monkeypatch.setenv("KZ_TRACKER_BACKEND", "github")
+    assert isinstance(ev.reader_for("o/r"), ev.Gh)
+    monkeypatch.setenv("KZ_TRACKER_BACKEND", "jira")
+    code, _, err = run(ev, ["export", "--tag", "x", "--from", "HEAD"], tmp_path)
+    assert code == 1 and "expected github or ado" in err

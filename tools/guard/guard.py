@@ -545,7 +545,9 @@ _DEPLOY_PATTERNS = [
     (r"helm\s+(install|upgrade|uninstall|delete|rollback)", "helm changes a release"),
     (r"docker\s+push|docker\s+compose\s+push", "pushes an image"),
     (r"gh\s+workflow\s+run|gh\s+release\s+(create|delete|edit|upload)", "triggers a workflow or release"),
-    (r"az\s+deployment|az\s+\S+(\s+\S+)*\s+(delete|create)", "az changes resources"),
+    (r"az\s+pipelines\s+(run|build\s+queue)", "triggers a pipeline run"),
+    # `az repos pr create` opens a PR (pr-prep's job), it changes no environment
+    (r"az\s+deployment|az\s+(?!repos\s+pr\s+create(\s|$))\S+(\s+\S+)*\s+(delete|create)", "az changes resources"),
     (
         r"aws\s+cloudformation\s+(deploy|create-stack|update-stack|delete-stack|execute-change-set)",
         "CloudFormation",

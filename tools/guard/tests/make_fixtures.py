@@ -124,6 +124,17 @@ CASES: dict = {
             "ansible-playbook site.yml --check", "aws s3 ls", "terraform fmt -check", "kubectl diff -f x.yaml",
             "cat > runbook.md <<'EOF'\nthen run terraform apply\nEOF",
         ),
+        # Azure DevOps (ADO port step A3)
+        *shell(
+            "ask",
+            "az pipelines run --name ci --branch feature/x", "az pipelines build queue --definition-name ci",
+            "az repos create --name x", "az repos pr create --title x && az group delete -n rg",
+        ),
+        *shell(
+            "allow",
+            "az repos pr create --title x --source-branch step-1 --target-branch main", "az pipelines runs list",
+            "az repos pr list --status active",
+        ),
     ],
     "egress-guard": [
         ("ask", "shell", {"command": "agy review plan.md"}, CLIENT),

@@ -2,6 +2,11 @@
 # init    = copied only when missing in the target, never touched afterwards (the project owns it)
 # managed = kept in sync; a target that was edited locally is kept unless --force
 # map     = directory copied recursively (managed), source -> destination
+# Columns: mode source [destination] [@github|@ado]. The destination defaults to the source path.
+# The optional last column limits an entry to targets on that forge; no column = every forge.
+# install.sh --forge github|ado picks the forge; default: ado when the target's origin is on
+# dev.azure.com or *.visualstudio.com, else github. .github/hooks and .github/instructions carry
+# no column: Copilot reads them on either forge.
 init    AGENTS.md
 init    CLAUDE.md
 init    .claude/settings.json
@@ -24,10 +29,13 @@ managed tools/telemetry/ledger.py
 managed tools/telemetry/prices.json
 managed tools/testguard/check-test-tampering.sh
 managed tools/testguard/testguard.py
+managed tools/testguard/ado_pr_context.py
 managed tools/scan/latest_tag.py
-managed .github/workflows/label-lint.yml
-init    .github/ISSUE_TEMPLATE/task.yml
-init    .github/ISSUE_TEMPLATE/bug.yml
-init    .github/ISSUE_TEMPLATE/config.yml
+managed .github/workflows/label-lint.yml                                         @github
+init    .github/ISSUE_TEMPLATE/task.yml                                          @github
+init    .github/ISSUE_TEMPLATE/bug.yml                                           @github
+init    .github/ISSUE_TEMPLATE/config.yml                                        @github
+init    ci/azure-pipelines.yml             azure-pipelines.yml                   @ado
+managed ci/azure-pipelines-label-lint.yml  azure-pipelines-label-lint.yml        @ado
 map     agents  .claude/agents
 map     skills  .claude/skills

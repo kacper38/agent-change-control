@@ -129,7 +129,7 @@ DEFAULTS = {
     "protected_branches": ["main"],
     "boundary": "own",
     "scratch_md_mode": "ask",  # ask | deny | off
-    "rules_off": [],  # rules switched off (own boundary only): guard.json, guard.local.json or KZ_RULES_OFF
+    "rules_off": [],  # rules whose asks are silenced (own repos only): guard.json, guard.local.json, KZ_RULES_OFF
     "scratch_md_allow": [
         "docs/", ".claude/", ".github/", "skills/", "agents/", ".agents/", "evidence/",
         "README.md", "DECISIONS.md", "AGENTS.md", "CLAUDE.md", "CHANGELOG.md", "CONTRIBUTING.md",
@@ -142,14 +142,14 @@ def load_config(start: str) -> dict:
     """Merge DEFAULTS <- nearest .claude/guard.json (walking up) <- its sibling guard.local.json <- KZ_* env.
 
     guard.local.json is the owner's uncommitted override (gitignored): only its `rules_off` is read, so a
-    session can switch rules off without a diff in the reviewable policy and nothing else moves."""
+    session can silence rules without a diff in the reviewable policy and nothing else moves. rules_off is
+    dropped unless guard.json sits beside `.git` and says `boundary: own` itself (not the default)."""
     cfg = dict(DEFAULTS)
     d = os.path.abspath(start)
-    found = False
+    relaxable = False  # rules_off counts only under a repo root whose committed guard.json says boundary own
     while True:
         candidate = os.path.join(d, ".claude", "guard.json")
         if os.path.isfile(candidate):
-            found = True
             for path in (candidate, os.path.join(d, ".claude", "guard.local.json")):
                 if not os.path.isfile(path):
                     continue
@@ -157,7 +157,9 @@ def load_config(start: str) -> dict:
                     with open(path, encoding="utf-8") as fh:
                         data = json.load(fh)
                     if isinstance(data, dict):
-                        if path != candidate:  # the local file carries rules_off and nothing else
+                        if path == candidate:
+                            relaxable = data.get("boundary") == "own" and os.path.exists(os.path.join(d, ".git"))
+                        else:  # the local file carries rules_off and nothing else
                             data = {k: v for k, v in data.items() if k == "rules_off"}
                         cfg.update(data)
                 except (OSError, ValueError) as exc:  # a broken config must not silently vanish
@@ -182,8 +184,8 @@ def load_config(start: str) -> dict:
     env = os.environ.get("KZ_RULES_OFF")
     if env is not None:
         cfg["rules_off"] = [r.strip() for r in env.split(",") if r.strip()]
-    if not found:
-        cfg["rules_off"] = []  # no committed policy, nothing to relax: the override needs a guard.json
+    if not relaxable:
+        cfg["rules_off"] = []  # no committed policy at the repo root that says own: nothing to relax
     off = cfg["rules_off"]
     if not (isinstance(off, list) and all(isinstance(r, str) for r in off)):
         print("guard: ignoring rules_off: expected a list of rule names", file=sys.stderr)
@@ -1130,7 +1132,7 @@ def run_hook(target: str, wrapper: Optional[str]) -> int:
     if wrapper == "claude" and ev.harness == "copilot":
         return 0
     names = PRE_RULES if target == "pre" else [target]
-    # rules_off is the owner's convenience for own repos; anything but an explicit own boundary keeps the whole policy
+    # rules_off silences a rule's asks in an own repo; its denies stand, and any other boundary keeps everything
     off = set(cfg["rules_off"]) if cfg.get("boundary") == "own" else set()
     decisions: list[Decision] = []
     fired: dict[str, str] = {}
@@ -1140,7 +1142,7 @@ def run_hook(target: str, wrapper: Optional[str]) -> int:
         if rule is None:
             raise ValueError(f"unknown rule: {name}")
         d = rule(ev, cfg)
-        if d and name in off:  # the rule still runs, so the log shows how often the override spoke for it
+        if d and name in off and d[0] == "ask":  # the rule still runs, so the log shows how often it was silenced
             skipped[name] = "skipped"
         elif d:
             decisions.append(d)

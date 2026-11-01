@@ -59,7 +59,8 @@ def repo(tmp_path):
 
 
 def run(repo, *args, **env):
-    e = {k: v for k, v in os.environ.items() if k not in ("BASE_REF", "PR_LABELS", "PR_TITLE", "PR_NUMBER")}
+    e = {k: v for k, v in os.environ.items()
+         if k not in ("BASE_REF", "PR_LABELS", "PR_LABELS_SET", "PR_TITLE", "PR_NUMBER")}
     e.update(env)
     r = subprocess.run(["bash", str(SCRIPT), *args], cwd=repo, capture_output=True, text=True, env=e)
     return r.returncode, r.stderr
@@ -84,6 +85,21 @@ def test_removed_test_function_in_worktree_then_committed_and_base_ref(repo):
     assert code == 1 and "test_two" in err, "a bare branch name resolves locally"
     code, err = run(repo, BASE_REF="nope", PR_LABELS="none")
     assert code == 1 and "cannot resolve base 'origin/nope'" in err
+
+
+def test_azure_repos_inputs_base_ref_with_prefix_and_an_authoritative_empty_label_list(repo):
+    write(repo, "tests/test_a.py", TEST_PY.replace("\n\nasync def test_two():\n    assert 2\n", ""))
+    git(repo, "commit", "-qam", "drop a test")
+    git(repo, "branch", "-D", "main")  # a CI checkout has origin/main only
+    code, err = run(repo, BASE_REF="refs/heads/main", PR_LABELS="none")
+    assert code == 1 and "tests/test_a.py: test_two" in err, "refs/heads/<name> resolves via origin/<name>"
+    for labels in ({"PR_LABELS": ""}, {}):  # an unlabelled PR: Azure Pipelines may not export an empty variable
+        code, err = run(repo, "--worktree", PR_LABELS_SET="1", **labels)
+        assert code == 1 and "without the escape hatch" in err and "no PR context" not in err, labels
+    code, err = run(repo, "--worktree", PR_LABELS_SET="1", PR_LABELS="test-removal-ok")
+    assert code == 0 and "allowed by test-removal-ok" in err
+    code, err = run(repo, "--worktree", PR_LABELS="")
+    assert code == 0 and "no PR context" in err, "empty without PR_LABELS_SET keeps its old meaning: unknown"
 
 
 def test_moved_or_renamed_test_function(repo):

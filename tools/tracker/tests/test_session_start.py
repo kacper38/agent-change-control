@@ -1,6 +1,9 @@
 """The session-start digest: short, grouped, silent on failure."""
 import io
+import signal
 from contextlib import redirect_stdout
+
+import pytest
 
 
 def test_digest_groups_and_caps(tracker, session_start):
@@ -50,6 +53,7 @@ def test_digest_runs_where_sigalrm_is_missing(session_start, monkeypatch):
     assert code == 0 and "#1 ready one" in out.getvalue()
 
 
+@pytest.mark.skipif(not hasattr(signal, "SIGALRM"), reason="no SIGALRM on this platform (Windows)")
 def test_failure_leaves_no_alarm_behind(session_start, monkeypatch):
     trk = session_start.tracker
     sig = session_start.signal

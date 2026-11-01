@@ -1,0 +1,146 @@
+# Azure Pipelines twin of .github/workflows/ci.yml (plan step A4). install.sh puts it into an
+# Azure DevOps target as azure-pipelines.yml, init-only: the project owns it after the first install.
+#
+# Triggers: CI on main only. YAML `pr:` is ignored on Azure Repos: PR runs come from a build
+# validation branch policy on main that points at this pipeline. Build validation skips draft PRs
+# and checks out the preview merge commit (refs/pull/N/merge), so the PR range is HEAD^1..HEAD^2.
+# Pinning: tasks pin to a version, never a SHA. UsePythonVersion@0 is the only task (no full
+# version verified yet, so its minor floats); every other step is a bash step. The image floats too.
+# Secrets: System.AccessToken is mapped only into the two steps that call the REST API.
+# Macros: scripts read predefined variables from env (SYSTEM_*, BUILD_*), never as $(Name):
+# an undefined macro stays literal text, e.g. the PR variables on a main run.
+# Bash steps do not run with -e by default: every multi-line script starts with set -euo pipefail.
+trigger:
+  branches:
+    include: [main]
+pr: none
+
+pool:
+  vmImage: ubuntu-24.04
+
+jobs:
+  - job: test
+    strategy:
+      matrix:
+        py39:
+          pythonVersion: "3.9"
+        py313:
+          pythonVersion: "3.13"
+    steps:
+      - checkout: self
+        fetchDepth: 0
+      - task: UsePythonVersion@0
+        inputs:
+          versionSpec: $(pythonVersion)
+      - bash: python -m pip install --quiet pytest ruff
+        displayName: install pytest and ruff
+      - bash: ruff check tools
+        displayName: ruff
+      - bash: python -m pytest
+        displayName: pytest
+      - bash: |
+          set -euo pipefail
+          # the kit repo only: a target has no installer (and owns this file to adapt the job)
+          [[ -f install.sh && -f kit.manifest ]] || { echo "no install.sh here: nothing to check"; exit 0; }
+          bash -n install.sh
+          t="$(mktemp -d)"
+          ./install.sh --into "$t"
+          ./install.sh --into "$t" | tee "$t.second"
+          grep -q 'changes: 0 ' "$t.second"
+          test -f "$t/.claude/kit-version"
+        displayName: installer is idempotent
+      - bash: |
+          set -euo pipefail
+          [[ -f install.sh && -f kit.manifest ]] || { echo "no install.sh here: nothing to check"; exit 0; }
+          t="$(mktemp -d)"
+          git init -q "$t/git"
+          ./install.sh --into "$t/git" >/dev/null
+          [[ "$(git -C "$t/git" config --get core.hooksPath)" == ".githooks" ]]
+          git init -q "$t/husky"
+          git -C "$t/husky" config core.hooksPath .husky
+          ./install.sh --into "$t/husky" > "$t/husky.txt"
+          grep -q "left core.hooksPath=.husky" "$t/husky.txt"
+          [[ "$(git -C "$t/husky" config --get core.hooksPath)" == ".husky" ]]
+          git init -q "$t/live"
+          printf '#!/bin/sh\nexit 0\n' > "$t/live/.git/hooks/pre-commit"
+          ./install.sh --into "$t/live" > "$t/live.txt"
+          grep -q "live hooks in .git/hooks (pre-commit" "$t/live.txt"
+          [[ -z "$(git -C "$t/live" config --get core.hooksPath || true)" ]]
+        displayName: installer sets core.hooksPath only when unset
+
+  - job: commit_msg
+    displayName: commit-msg
+    condition: eq(variables['Build.Reason'], 'PullRequest')
+    timeoutInMinutes: 5
+    steps:
+      - checkout: self
+        fetchDepth: 0
+      - bash: python3 tools/commit_msg.py --range "HEAD^1..HEAD^2"
+        displayName: commit messages in the PR range (target tip..source tip of the merge checkout)
+
+  - job: guards
+    displayName: guards (test tampering, image tags)
+    timeoutInMinutes: 5
+    steps:
+      - checkout: self
+        fetchDepth: 0
+      - bash: python3 tools/testguard/ado_pr_context.py
+        displayName: PR labels and title over REST (a PR run fails closed without them)
+        env:
+          SYSTEM_ACCESSTOKEN: $(System.AccessToken)
+      - bash: |
+          set -euo pipefail
+          # The bare name first; TargetBranch is refs/heads/<name> and the script strips the prefix.
+          # Both are unset on a main run: the script then diffs against origin/main (nothing on top).
+          BASE_REF="${SYSTEM_PULLREQUEST_TARGETBRANCHNAME:-${SYSTEM_PULLREQUEST_TARGETBRANCH:-}}"
+          export BASE_REF
+          bash tools/testguard/check-test-tampering.sh
+        displayName: test-tampering guard (diff vs the PR base; PR_LABELS and PR_TITLE from the step above)
+      - bash: python3 tools/scan/latest_tag.py scan
+        displayName: image tags never float (latest-tag scanner over the tracked tree)
+
+  - job: ci
+    displayName: ci
+    dependsOn: [test, commit_msg, guards]
+    condition: always()
+    timeoutInMinutes: 5
+    variables:
+      TEST_RESULT: $[ dependencies.test.result ]
+      COMMIT_MSG_RESULT: $[ dependencies.commit_msg.result ]
+      GUARDS_RESULT: $[ dependencies.guards.result ]
+    steps:
+      - checkout: none
+      - bash: |
+          set -euo pipefail
+          printf 'test=%s commit-msg=%s guards=%s reason=%s\n' \
+            "$TEST_RESULT" "$COMMIT_MSG_RESULT" "$GUARDS_RESULT" "$BUILD_REASON"
+          [[ "$TEST_RESULT" == "Succeeded" ]] || { echo "test did not succeed"; exit 1; }
+          [[ "$GUARDS_RESULT" == "Succeeded" ]] || { echo "guards did not succeed"; exit 1; }
+          if [[ "$BUILD_REASON" == "PullRequest" ]]; then
+            [[ "$COMMIT_MSG_RESULT" == "Succeeded" ]] || { echo "commit-msg did not succeed"; exit 1; }
+          else
+            [[ "$COMMIT_MSG_RESULT" == "Skipped" || "$COMMIT_MSG_RESULT" == "Succeeded" ]] \
+              || { echo "commit-msg failed"; exit 1; }
+          fi
+        displayName: every needed job succeeded (a skipped job is not green)
+      - bash: |
+          set -euo pipefail
+          # Logs, test results and artifacts die with the run: lease every main run, green or red.
+          [[ "${SYSTEM_DEFINITIONID:-}" =~ ^[0-9]+$ && "${BUILD_BUILDID:-}" =~ ^[0-9]+$ ]] \
+            || { echo "retention lease: definition or run id missing" >&2; exit 1; }
+          [[ "${BUILD_REQUESTEDFORID:-}" =~ ^[0-9a-fA-F-]{36}$ ]] \
+            || { echo "retention lease: Build.RequestedForId is not a GUID" >&2; exit 1; }
+          [[ -n "${SYSTEM_ACCESSTOKEN:-}" ]] || { echo "retention lease: SYSTEM_ACCESSTOKEN not mapped" >&2; exit 1; }
+          umask 077
+          hdr="$(mktemp)"
+          trap 'rm -f "$hdr"' EXIT
+          printf 'Authorization: Bearer %s\n' "$SYSTEM_ACCESSTOKEN" > "$hdr"  # keeps the token off argv
+          body="$(printf '[{"daysValid":36500,"definitionId":%s,"runId":%s,"ownerId":"User:%s","protectPipeline":false}]' \
+            "$SYSTEM_DEFINITIONID" "$BUILD_BUILDID" "$BUILD_REQUESTEDFORID")"
+          curl -sS --fail --retry 3 -o /dev/null -X POST -H "@$hdr" -H "Content-Type: application/json" \
+            --data "$body" "${SYSTEM_COLLECTIONURI}${SYSTEM_TEAMPROJECTID}/_apis/build/retention/leases?api-version=7.1"
+          echo "retention lease: run $BUILD_BUILDID kept for 36500 days"
+        displayName: retention lease on this main run (the run record is evidence)
+        condition: and(succeededOrFailed(), ne(variables['Build.Reason'], 'PullRequest'))
+        env:
+          SYSTEM_ACCESSTOKEN: $(System.AccessToken)

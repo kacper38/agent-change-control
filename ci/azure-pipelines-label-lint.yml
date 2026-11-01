@@ -1,0 +1,36 @@
+# Azure Pipelines twin of .github/workflows/label-lint.yml (plan step A4). install.sh puts it into an
+# Azure DevOps target as azure-pipelines-label-lint.yml (managed). Reports work items that break the
+# label contract (exactly one status/*, at most one type/*, closed only via done/dropped); comments
+# once per finding set and keeps one tracking item. Never edits tags. See tools/tracker/label_lint.py.
+#
+# Nightly plus manual runs only: Azure Pipelines has no work-item trigger (that needs a service hook).
+# Schedules run in UTC without daylight saving; a schedule set in the pipeline UI overrides this one.
+# The job token acts as the Build Service identity: it needs "Edit work items in this node" on the
+# area path, and its identity GUID belongs in KZ_TRACKER_BOTS (a pipeline variable) so its comments
+# never count as human. The backend reads SYSTEM_COLLECTIONURI, SYSTEM_TEAMPROJECT and
+# BUILD_REPOSITORY_NAME, which Azure Pipelines presets.
+trigger: none
+pr: none
+
+schedules:
+  - cron: "17 3 * * *"
+    displayName: nightly label-lint
+    branches:
+      include: [main]
+    always: true # the default (false) skips nights without a new commit
+
+pool:
+  vmImage: ubuntu-24.04
+
+jobs:
+  - job: lint
+    displayName: label-lint
+    timeoutInMinutes: 5
+    steps:
+      - checkout: self
+        fetchDepth: 1
+      - bash: python3 tools/tracker/label_lint.py
+        displayName: label-lint (work items under the area path)
+        env:
+          SYSTEM_ACCESSTOKEN: $(System.AccessToken)
+          KZ_TRACKER_BACKEND: ado

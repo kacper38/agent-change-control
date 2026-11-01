@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Session start: at most ten lines of tracker context, silent when offline or outside a tracked repo.
 
-Wired as a SessionStart hook in both harnesses (plan step 2.7). One `gh` call, three seconds
-budget; anything that goes wrong prints nothing and exits 0, because a session must start.
+Wired as a SessionStart hook in both harnesses (plan step 2.7). One list read on the forge the
+origin points at (`tracker.backend_for`), three seconds budget where SIGALRM exists; anything
+that goes wrong prints nothing and exits 0, because a session must start.
 """
 import os
 import signal
@@ -43,11 +44,14 @@ def main(argv: list) -> int:
     def _timeout(signum, frame):
         raise TimeoutError
 
+    alarm = hasattr(signal, "SIGALRM")  # Windows has none: the backend's own timeouts are the budget there
     try:
-        signal.signal(signal.SIGALRM, _timeout)
-        signal.alarm(BUDGET_SECONDS)
-        lines = digest(tracker.GitHubBackend(argv[0] if argv else None))
-        signal.alarm(0)
+        if alarm:
+            signal.signal(signal.SIGALRM, _timeout)
+            signal.alarm(BUDGET_SECONDS)
+        lines = digest(tracker.backend_for(argv[0] if argv else None))
+        if alarm:
+            signal.alarm(0)
     except (TimeoutError, tracker.TrackerError, OSError, ValueError):
         return 0
     for line in lines:

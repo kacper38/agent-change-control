@@ -31,8 +31,20 @@ def test_failure_is_silent(session_start, monkeypatch):
         def list_issues(self, labels=None, state="open"):
             raise trk.TrackerError("gh: not logged in")
 
-    monkeypatch.setattr(session_start.tracker, "GitHubBackend", Broken)
+    monkeypatch.setattr(session_start.tracker, "backend_for", Broken)
     out = io.StringIO()
     with redirect_stdout(out):
         code = session_start.main([])
     assert code == 0 and out.getvalue() == ""
+
+
+def test_digest_runs_where_sigalrm_is_missing(session_start, monkeypatch):
+    trk = session_start.tracker
+    fb = trk.FakeBackend()
+    fb.create_issue("ready one", "", ["type/todo", "status/ready"])
+    monkeypatch.delattr(session_start.signal, "SIGALRM")  # Windows
+    monkeypatch.setattr(trk, "backend_for", lambda repo=None: fb)
+    out = io.StringIO()
+    with redirect_stdout(out):
+        code = session_start.main([])
+    assert code == 0 and "#1 ready one" in out.getvalue()

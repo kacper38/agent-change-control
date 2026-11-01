@@ -85,8 +85,8 @@ def report(backend: tracker.Backend, items: list, now: str) -> dict:
 
 
 def main(argv: list) -> int:
-    backend = tracker.GitHubBackend(argv[0] if argv else None)
     try:
+        backend = tracker.backend_for(argv[0] if argv else None)
         items = findings(backend)
         counts = report(backend, items, tracker.utcnow())
     except tracker.TrackerError as exc:

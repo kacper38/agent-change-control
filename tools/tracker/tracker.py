@@ -21,7 +21,9 @@ Verbs
   owner ready N                          backlog|blocked -> ready after the definition of ready; freezes the body
   owner done N [--waive I "reason"]...   review -> done after the closing protocol; closes the issue
 
-Options: --repo OWNER/NAME (default: the repository of the cwd, via gh)
+Options: --repo OWNER/NAME (GitHub) or ORG/PROJECT/REPO (Azure DevOps); default: the cwd's origin
+Backend: env KZ_TRACKER_BACKEND=github|ado, else the origin host (dev.azure.com, *.visualstudio.com
+         -> ado), else github
 Exit codes: 0 ok; 2 refused by a guard or the transition table; 1 error.
 """
 
@@ -482,6 +484,39 @@ class GitHubBackend(Backend):
         return checks
 
 
+_REMOTE_HOST_RE = re.compile(r"^(?:[A-Za-z][\w+.-]*://)?(?:[^@/]+@)?([^/:]+)")
+
+
+def is_ado_remote(url: str) -> bool:
+    """dev.azure.com, ssh.dev.azure.com or *.visualstudio.com, in https or scp-like ssh form."""
+    m = _REMOTE_HOST_RE.match(url or "")
+    host = m.group(1).lower() if m else ""
+    return host in ("dev.azure.com", "ssh.dev.azure.com") or host.endswith(".visualstudio.com")
+
+
+def origin_url(cwd: Optional[str] = None) -> str:
+    """`git remote get-url origin`, or "" outside a checkout."""
+    try:
+        r = subprocess.run(["git", "remote", "get-url", "origin"], cwd=cwd, capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    return r.stdout.strip() if r.returncode == 0 else ""
+
+
+def backend_for(repo: Optional[str] = None) -> Backend:
+    """The forge backend: env KZ_TRACKER_BACKEND=github|ado, else the origin host, else GitHub."""
+    choice = os.environ.get("KZ_TRACKER_BACKEND", "").strip().lower()
+    if not choice:
+        choice = "ado" if is_ado_remote(origin_url()) else "github"
+    if choice == "github":
+        return GitHubBackend(repo)
+    if choice == "ado":
+        import ado  # lazy: the GitHub path never loads it
+
+        return ado.AdoBackend(repo)
+    raise TrackerError(f"KZ_TRACKER_BACKEND={choice!r}: expected github or ado")
+
+
 # ----------------------------------------------------------------------------
 # Verbs
 # ----------------------------------------------------------------------------
@@ -758,7 +793,7 @@ def bot_logins() -> set:
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="tracker", add_help=False)
-    p.add_argument("--repo")
+    p.add_argument("--repo", help="OWNER/NAME on GitHub, ORG/PROJECT/REPO on Azure DevOps")
     sub = p.add_subparsers(dest="verb")
     sub.add_parser("help")
     sub.add_parser("version")
@@ -816,8 +851,8 @@ def main(argv: list, backend: Optional[Backend] = None, human: Optional[bool] = 
         out.write(__doc__.strip() + "\n")
         return 1
     actor = HUMAN if (is_human() if human is None else human) else AGENT
-    t = Tracker(backend or GitHubBackend(ns.repo), actor, out, cwd)
     try:
+        t = Tracker(backend or backend_for(ns.repo), actor, out, cwd)
         if ns.verb == "list":
             return t.list(ns.status, ns.type_, ns.all_)
         if ns.verb == "show":
@@ -850,4 +885,5 @@ def main(argv: list, backend: Optional[Backend] = None, human: Optional[bool] = 
 
 
 if __name__ == "__main__":
+    sys.modules.setdefault("tracker", sys.modules[__name__])  # `import tracker` in ado.py gets this module
     sys.exit(main(sys.argv[1:]))

@@ -1,4 +1,5 @@
-"""Backend contract: the same assertions on the FakeBackend and, when KZ_TRACKER_TEST_REPO is set, on GitHub."""
+"""Backend contract: the same assertions on the FakeBackend and on live scratch targets when their env is set
+(KZ_TRACKER_TEST_REPO: GitHub; KZ_TRACKER_TEST_ADO: Azure DevOps)."""
 import os
 import uuid
 
@@ -11,15 +12,29 @@ def backends(tracker):
         yield pytest.param("github", id="github")
 
 
+def live(name, var, example):
+    return pytest.param(name, marks=pytest.mark.skipif(not os.environ.get(var), reason=f"set {var}={example}"))
+
+
+BACKENDS = [
+    "fake",
+    live("github", "KZ_TRACKER_TEST_REPO", "owner/scratch-repo"),
+    live("ado", "KZ_TRACKER_TEST_ADO", "org/scratch-project/repo"),  # mode from KZ_TRACKER_ADO_MODE
+]
+
+
 @pytest.fixture
 def backend(request, tracker):
     if request.param == "fake":
         return tracker.FakeBackend(user="me")
+    if request.param == "ado":
+        import ado
+
+        return ado.AdoBackend(os.environ["KZ_TRACKER_TEST_ADO"])
     return tracker.GitHubBackend(os.environ["KZ_TRACKER_TEST_REPO"])
 
 
-@pytest.mark.parametrize("backend", ["fake", pytest.param("github", marks=pytest.mark.skipif(
-    not os.environ.get("KZ_TRACKER_TEST_REPO"), reason="set KZ_TRACKER_TEST_REPO=owner/scratch-repo"))], indirect=True)
+@pytest.mark.parametrize("backend", BACKENDS, indirect=True)
 def test_issue_lifecycle_contract(tracker, backend):
     tag = uuid.uuid4().hex[:8]
     for name, (color, desc) in tracker.LABELS.items():

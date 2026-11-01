@@ -38,5 +38,6 @@ init    .github/ISSUE_TEMPLATE/bug.yml                                          
 init    .github/ISSUE_TEMPLATE/config.yml                                        @github
 init    ci/azure-pipelines.yml             azure-pipelines.yml                   @ado
 managed ci/azure-pipelines-label-lint.yml  azure-pipelines-label-lint.yml        @ado
+init    docs/ADO-ADMIN.md                                                        @ado
 map     agents  .claude/agents
 map     skills  .claude/skills

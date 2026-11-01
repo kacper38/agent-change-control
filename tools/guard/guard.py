@@ -835,7 +835,7 @@ _GH_ISSUE_REPLACEMENT = {
     "unlock": "nothing: ask the owner",
     "develop": "`tracker claim N --branch <branch>`",
 }
-_TEMP_ALLOWED_LABELS = {"agent-loop", "handoff"}  # until step 3.8 moves ArtEventOS onto the tracker
+_TEMP_ALLOWED_LABELS = {"agent-loop", "handoff"}  # until step 3.8 moves the private app repo's loop onto the tracker
 _GH_API_MUTATING_FLAGS = {"-f", "-F", "--field", "--raw-field", "--input"}
 _GH_API_VALUE_FLAGS = _GH_API_MUTATING_FLAGS | {"-X", "--method", "-H", "--header", "-q", "--jq", "-t", "--template",
                                                 "--hostname", "-p", "--preview", "--cache"}

@@ -1,8 +1,9 @@
-"""install.sh in user scope (`CLAUDE_DIR`): the manifest paths around the 2026-11-01 rename.
+"""install.sh in user scope (`CLAUDE_DIR`): the manifest paths around the 2026-11-01 rename;
+and in repo scope (`--into`): the forge column of kit.manifest (plan step A5).
 
 A pre-rename install left `claude-platform-setup.manifest`; the installer now writes
 `agent-change-control.manifest`. These tests run the real script against a temporary
-`CLAUDE_DIR` so neither `~/.claude` nor the repo is touched.
+`CLAUDE_DIR` or target repo so neither `~/.claude` nor the repo is touched.
 """
 
 from __future__ import annotations
@@ -10,6 +11,8 @@ from __future__ import annotations
 import os
 import pathlib
 import subprocess
+
+import pytest
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 INSTALL = ROOT / "install.sh"
@@ -119,3 +122,117 @@ def test_manifest_entries_outside_claude_dir_are_skipped(tmp_path: pathlib.Path)
     assert outside.read_text() == "keep\n"
     assert "unsafe manifest entry" in r.stderr
     assert not (dest / "agents/ok.md").exists()
+
+
+# --- repo scope: the forge column ----------------------------------------------
+
+ADO_ORIGIN = "https://org@dev.azure.com/org/project/_git/repo"
+GITHUB_ORIGIN = "https://github.com/owner/repo.git"
+GITHUB_ONLY = [".github/workflows/label-lint.yml", ".github/ISSUE_TEMPLATE/task.yml",
+               ".github/ISSUE_TEMPLATE/bug.yml", ".github/ISSUE_TEMPLATE/config.yml"]
+ADO_ONLY = {"azure-pipelines.yml": "ci/azure-pipelines.yml",
+            "azure-pipelines-label-lint.yml": "ci/azure-pipelines-label-lint.yml"}
+
+
+def target_repo(tmp_path: pathlib.Path, origin: str | None) -> pathlib.Path:
+    t = tmp_path / "target"
+    t.mkdir()
+    subprocess.run(["git", "init", "-q", str(t)], check=True, capture_output=True)
+    if origin:
+        subprocess.run(["git", "-C", str(t), "remote", "add", "origin", origin], check=True)
+    return t
+
+
+def into(target: pathlib.Path, *args: str) -> subprocess.CompletedProcess[str]:
+    env = {"PATH": os.environ["PATH"], "HOME": str(target.parent)}
+    return subprocess.run(["bash", str(INSTALL), "--into", str(target), *args], cwd=ROOT, env=env, text=True,
+                          capture_output=True)
+
+
+def forge_of(target: pathlib.Path) -> list[str]:
+    return [ln for ln in (target / ".claude/kit-version").read_text().splitlines() if ln.startswith("forge:")]
+
+
+def assert_ado_files(t: pathlib.Path) -> None:
+    for dst, src in ADO_ONLY.items():
+        assert (t / dst).read_bytes() == (ROOT / src).read_bytes(), dst
+    assert (t / "tools/testguard/ado_pr_context.py").exists(), "the guards job calls it"
+    assert not (t / ".github/workflows").exists() and not (t / ".github/ISSUE_TEMPLATE").exists()
+    assert (t / ".github/hooks/guard.json").exists(), "Copilot reads .github/hooks on any forge"
+    assert forge_of(t) == ["forge: ado"]
+
+
+def assert_github_files(t: pathlib.Path) -> None:
+    for rel in GITHUB_ONLY:
+        assert (t / rel).exists(), rel
+    assert not any((t / dst).exists() for dst in ADO_ONLY)
+    assert "azure-pipelines" not in (t / ".claude/kit-manifest.sha256").read_text()
+    assert forge_of(t) == ["forge: github"]
+
+
+def test_ado_target_gets_the_pipelines_not_the_workflows_and_a_second_run_changes_nothing(tmp_path):
+    t = target_repo(tmp_path, ADO_ORIGIN)
+
+    r = into(t)
+
+    assert r.returncode == 0, r.stderr
+    assert_ado_files(t)
+    assert "forge: ado (detected: Azure DevOps origin); entries for the other forge skipped: 4" in r.stdout
+    r = into(t)
+    assert r.returncode == 0, r.stderr
+    assert "changes: 0 " in r.stdout, r.stdout
+    (t / "azure-pipelines.yml").write_text("# owned by the project now\n")
+    r = into(t)
+    assert "changes: 0 " in r.stdout and (t / "azure-pipelines.yml").read_text() == "# owned by the project now\n"
+
+
+@pytest.mark.parametrize("origin,forge", [
+    ("git@ssh.dev.azure.com:v3/org/project/repo", "ado"),
+    ("https://org.visualstudio.com/DefaultCollection/project/_git/repo", "ado"),
+    ("org@vs-ssh.visualstudio.com:v3/org/project/repo", "ado"),
+    ("https://DEV.AZURE.COM/org/project/_git/repo", "ado"),
+    (GITHUB_ORIGIN, "github"),
+    ("git@github.com:owner/dev.azure.com.git", "github"),
+    (None, "github"),
+])
+def test_origin_detection(tmp_path, origin, forge):
+    t = target_repo(tmp_path, origin)
+    assert into(t).returncode == 0
+    assert forge_of(t) == [f"forge: {forge}"]
+
+
+def test_github_target_is_unchanged(tmp_path):
+    t = target_repo(tmp_path, GITHUB_ORIGIN)
+
+    r = into(t)
+
+    assert r.returncode == 0, r.stderr
+    assert_github_files(t)
+    assert "changes: 0 " in into(t).stdout
+
+
+def test_explicit_forge_overrides_detection_and_leaves_other_forge_files_in_place(tmp_path):
+    t = target_repo(tmp_path, ADO_ORIGIN)
+    assert into(t, "--forge", "github").returncode == 0
+    assert_github_files(t)
+
+    r = into(t, "--forge", "ado", "--force")
+
+    assert r.returncode == 0, r.stderr
+    for dst, src in ADO_ONLY.items():
+        assert (t / dst).read_bytes() == (ROOT / src).read_bytes(), dst
+    assert (t / ".github/workflows/label-lint.yml").exists(), "never deletes"
+    assert "note: .github/workflows/label-lint.yml is for github targets; left in place" in r.stdout
+    assert forge_of(t) == ["forge: ado"]
+
+
+@pytest.mark.parametrize("args,message", [
+    (["--forge", "gitlab"], "--forge takes github or ado"),
+    (["--forge"], "--forge takes github or ado"),
+    (["--frobnicate"], "unknown argument: --frobnicate"),
+])
+def test_bad_arguments_are_refused_before_any_copy(tmp_path, args, message):
+    t = target_repo(tmp_path, None)
+    r = into(t, *args)
+    assert r.returncode == 1 and message in r.stderr
+    assert not (t / ".claude").exists()

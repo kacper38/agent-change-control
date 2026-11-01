@@ -1,4 +1,4 @@
-# claude-platform-setup kit manifest — what `install.sh --into <repo>` copies into a task repo.
+# agent-change-control kit manifest — what `install.sh --into <repo>` copies into a task repo.
 # init    = copied only when missing in the target, never touched afterwards (the project owns it)
 # managed = kept in sync; a target that was edited locally is kept unless --force
 # map     = directory copied recursively (managed), source -> destination

@@ -97,9 +97,13 @@ if [[ "${1:-}" == "--into" ]]; then
   exit 0
 fi
 DEST="${CLAUDE_DIR:-$HOME/.claude}"
-MANIFEST="$DEST/claude-platform-setup.manifest"
+MANIFEST="$DEST/agent-change-control.manifest"
+LEGACY_MANIFEST="$DEST/claude-platform-setup.manifest"   # written by installs before the 2026-11-01 rename
 
 if [[ "${1:-}" == "--uninstall" ]]; then
+  if [[ ! -f "$MANIFEST" && -f "$LEGACY_MANIFEST" ]]; then
+    MANIFEST="$LEGACY_MANIFEST"
+  fi
   if [[ ! -f "$MANIFEST" ]]; then
     echo "No manifest at $MANIFEST — nothing to uninstall." >&2
     exit 1
@@ -127,7 +131,7 @@ done < <(find "$HERE/skills" -type f -print0)
 
 # Back up anything that exists and differs, then copy
 STAMP="$(date +%Y%m%d-%H%M%S)"
-BACKUP="$DEST/backups/claude-platform-setup-$STAMP"
+BACKUP="$DEST/backups/agent-change-control-$STAMP"
 backed_up=0
 for f in "${files[@]}"; do
   if [[ -f "$DEST/$f" ]] && ! cmp -s "$HERE/$f" "$DEST/$f"; then
@@ -140,9 +144,12 @@ for f in "${files[@]}"; do
 done
 
 {
-  echo "# claude-platform-setup — installed $(date -u +%Y-%m-%dT%H:%M:%SZ) @ $(git -C "$HERE" rev-parse --short HEAD 2>/dev/null || echo unknown)"
+  echo "# agent-change-control — installed $(date -u +%Y-%m-%dT%H:%M:%SZ) @ $(git -C "$HERE" rev-parse --short HEAD 2>/dev/null || echo unknown)"
   printf '%s\n' "${files[@]}"
 } > "$MANIFEST"
+if [[ -f "$LEGACY_MANIFEST" ]]; then
+  rm -f "$LEGACY_MANIFEST"   # superseded by the manifest just written
+fi
 
 echo "Installed ${#files[@]} files to $DEST (manifest: $MANIFEST)"
 if [[ $backed_up -gt 0 ]]; then

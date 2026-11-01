@@ -28,7 +28,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import tracker  # noqa: E402
 
 VERSION = "0.1.0"
-SCHEMA = "claude-platform-setup/change-records/1"
+SCHEMA = "agent-change-control/change-records/1"
 EVIDENCE_DIR = "evidence"
 PER_PAGE = 100
 _NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")

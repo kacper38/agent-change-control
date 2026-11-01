@@ -346,8 +346,8 @@ def test_deprecate_refuses_unterminated_frontmatter(memstore, home, tmp_path):
 
 def test_cwd_slug_matches_claude_code_naming(memstore):
     assert memstore.cwd_slug("/Users/t/Developer/my_app v2.0") == "-Users-t-Developer-my-app-v2-0"
-    assert memstore.cwd_slug("/Users/kacperz/Developer/claude-platform-setup") == ALPHA.replace(
-        "-Users-t-Developer-alpha", "-Users-kacperz-Developer-claude-platform-setup")
+    assert memstore.cwd_slug("/Users/kacperz/Developer/agent-change-control") == ALPHA.replace(
+        "-Users-t-Developer-alpha", "-Users-kacperz-Developer-agent-change-control")
 
 
 def test_hook_survives_an_impossible_date(memstore, home):

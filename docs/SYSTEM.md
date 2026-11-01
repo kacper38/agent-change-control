@@ -1,6 +1,6 @@
-# System description — claude-platform-setup
+# System description — agent-change-control
 
-Status: 2026-10-30, after step 3.7 (3.4 remote and user-scope hooks, the `test-removal-ok` label and Q6 pending the owner) of `docs/PLAN-2026-10-mature-setup.md`.
+Status: 2026-11-01, after step 3.7 and the rename to agent-change-control (3.4 remote and user-scope hooks, and Q6 pending the owner) of `docs/PLAN-2026-10-mature-setup.md`.
 Components marked *planned* do not exist yet; the plan step that creates them is named.
 
 ## Purpose

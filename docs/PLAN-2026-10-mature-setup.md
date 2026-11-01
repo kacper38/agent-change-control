@@ -163,7 +163,7 @@ Gains one queryable, server-timestamped chain per change on GitHub: scope approv
 ## 8. Files that will exist at the end
 
 ```
-claude-platform-setup/  (GitHub)
+agent-change-control/  (GitHub)
   AGENTS.md (canonical), CLAUDE.md (= @AGENTS.md), DECISIONS.md, docs/SYSTEM.md, README.md (install into a repo)
   kit/
     AGENTS.md.tmpl, .claude/{settings.json, guard.json}, .github/hooks/guard.json,

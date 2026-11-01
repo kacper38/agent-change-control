@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # tools/testguard/check-test-tampering.sh -- block changes that quietly weaken the test suite.
-# Source: kacper-agent harness/baseline/ci/guards/check-test-tampering.sh (harness v1, commit 4dd6956e).
+# Source: the private harness kit, harness/baseline/ci/guards/check-test-tampering.sh (harness v1, commit 4dd6956e).
 # This copy adds pytest conventions (lines marked "pytest:"), a check for removed test functions, and a
 # --worktree mode for the PostToolUse hook (tools/testguard/testguard.py). Plan step 3.7.
 # Diff-aware: inspects only the change vs the PR base; pre-existing markers never fail.

@@ -1,0 +1,23 @@
+{
+  "_fixture": {
+    "case": {
+      "content": "trigger: [main]",
+      "path": "ci/azure-pipelines.yml"
+    },
+    "harness": "claude",
+    "rule": "secret-write",
+    "source": "captured 2026-10-29 from a Claude Code probe session (haiku, claude -p), redacted and path-normalized"
+  },
+  "cwd": "/work/repo",
+  "hook_event_name": "PreToolUse",
+  "permission_mode": "bypassPermissions",
+  "prompt_id": "1103eadc-8a72-43b5-a1c5-9920466f7d19",
+  "session_id": "51c39006-554a-4788-8d3c-2348d9bd22d0",
+  "tool_input": {
+    "content": "trigger: [main]",
+    "file_path": "ci/azure-pipelines.yml"
+  },
+  "tool_name": "Write",
+  "tool_use_id": "toolu_017b8dUJ3ibTb6qkUTc9NfFW",
+  "transcript_path": "~/.claude/projects/<project>/51c39006-554a-4788-8d3c-2348d9bd22d0.jsonl"
+}

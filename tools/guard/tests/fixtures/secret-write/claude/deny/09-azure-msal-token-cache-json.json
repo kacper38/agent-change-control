@@ -1,0 +1,24 @@
+{
+  "_fixture": {
+    "case": {
+      "path": "~/.azure/msal_token_cache.json"
+    },
+    "harness": "claude",
+    "rule": "secret-write",
+    "source": "captured 2026-10-29 from a Claude Code probe session (haiku, claude -p), redacted and path-normalized"
+  },
+  "cwd": "/work/repo",
+  "hook_event_name": "PreToolUse",
+  "permission_mode": "bypassPermissions",
+  "prompt_id": "1103eadc-8a72-43b5-a1c5-9920466f7d19",
+  "session_id": "51c39006-554a-4788-8d3c-2348d9bd22d0",
+  "tool_input": {
+    "file_path": "~/.azure/msal_token_cache.json",
+    "new_string": "b",
+    "old_string": "a",
+    "replace_all": false
+  },
+  "tool_name": "Edit",
+  "tool_use_id": "toolu_0175x6rUZvRtJQTTwRjwFACA",
+  "transcript_path": "~/.claude/projects/<project>/51c39006-554a-4788-8d3c-2348d9bd22d0.jsonl"
+}

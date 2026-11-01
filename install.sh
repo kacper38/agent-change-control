@@ -101,19 +101,22 @@ MANIFEST="$DEST/agent-change-control.manifest"
 LEGACY_MANIFEST="$DEST/claude-platform-setup.manifest"   # written by installs before the 2026-11-01 rename
 
 if [[ "${1:-}" == "--uninstall" ]]; then
-  if [[ ! -f "$MANIFEST" && -f "$LEGACY_MANIFEST" ]]; then
-    MANIFEST="$LEGACY_MANIFEST"
-  fi
-  if [[ ! -f "$MANIFEST" ]]; then
+  manifests=()
+  for m in "$MANIFEST" "$LEGACY_MANIFEST"; do
+    [[ -f "$m" ]] && manifests+=("$m")
+  done
+  if [[ ${#manifests[@]} -eq 0 ]]; then
     echo "No manifest at $MANIFEST — nothing to uninstall." >&2
     exit 1
   fi
-  while IFS= read -r f; do
-    [[ -z "$f" || "$f" == \#* ]] && continue
-    rm -f "$DEST/$f"
-  done < "$MANIFEST"
+  for m in "${manifests[@]}"; do   # both when both exist: everything either install put here goes
+    while IFS= read -r f; do
+      [[ -z "$f" || "$f" == \#* ]] && continue
+      rm -f "$DEST/$f"
+    done < "$m"
+    rm -f "$m"
+  done
   find "$DEST/skills" "$DEST/agents" -type d -empty -delete 2>/dev/null || true
-  rm -f "$MANIFEST"
   echo "Uninstalled. Backups, if any, remain in $DEST/backups/."
   exit 0
 fi
@@ -145,10 +148,15 @@ done
 
 {
   echo "# agent-change-control — installed $(date -u +%Y-%m-%dT%H:%M:%SZ) @ $(git -C "$HERE" rev-parse --short HEAD 2>/dev/null || echo unknown)"
-  printf '%s\n' "${files[@]}"
+  {
+    printf '%s\n' "${files[@]}"
+    if [[ -f "$LEGACY_MANIFEST" ]]; then   # keep tracking what the pre-rename install put here
+      grep -v '^#' "$LEGACY_MANIFEST" || true
+    fi
+  } | sort -u
 } > "$MANIFEST"
 if [[ -f "$LEGACY_MANIFEST" ]]; then
-  rm -f "$LEGACY_MANIFEST"   # superseded by the manifest just written
+  rm -f "$LEGACY_MANIFEST"   # merged into the manifest just written
 fi
 
 echo "Installed ${#files[@]} files to $DEST (manifest: $MANIFEST)"

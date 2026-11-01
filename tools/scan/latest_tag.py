@@ -5,8 +5,10 @@ AGENTS.md: image tags are the git SHA, never `latest`. A reference without a tag
 definition, so it counts too; a digest (`@sha256:...`) always passes; `${VAR}` references are the
 variable owner's problem, not this scanner's. Files are judged by name: Dockerfiles (Dockerfile,
 Dockerfile.*, *.Dockerfile, *.dockerfile, Containerfile), compose files (compose*.yml|yaml,
-docker-compose*.yml|yaml) and GitHub workflows (.github/workflows/*.yml|yaml). Build-stage names
-(`FROM base`) and `scratch` pass.
+docker-compose*.yml|yaml), GitHub workflows (.github/workflows/*.yml|yaml) and Azure Pipelines
+files (azure-pipelines*.yml|yaml in any directory). Build-stage names (`FROM base`) and `scratch`
+pass; so does an Azure Pipelines `container: <alias>` naming a `resources.containers` entry (the
+entry's `image:` is judged instead).
 
   latest_tag.py hook            PostToolUse: scan the file just written; findings come back as hook
                                 feedback (Claude Code: `decision: block` + `reason`; Copilot:
@@ -26,6 +28,8 @@ VERSION = "0.1.0"
 _DOCKERFILE_RE = re.compile(r"^(Dockerfile(\..+)?|.+\.[Dd]ockerfile|Containerfile(\..+)?)$")
 _COMPOSE_RE = re.compile(r"^(docker-)?compose[^/]*\.ya?ml$")
 _WORKFLOW_RE = re.compile(r"(^|/)\.github/workflows/[^/]+\.ya?ml$")
+_PIPELINES_RE = re.compile(r"^azure-pipelines[^/]*\.ya?ml$")
+_KEY_RE = re.compile(r"^(\s*)(-\s+)?([A-Za-z_][\w.-]*)\s*:(?:\s+(.*?))?\s*$")  # block-style `key: value`
 _FROM_RE = re.compile(r"^\s*FROM\s+(.+?)\s*$", re.IGNORECASE)
 _IMAGE_RE = re.compile(r"^\s*-?\s*(image|container)\s*:\s*(.+?)\s*$")  # `container: ubuntu` is the scalar short form
 _USES_DOCKER_RE = re.compile(r"^\s*-?\s*uses\s*:\s*[\"']?docker://(.+?)[\"']?\s*$")
@@ -34,11 +38,13 @@ HOW = "pin a tag (and a digest where the registry is not yours); a stage name or
 
 
 def kind_of(path: str):
-    """'dockerfile' | 'yaml' | None, by file name."""
+    """'dockerfile' | 'yaml' | 'pipelines' | None, by file name."""
     norm = path.replace("\\", "/")
     base = norm.rsplit("/", 1)[-1]
     if _DOCKERFILE_RE.match(base):
         return "dockerfile"
+    if _PIPELINES_RE.match(base):
+        return "pipelines"
     if _COMPOSE_RE.match(base) or _WORKFLOW_RE.search(norm):
         return "yaml"
     return None
@@ -74,8 +80,36 @@ def _yaml_value(raw: str) -> str:
     return re.split(r"\s+#", text, maxsplit=1)[0].strip()
 
 
+def _pipeline_refs(text: str) -> list:
+    """[(line_no, ref)] in an Azure Pipelines file: every `image:`, and `container: X` outside
+    `resources.containers` and step `target:` unless X is an alias that `resources.containers` declares.
+    The key path comes from indentation; flow mappings (`container: {image: x}`) are not read."""
+    entries, stack = [], []  # entries: (line_no, key path above, key, value); stack: (column, key)
+    for n, line in enumerate(text.splitlines(), 1):
+        m = _KEY_RE.match(line)
+        if not m or line.lstrip().startswith("#"):
+            continue
+        col = len(m.group(1)) + len(m.group(2) or "")
+        while stack and stack[-1][0] >= col:
+            stack.pop()
+        entries.append((n, [k for _, k in stack], m.group(3), _yaml_value(m.group(4) or "")))
+        stack.append((col, m.group(3)))
+    aliases = {v for _, path, key, v in entries if key == "container" and "containers" in path}
+    out = []
+    for n, path, key, value in entries:
+        if not value:
+            continue
+        if key == "image" or (key == "container" and not {"containers", "target"} & set(path) and value not in aliases):
+            out.append((n, value))
+    return out
+
+
 def scan_text(text: str, kind: str) -> list:
-    """[(line_no, reason, line_text)] for a Dockerfile or a compose/workflow file."""
+    """[(line_no, reason, line_text)] for a Dockerfile, a compose/workflow file or an Azure Pipelines file."""
+    if kind == "pipelines":
+        lines = text.splitlines()
+        return [(n, reason, lines[n - 1].strip()) for n, ref in _pipeline_refs(text) for reason in [_floating(ref)]
+                if reason]
     out = []
     stages = set()
     for n, line in enumerate(text.splitlines(), 1):
@@ -142,7 +176,8 @@ def candidates(paths: list, root: str) -> tuple:
                     if k:
                         out.append((full, k))
         elif os.path.isfile(p):
-            out.append((p, "yaml" if p.lower().endswith((".yml", ".yaml")) else "dockerfile"))
+            kind = "yaml" if p.lower().endswith((".yml", ".yaml")) else "dockerfile"
+            out.append((p, "pipelines" if kind_of(p) == "pipelines" else kind))
         else:
             missing.append(p)
     return out, missing

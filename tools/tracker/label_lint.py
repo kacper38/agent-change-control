@@ -17,7 +17,9 @@ TRACKING_TITLE = "label-lint: offending issues"
 MARK = "<!-- label-lint:{fp} -->"
 # Azure DevOps process mode: the status is System.State, which a board drag or a REST write can set
 # without the tracker. Every status a verb sets leaves its marker, so a status whose marker is not the
-# latest tracker marker was set outside the protocol.
+# latest tracker marker was set outside the protocol. `backlog` (set at creation) and `dropped` (a human's
+# board or UI action, no verb) leave no marker and are not checked here; problems_for still requires a closed
+# item to be done or dropped.
 MARK_OF = {"ready": "ready", "in-progress": "claim", "blocked": "block", "review": "review", "done": "done"}
 
 

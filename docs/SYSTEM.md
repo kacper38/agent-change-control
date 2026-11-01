@@ -1,6 +1,6 @@
 # System description — agent-change-control
 
-Status: 2026-11-01, after step 3.7 and the rename to agent-change-control (3.4 remote and user-scope hooks, and Q6 pending the owner) of `docs/PLAN-2026-10-mature-setup.md`, plus steps A1–A5, A7 and A8 of `docs/PLAN-2026-11-ado-port.md` (Azure DevOps; verified offline, live run deferred).
+Status: 2026-11-01, after step 3.7 and the rename to agent-change-control (3.4 remote and user-scope hooks, and Q6 pending the owner) of `docs/PLAN-2026-10-mature-setup.md`, plus steps A1–A8 of `docs/PLAN-2026-11-ado-port.md` (Azure DevOps; verified offline, live run deferred).
 Components marked *planned* do not exist yet; the plan step that creates them is named.
 
 ## Purpose

@@ -83,7 +83,9 @@ def _yaml_value(raw: str) -> str:
 def _pipeline_refs(text: str) -> list:
     """[(line_no, ref)] in an Azure Pipelines file: every `image:`, and `container: X` outside
     `resources.containers` and step `target:` unless X is an alias that `resources.containers` declares.
-    The key path comes from indentation; flow mappings (`container: {image: x}`) are not read."""
+    The key path comes from indentation; flow mappings (`container: {image: x}`) are not read, and
+    lines inside block scalars (a `script: |` body) are read like any other line, so an `image:` key
+    there is reported too."""
     entries, stack = [], []  # entries: (line_no, key path above, key, value); stack: (column, key)
     for n, line in enumerate(text.splitlines(), 1):
         m = _KEY_RE.match(line)

@@ -114,7 +114,7 @@ as controls rather than habits:
 
 ## 7. On Azure DevOps
 
-Status 2026-11-01: plan steps A1–A5, A7 and A8 of
+Status 2026-11-01: plan steps A1–A8 of
 `docs/PLAN-2026-11-ado-port.md` are built and verified offline (unit tests
 and a fake Azure DevOps REST API in `tools/tracker/tests/fake_ado.py`); no
 live organisation has run them. Read every Azure DevOps behaviour below as
@@ -198,8 +198,8 @@ policy bypass.
 identity (limit the job authorization scope to the project). It reads PRs and
 PR labels, edits work items in the area node (label-lint) and creates the
 retention leases. Azure DevOps identities have no `[bot]` suffix, so put the
-Build Service GUID, and any service principal's, in `KZ_TRACKER_BOTS`: in the
-pipeline variables and in the shell where a human runs `owner done`.
+Build Service GUID, and any service principal's, in `KZ_TRACKER_BOTS` in the
+shell where a human runs `owner done` (nothing in the pipelines reads it).
 
 **Copilot code review for Azure Repos** (public preview, Services): advisory.
 A branch policy can request it automatically; it reads

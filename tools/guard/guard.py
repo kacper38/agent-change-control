@@ -26,7 +26,7 @@ import subprocess
 import sys
 from typing import Callable, Optional
 
-VERSION = "0.5.0"
+VERSION = "0.5.1"
 
 # ----------------------------------------------------------------------------
 # Harness normalization
@@ -129,6 +129,7 @@ DEFAULTS = {
     "protected_branches": ["main"],
     "boundary": "own",
     "scratch_md_mode": "ask",  # ask | deny | off
+    "rules_off": [],  # rules switched off by .claude/guard.local.json or KZ_RULES_OFF; own boundary only
     "scratch_md_allow": [
         "docs/", ".claude/", ".github/", "skills/", "agents/", ".agents/", "evidence/",
         "README.md", "DECISIONS.md", "AGENTS.md", "CLAUDE.md", "CHANGELOG.md", "CONTRIBUTING.md",
@@ -138,19 +139,27 @@ DEFAULTS = {
 
 
 def load_config(start: str) -> dict:
-    """Merge DEFAULTS <- nearest .claude/guard.json (walking up) <- KZ_* env."""
+    """Merge DEFAULTS <- nearest .claude/guard.json (walking up) <- its sibling guard.local.json <- KZ_* env.
+
+    guard.local.json is the owner's uncommitted override (gitignored): the same keys except `boundary`,
+    applied on top, so a session can switch rules off without a diff in the reviewable policy."""
     cfg = dict(DEFAULTS)
     d = os.path.abspath(start)
     while True:
         candidate = os.path.join(d, ".claude", "guard.json")
         if os.path.isfile(candidate):
-            try:
-                with open(candidate, encoding="utf-8") as fh:
-                    data = json.load(fh)
-                if isinstance(data, dict):
-                    cfg.update(data)
-            except (OSError, ValueError) as exc:  # a broken config must not silently vanish
-                print(f"guard: ignoring unreadable {candidate}: {exc}", file=sys.stderr)
+            for path in (candidate, os.path.join(d, ".claude", "guard.local.json")):
+                if not os.path.isfile(path):
+                    continue
+                try:
+                    with open(path, encoding="utf-8") as fh:
+                        data = json.load(fh)
+                    if isinstance(data, dict):
+                        if path != candidate:
+                            data.pop("boundary", None)  # the boundary is the committed policy's to set
+                        cfg.update(data)
+                except (OSError, ValueError) as exc:  # a broken config must not silently vanish
+                    print(f"guard: ignoring unreadable {path}: {exc}", file=sys.stderr)
             break
         parent = os.path.dirname(d)
         if parent == d:
@@ -168,6 +177,9 @@ def load_config(start: str) -> dict:
     env = os.environ.get("KZ_SCRATCH_MD")
     if env:
         cfg["scratch_md_mode"] = env.strip()
+    env = os.environ.get("KZ_RULES_OFF")
+    if env is not None:
+        cfg["rules_off"] = [r.strip() for r in env.split(",") if r.strip()]
     return cfg
 
 
@@ -806,7 +818,7 @@ def guard_config_class(path: Optional[str]) -> Optional[str]:
     for i, part in enumerate(parts[:-1]):
         nxt = parts[i + 1]
         last = i + 1 == len(parts) - 1
-        if part == ".claude" and last and (_SETTINGS_RE.match(nxt) or nxt == "guard.json"):
+        if part == ".claude" and last and (_SETTINGS_RE.match(nxt) or nxt in ("guard.json", "guard.local.json")):
             return "the repo's hook configuration"
         if part == ".github" and nxt == "hooks":
             return "the repo's Copilot hook configuration"
@@ -1107,12 +1119,16 @@ def run_hook(target: str, wrapper: Optional[str]) -> int:
     if wrapper == "claude" and ev.harness == "copilot":
         return 0
     names = PRE_RULES if target == "pre" else [target]
+    # rules_off is the owner's convenience for own repos; inside a client boundary the committed policy is whole
+    off = set(cfg.get("rules_off") or []) if str(cfg.get("boundary") or "own") != "client" else set()
     decisions: list[Decision] = []
     fired: dict[str, str] = {}
     for name in names:
         rule = RULES.get(name)
         if rule is None:
             raise ValueError(f"unknown rule: {name}")
+        if name in off:
+            continue
         d = rule(ev, cfg)
         if d:
             decisions.append(d)

@@ -129,6 +129,7 @@ class PR:
     merged_by: str
     merge_sha: str
     files: list
+    completion_options: dict = dataclasses.field(default_factory=dict)  # Azure Repos completionOptions
 
 
 @dataclasses.dataclass
@@ -522,7 +523,13 @@ def backend_for(repo: Optional[str] = None) -> Backend:
 # ----------------------------------------------------------------------------
 
 STATUS_PREFIX = "status/"
-_CLOSING_RE = re.compile(r"\b(close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s*:?\s+#\d+", re.IGNORECASE)
+# GitHub's closing keywords, plus every state name Azure Repos honours before `#N` in a PR description
+# (its default process states and the kit's own), each also in the `AB#N` form.
+_STATE_WORDS = ("new", "active", "resolved", "closed", "removed", "done", "to do", "doing", "approved", "committed",
+                "proposed", "in progress", "backlog", "ready", "blocked", "review", "dropped")
+_CLOSING_RE = re.compile(r"\b(close[sd]?|fix(?:e[sd])?|resolve[sd]?|"
+                         + "|".join(w.replace(" ", r"\s+") for w in _STATE_WORDS)
+                         + r")\s*:?\s+(?:AB)?#\d+", re.IGNORECASE)
 _PATHLIKE_RE = re.compile(r"[\w-]+(?:[./:][\w-]+)+")
 
 
@@ -729,6 +736,13 @@ class Tracker:
             problems.append("no review record with a pull request")
         else:
             facts["pr"] = pr.url
+            opts = pr.completion_options or {}
+            if opts.get("transitionWorkItems"):
+                problems.append(f"PR #{pr.number} was completed with `transitionWorkItems`: the forge may have moved "
+                                "the linked work items, and the tracker is the only state writer (check the history)")
+            if opts.get("bypassPolicy"):
+                problems.append(f"PR #{pr.number} was completed with `bypassPolicy` "
+                                f"({opts.get('bypassReason') or 'no reason given'}): branch policies did not hold")
             if not re.search(rf"\bRefs #{issue.number}\b", pr.body):
                 problems.append(f"PR body lacks `Refs #{issue.number}`")
             if not pr.merged:

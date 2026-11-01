@@ -141,8 +141,9 @@ offline against a fake API; live run deferred. Settings and env vars:
 
 - `tools/guard/guard.py` (PreToolUse, both harnesses) takes its knobs from the committed
   `.claude/guard.json`; a gitignored `.claude/guard.local.json` beside it (its `rules_off` list,
-  nothing else is read) or `KZ_RULES_OFF=rule,rule` switches named rules off for one checkout,
-  in the own boundary only, so a client repo's policy is the committed file alone.
+  nothing else is read) switches named rules off for one checkout, `KZ_RULES_OFF=rule,rule` for
+  one shell; both only where the committed file says `"boundary": "own"`, so a client repo's
+  policy is the committed file alone. Skipped rules are logged as `skipped` in the decision log.
 - `tools/testguard/check-test-tampering.sh` (the harness kit's guard plus pytest rules):
   deleted or renamed test files, a `def test_` that disappears, added skip/focus
   markers, `[skip ci]` in commits or the PR title. The PostToolUse wrapper

@@ -14,6 +14,7 @@ init    .claude/guard.json
 managed .github/hooks/guard.json
 managed tools/guard/guard.py
 managed tools/tracker/tracker.py
+managed tools/tracker/ado.py
 managed tools/tracker/label_lint.py
 managed tools/tracker/session_start.py
 managed tools/tracker/evidence_export.py

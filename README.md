@@ -113,7 +113,10 @@ cd <your-task-repo> && claude
 ```
 
 `./install.sh --uninstall` removes exactly what the manifest lists; backups
-stay in `~/.claude/backups/`. Where the installer may not run, copy by hand:
+stay in `~/.claude/backups/`. Where the installer may not run, copy by hand
+from the kit's root (its `skills/` and `agents/` land under `.claude/` in the
+target). This gives the agreement, skills and agents only, with none of the
+hooks; for the full set, copy every line of `kit.manifest`:
 
 ```bash
 cp AGENTS.md <repo>/AGENTS.md && printf '@AGENTS.md\n' > <repo>/CLAUDE.md
@@ -234,9 +237,10 @@ variables (`KZ_TRACKER_REPO`, `KZ_TRACKER_AREA`, `KZ_TRACKER_ADO_MODE`,
   forges): PRs merged in the git range with merge SHAs, reviews or votes, check
   runs or builds and policy evaluations, completion options; the issues or work
   items they reference or that closed in the window, with tracker markers,
-  acceptance boxes and revisions; rulesets or branch policies; the captures
-  re-hashed; tool versions. A section a forge lacks is null.
-  `/validation-evidence` runs both.
+  acceptance boxes and revisions; rulesets or branch policies; retention
+  leases; the captures re-hashed; tool versions. A section a forge lacks is
+  null, and the branch ACL is null on both forges for now (deferred until the
+  first live Azure DevOps run). `/validation-evidence` runs both.
 
 ### Agents
 

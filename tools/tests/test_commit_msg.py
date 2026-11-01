@@ -53,6 +53,19 @@ def test_rejected(msg, needle):
     assert probs and any(needle in p for p in probs), probs
 
 
+@pytest.mark.parametrize("msg,closing", [
+    ("feat: add x\n\nFixes AB#12", "Fixes AB#12"),
+    ("feat: add x\n\nresolves: ab#7", "resolves: ab#7"),
+    ("feat: add x\n\nCloses AB#3, see #4", "Closes AB#3"),
+])
+def test_azure_boards_closing_form_is_rejected(msg, closing):
+    assert f"closing keyword `{closing}` closes an issue behind the tracker; write `Refs #N`" in cm.problems(msg)
+
+
+def test_azure_boards_link_mention_passes():
+    assert cm.problems("feat: add x\n\nRefs AB#12") == []
+
+
 def test_refs_is_not_a_closing_keyword():
     assert cm.problems("feat: add x\n\nRefs #12, see also #13") == []
 

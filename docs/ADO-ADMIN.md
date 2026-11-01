@@ -322,7 +322,8 @@ Fallback: `fresh-review` receipts at home; the human approval everywhere.
 
 ## Not covered
 
-Azure DevOps Server, Jira and service hooks for work item events. Exporting
-these GETs automatically is the evidence export's job (plan step A6: policies,
-branch ACL, retention); until its Azure DevOps reader exists, keep the
-responses by hand.
+Azure DevOps Server, Jira and service hooks for work item events. The evidence
+export (`evidence_export.py export`, schema `/2`) collects the policy
+configurations and the retention settings itself; it still writes the branch
+ACL as null, so keep that response by hand until the first live run (plan
+step A0) settles the security token.

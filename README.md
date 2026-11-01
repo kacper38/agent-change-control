@@ -1,9 +1,11 @@
-# claude-platform-setup
+# agent-change-control
 
-An opinionated [Claude Code](https://claude.com/claude-code) setup for
-**platform engineering in regulated (GxP) environments** — taking a service
-from ticket to running, auditable infrastructure, with AI/RAG workloads as a
-first-class concern.
+A change-control kit for **AI-assisted platform engineering in regulated
+(GxP) environments**: a working agreement, deterministic hooks, a tracker on
+GitHub Issues and an evidence export, shipped as plain files that
+[Claude Code](https://claude.com/claude-code) and VS Code + GitHub Copilot
+read the same way. Built for taking a service from ticket to running,
+auditable infrastructure, with AI/RAG workloads as a first-class concern.
 
 The premise: the engineer decides, plans, and verifies; the agent executes.
 Every change must be defensible as validation evidence — plan first, one topic
@@ -11,17 +13,26 @@ per commit, external verification with shown output, decisions recorded.
 
 ## Install
 
+Into a task repository, for any harness:
+
 ```bash
-git clone https://github.com/kacper38/claude-platform-setup.git
-./claude-platform-setup/install.sh     # copies agents + skills to ~/.claude,
-                                       # backs up anything it would overwrite,
+git clone https://github.com/kacper38/agent-change-control.git
+./agent-change-control/install.sh --into <your-task-repo>
+                                       # copies what kit.manifest lists,
+                                       # writes .claude/kit-version
+```
+
+Into the home account, Claude Code only (agents and skills under `~/.claude`):
+
+```bash
+./agent-change-control/install.sh      # backs up anything it would overwrite,
                                        # writes an uninstall manifest
 cd <your-task-repo> && claude
 /task-intake                           # paste the task — the rest follows
 ```
 
-Remove it cleanly with `./install.sh --uninstall` (deletes exactly what the
-manifest lists; backups stay in `~/.claude/backups/`).
+Remove the home install cleanly with `./install.sh --uninstall` (deletes
+exactly what the manifest lists; backups stay in `~/.claude/backups/`).
 
 ## Agents
 
@@ -163,11 +174,13 @@ guide for the target role's tech stack (with a personal CV gap map) lives in
 
 ## Install into a repo (the kit)
 
-The setup is becoming a repo-level kit that Claude Code **and** VS Code +
-GitHub Copilot read from the same files: `AGENTS.md`, `.claude/settings.json`
+The kit is the set of repo-level files that Claude Code **and** VS Code +
+GitHub Copilot read the same way: `AGENTS.md`, `.claude/settings.json`
 (hooks), `.claude/skills/`, `.claude/agents/`, `.github/hooks/`,
-`tools/guard`, `tools/tracker`. `install.sh --into <repo>` arrives with step
-1.2 of the plan. Until then, copy by hand:
+`tools/guard`, `tools/tracker` and the rest of `kit.manifest`.
+`install.sh --into <repo>` copies them, keeps files the target edited
+locally (unless `--force`) and writes `.claude/kit-version` with the source
+commit. Where the installer may not run, copy by hand:
 
 ```bash
 cp AGENTS.md <repo>/AGENTS.md && printf '@AGENTS.md\n' > <repo>/CLAUDE.md

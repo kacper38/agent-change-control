@@ -212,7 +212,7 @@
     <h1>Platform Engineer<em>production dev setup — AI infrastructure w środowisku GxP</em></h1>
     <div class="stamp">Gotowe do pull ✓</div>
     <table class="meta-table">
-      <tr><td>Repozytorium</td><td><a href="https://github.com/kacper38/claude-platform-setup">github.com/kacper38/claude-platform-setup</a> · branch <b>main</b></td></tr>
+      <tr><td>Repozytorium</td><td><a href="https://github.com/kacper38/agent-change-control">github.com/kacper38/agent-change-control</a> · branch <b>main</b></td></tr>
       <tr><td>Zakres</td><td>Codzienna praca platformowa: od ticketu/zadania do działającej, audytowalnej infrastruktury (RAG/LLM, AWS/Azure)</td></tr>
       <tr><td>Zasada</td><td>Ty decydujesz i weryfikujesz — agent wykonuje. Każda zmiana obronialna jako <em>validation evidence</em></td></tr>
       <tr><td>Instalacja</td><td><code>./install.sh</code> → <code>~/.claude</code> (user scope)</td></tr>
@@ -235,7 +235,7 @@
     <div class="sec-num">§ 02</div>
     <h2>Struktura repozytorium</h2>
     <div class="sec-sub">Co jest gdzie po git clone</div>
-<pre class="tree">claude-platform-setup/
+<pre class="tree">agent-change-control/
 ├── <span class="hl">CLAUDE.md</span>            <span class="dim"># working agreement do repo zadania</span>
 ├── <span class="hl">install.sh</span>           <span class="dim"># jeden skrypt → ~/.claude</span>
 ├── agents/              <span class="dim"># 12 agentów (§ 03)</span>
@@ -390,8 +390,8 @@
     <div class="sec-sub">Na dowolnym laptopie · ~60 sekund</div>
     <div class="term">
       <div class="bar"><i></i><i></i><i></i></div>
-      <div><span class="p">$</span> git clone https://github.com/kacper38/claude-platform-setup.git</div>
-      <div><span class="p">$</span> ./claude-platform-setup/install.sh</div>
+      <div><span class="p">$</span> git clone https://github.com/kacper38/agent-change-control.git</div>
+      <div><span class="p">$</span> ./agent-change-control/install.sh</div>
       <div class="cmt">  # → ~/.claude: 12 agentów, 16 skilli (backup nadpisywanych plików,</div>
       <div class="cmt">  #   manifest do --uninstall)</div>
       <div><span class="p">$</span> cd &lt;repo-zadania&gt; <span class="c">&amp;&amp;</span> claude</div>

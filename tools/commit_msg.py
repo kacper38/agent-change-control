@@ -7,7 +7,8 @@ Used three ways, same rules each time:
   tools/commit_msg.py --message "<text>"     tests, ad hoc
 Rules: `type(scope)?: subject` with type in TYPES, subject <= 72 chars, lower-case start,
 imperative (a short blocklist of past/gerund forms), no `Fixes #N`-style closing keywords
-anywhere in the message (closing is the tracker owner's protocol), trailers well-formed.
+(also `Fixes AB#N`, the Azure Boards form) anywhere in the message (closing is the tracker
+owner's protocol), trailers well-formed.
 Merge, Revert, fixup! and squash! commits pass. Exit 0 ok, 1 rejected, 2 usage.
 """
 import re
@@ -17,7 +18,9 @@ import sys
 TYPES = ("feat", "fix", "docs", "chore", "refactor", "test", "ci", "build", "perf", "style", "revert")
 SUBJECT_MAX = 72
 _SUBJECT_RE = re.compile(r"^(?P<type>[a-z]+)(?:\((?P<scope>[^()\s]+)\))?(?P<bang>!)?: (?P<subject>\S.*)$")
-_CLOSING_RE = re.compile(r"\b(close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s*:?\s+(?:[\w.-]+/[\w.-]+)?#\d+", re.IGNORECASE)
+# `AB#N` is the Azure Boards form a GitHub repo uses to close a work item; a bare `AB#N` only links
+_CLOSING_RE = re.compile(r"\b(close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s*:?\s+(?:[\w.-]+/[\w.-]+|AB)?#\d+",
+                         re.IGNORECASE)
 _TRAILER_RE = re.compile(r"^[A-Za-z][A-Za-z0-9-]*: \S")
 _SKIP_RE = re.compile(
     r"^(Merge (branch|pull request|remote-tracking branch|tag|commit) |Revert \"|fixup! |squash! |amend! )"

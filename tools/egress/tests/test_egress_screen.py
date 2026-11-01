@@ -50,6 +50,15 @@ def test_ado_pat_current_format_only(egress):
     assert egress.secret_hits("x" + ADO_PAT) == [], "an 85-char run is not the token shape"
 
 
+def test_basic_auth_header_holds_a_long_credential(egress):
+    import base64
+
+    header = "Authorization: Basic " + base64.b64encode((":" + ADO_PAT).encode()).decode()  # how a PAT travels
+    assert "basic-auth-header" in egress.secret_hits(header)
+    short = "Authorization: Basic " + base64.b64encode(b"user:pw").decode()
+    assert egress.secret_hits(short) == [], "a short credential is left to the assignment pattern"
+
+
 def test_planted_token_is_held_exit_3(egress, tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     out, err = io.StringIO(), io.StringIO()

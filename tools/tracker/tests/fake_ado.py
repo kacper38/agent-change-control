@@ -9,21 +9,30 @@ plan step A2. Lists page `page` items at a time so continuation tokens are exerc
     backend = ado.AdoBackend("org/proj/repo", transport=fake)   # with SYSTEM_ACCESSTOKEN=fake.token
     fake.add_pr(7, source="step-x", description="Refs #1"); fake.complete_pr(7, merge_sha="abc")
     fake.add_build("abc", result="succeeded")
+
+The evidence export (plan A6) reads more: the repository, completed PRs by target branch (descriptions cut to
+LIST_DESCRIPTION in list items), PR threads with votes (`vote`), policy evaluations and configurations
+(`add_policy`, `add_evaluation`), work item updates (one per revision, recorded on every write), WIQL on
+ClosedDate (date precision only) and build retention. `now` is the server clock for the dates it stamps;
+entering a Completed-category state stamps ClosedDate and ClosedBy, as the process rules do.
 """
 import json
 import re
 import urllib.parse
 
 AGILE_TASK = [("New", "Proposed"), ("Active", "InProgress"), ("Closed", "Completed"), ("Removed", "Removed")]
+CLOSED_DATE, CLOSED_BY = "Microsoft.VSTS.Common.ClosedDate", "Microsoft.VSTS.Common.ClosedBy"
+LIST_DESCRIPTION = 400  # list items truncate descriptions (a third-party report; the live length is unverified)
 # process=True: the inherited process of plan A7, a `Change` type with the kit's states and a type picklist
 KIT_CHANGE = [("Backlog", "Proposed"), ("Ready", "Proposed"), ("In Progress", "InProgress"),
               ("Blocked", "InProgress"), ("Review", "Resolved"), ("Done", "Completed"), ("Removed", "Removed")]
 KIT_TYPES = ["bug", "todo", "handoff", "decision", "agent-note"]
 WRITABLE = {"System.Title", "System.Description", "System.AreaPath", "System.Tags", "System.State"}
-_COND_RE = re.compile(r"\[(?P<field>[\w.]+)\] (?P<op>UNDER|=|CONTAINS|NOT IN|IN) "
+_COND_RE = re.compile(r"\[(?P<field>[\w.]+)\] (?P<op>UNDER|>=|<=|=|CONTAINS|NOT IN|IN) "
                       r"(?P<value>'(?:[^']|'')*'|\('(?:[^']|'')*'(?:, '(?:[^']|'')*')*\))")
 _STR_RE = re.compile(r"'((?:[^']|'')*)'")
 _WIQL_RE = re.compile(r"SELECT \[System\.Id\] FROM WorkItems WHERE (?P<where>.+) ORDER BY \[System\.Id\]", re.S)
+_ARTIFACT_RE = re.compile(r"vstfs:///CodeReview/CodeReviewId/(?P<project>[^/]+)/(?P<pr>\d+)")
 
 
 class FakeError(Exception):
@@ -53,7 +62,18 @@ class FakeAdo:
         self.builds: list = []
         self._definitions: dict = {}
         self.calls: list = []  # (method, path, query, body)
-        self._next = {"item": 1, "comment": 1, "build": 1}
+        self.project_id = "11111111-0000-4000-8000-000000000001"
+        self.repo_id = "22222222-0000-4000-8000-000000000002"
+        self.now = "2026-11-01T00:00:00.123Z"
+        self.updates: dict = {}  # work item id -> its update rows
+        self.threads: dict = {}  # PR number -> its threads
+        self.policies: list = []
+        self.evaluations: dict = {}  # PR number -> its policy evaluations
+        self.retention = {"purgeArtifacts": {"min": 1, "max": 60, "value": 30},
+                          "purgePullRequestRuns": {"min": 1, "max": 30, "value": 10},
+                          "purgeRuns": {"min": 30, "max": 731, "value": 30},
+                          "retainRunsPerProtectedBranch": {"min": 0, "max": 50, "value": 3}}
+        self._next = {"item": 1, "comment": 1, "build": 1, "thread": 1, "policy": 1}
         self.routes = [
             ("GET", r"_apis/connectionData", "7.1-preview", self._connection),
             ("POST", r"[^/]+/_apis/wit/workitems/\$(?P<wit>[^/]+)", "7.1", self._create),
@@ -72,6 +92,15 @@ class FakeAdo:
             ("GET", r"[^/]+/_apis/git/repositories/(?P<repo>[^/]+)/pullrequests/(?P<id>\d+)/iterations/"
                     r"(?P<it>\d+)/changes", "7.1", self._changes),
             ("GET", r"[^/]+/_apis/build/builds", "7.1", self._builds),
+            # the evidence export (plan A6)
+            ("GET", r"[^/]+/_apis/git/repositories/(?P<repo>[^/]+)", "7.1", self._repository),
+            ("GET", r"[^/]+/_apis/git/repositories/(?P<repo>[^/]+)/pullrequests", "7.1", self._list_prs),
+            ("GET", r"[^/]+/_apis/git/repositories/(?P<repo>[^/]+)/pullrequests/(?P<id>\d+)/threads", "7.1",
+             self._threads),
+            ("GET", r"[^/]+/_apis/policy/evaluations", "7.1-preview.1", self._evaluations),
+            ("GET", r"[^/]+/_apis/git/policy/configurations", "7.1", self._policy_configs),
+            ("GET", r"[^/]+/_apis/wit/workItems/(?P<id>\d+)/updates", "7.1", self._updates),
+            ("GET", r"[^/]+/_apis/build/retention", "7.1", self._retention),
         ]
 
     # -- seeding helpers for tests ---------------------------------------------
@@ -87,6 +116,7 @@ class FakeAdo:
         self.items[n]["fields"].update({"System.Title": title, "System.Description": description, **fields})
         if markdown:
             self.items[n]["format"]["System.Description"] = "markdown"
+        self._record(self.items[n], {})
         return n
 
     def add_pr(self, number: int, source: str = "step-x", target: str = "main", description: str = "",
@@ -97,20 +127,67 @@ class FakeAdo:
             "createdBy": self.identity(), "completionOptions": {}, "lastMergeCommit": {"commitId": "pr-preview"},
             "repository": {"name": self.repo, "project": {"name": self.project}},
             "url": f"{self.base}/{self.project}/_apis/git/repositories/{self.repo}/pullRequests/{number}",
+            "creationDate": self.now, "reviewers": [],
         }
         self.changes[number] = (iterations, ["/" + f for f in files] + ["/"])  # "/" stands for a folder entry
 
     def complete_pr(self, number: int, merge_sha: str, closed_by: str = "", **completion) -> None:
         self.prs[number].update(status="completed", closedBy=self.identity(closed_by),
-                                lastMergeCommit={"commitId": merge_sha}, completionOptions=completion)
+                                lastMergeCommit={"commitId": merge_sha}, completionOptions=completion,
+                                closedDate=self.now)
 
-    def add_build(self, sha: str, result: str = "succeeded", status: str = "completed", name: str = "ci") -> None:
+    def add_build(self, sha: str, result: str = "succeeded", status: str = "completed", name: str = "ci",
+                  branch: str = "main") -> None:
         """Newest last; the API lists newest first."""
         n = self._take("build")
         self._definitions.setdefault(name, len(self._definitions) + 1)
         self.builds.append({"id": n, "definition": {"id": self._definitions[name], "name": name},
                             "sourceVersion": sha, "status": status, "result": result if status == "completed" else None,
-                            "_links": {"web": {"href": f"{self.base}/{self.project}/_build/results?buildId={n}"}}})
+                            "_links": {"web": {"href": f"{self.base}/{self.project}/_build/results?buildId={n}"}},
+                            "sourceBranch": "refs/heads/" + branch,
+                            "repository": {"id": self.repo_id, "type": "TfsGit"}, "queueTime": self.now,
+                            "startTime": self.now,
+                            "finishTime": self.now if status == "completed" else None})
+
+    def vote(self, number: int, reviewer: str, vote: int) -> None:
+        """A reviewer votes: the system thread the web UI leaves, and the reviewer's current vote."""
+        who = self.identity(reviewer)
+        self.threads.setdefault(number, []).append({
+            "id": self._take("thread"), "publishedDate": self.now, "lastUpdatedDate": self.now, "isDeleted": False,
+            "comments": [{"id": 1, "author": who, "commentType": "system",
+                          "content": f"{who['displayName']} voted {vote}"}],
+            "properties": {"CodeReviewThreadType": {"$type": "System.String", "$value": "VoteUpdate"},
+                           "CodeReviewVoteResult": {"$type": "System.Int32", "$value": str(vote)},
+                           "CodeReviewVotedByIdentity": {"$type": "System.String", "$value": "1"}},
+            "identities": {"1": who}})
+        reviewers = self.prs[number]["reviewers"]
+        found = next((r for r in reviewers if r["id"] == who["id"]), None)
+        if found:
+            found["vote"] = vote
+        else:
+            reviewers.append({**who, "vote": vote, "isRequired": False, "hasDeclined": False})
+
+    def comment_pr(self, number: int, text: str) -> None:
+        """A plain text thread: no vote property."""
+        self.threads.setdefault(number, []).append({
+            "id": self._take("thread"), "publishedDate": self.now, "isDeleted": False, "properties": {},
+            "comments": [{"id": 1, "author": self.identity(), "commentType": "text", "content": text}]})
+
+    def add_policy(self, type_name: str, blocking: bool = True, enabled: bool = True, ref: str = "refs/heads/main",
+                   **settings) -> int:
+        n = self._take("policy")
+        self.policies.append({"id": n, "type": {"id": f"policy-type-{n}", "displayName": type_name},
+                              "isEnabled": enabled, "isBlocking": blocking, "isDeleted": False, "revision": 1,
+                              "settings": {**settings, "scope": [{"repositoryId": self.repo_id, "refName": ref,
+                                                                  "matchKind": "exact"}]}})
+        return n
+
+    def add_evaluation(self, number: int, policy_id: int, status: str = "approved") -> None:
+        config = next(p for p in self.policies if p["id"] == policy_id)
+        self.evaluations.setdefault(number, []).append({
+            "evaluationId": f"eval-{number}-{policy_id}", "status": status, "configuration": config,
+            "artifactId": f"vstfs:///CodeReview/CodeReviewId/{self.project_id}/{number}", "startedDate": self.now,
+            "completedDate": None if status in ("queued", "running") else self.now, "context": None})
 
     # -- transport -------------------------------------------------------------
 
@@ -161,9 +238,19 @@ class FakeAdo:
         self.items[n] = {"id": n, "rev": 1, "format": {}, "fields": {
             "System.Id": n, "System.WorkItemType": wit, "System.TeamProject": self.project,
             "System.AreaPath": self.project, "System.State": self.states[wit][0][0],
-            "System.CreatedBy": self.identity()}}
+            "System.CreatedBy": self.identity(), "System.CreatedDate": self.now}}
         self.comments[n] = []
         return n
+
+    def _record(self, item: dict, before: dict) -> None:
+        """The `updates` row of a new revision: the fields that changed, with old and new value."""
+        after = item["fields"]
+        changed = {k: {**({"oldValue": before[k]} if k in before else {}),
+                       **({"newValue": after[k]} if k in after else {})}
+                   for k in sorted(set(before) | set(after)) if before.get(k) != after.get(k)}
+        rows = self.updates.setdefault(item["id"], [])
+        rows.append({"id": len(rows) + 1, "workItemId": item["id"], "rev": item["rev"], "revisedBy": self.identity(),
+                     "revisedDate": self.now, "fields": changed})
 
     def _item(self, id) -> dict:
         if int(id) not in self.items:
@@ -198,7 +285,15 @@ class FakeAdo:
                 if t.lower() not in [k.lower() for k in self.tags]:
                     self.tags.append(t)
             value = "; ".join(names)
+        was = item["fields"].get("System.State")
         item["fields"][field] = value
+        if field == "System.State":  # the process rule: entering a Completed-category state stamps ClosedDate
+            category = dict(self.states[wit])
+            if category[value] != "Completed":
+                item["fields"].pop(CLOSED_DATE, None)
+                item["fields"].pop(CLOSED_BY, None)
+            elif category.get(was) != "Completed":
+                item["fields"].update({CLOSED_DATE: self.now, CLOSED_BY: self.identity()})
 
     def _apply(self, item: dict, ops) -> None:
         if not isinstance(ops, list) or not ops:
@@ -223,6 +318,7 @@ class FakeAdo:
         except FakeError:
             del self.items[n]
             raise
+        self._record(self.items[n], {})
         return self._shape(self.items[n])
 
     def _get_item(self, query, body, id) -> dict:
@@ -238,6 +334,7 @@ class FakeAdo:
             self.items[int(id)] = snapshot  # all or nothing, as on the server
             raise
         item["rev"] += 1
+        self._record(item, snapshot["fields"])
         return self._shape(item)
 
     def _matches(self, item: dict, field: str, op: str, value: str) -> bool:
@@ -251,6 +348,8 @@ class FakeAdo:
         if op in ("IN", "NOT IN"):
             inside = have.lower() in [v.lower() for v in value]
             return inside if op == "IN" else not inside
+        if op in (">=", "<="):  # date precision: the field's day against the literal's
+            return bool(have) and (have[:10] >= value if op == ">=" else have[:10] <= value)
         raise FakeError(400, f"the fake does not support [{field}] {op}")
 
     def _wiql(self, query, body) -> dict:
@@ -271,7 +370,11 @@ class FakeAdo:
             if not where.startswith(" AND ", pos):
                 raise FakeError(400, f"TF51006: the fake supports AND only, at {where[pos:]!r}")
             pos += len(" AND ")
-        hits = [n for n, item in sorted(self.items.items()) if all(self._matches(item, *cond) for cond in conds)]
+        for field, op, value in conds:
+            if op in (">=", "<=") and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
+                raise FakeError(400, f"TF51005: [{field}] {op} {value!r}: a query with date precision takes a date "
+                                     "without a time (the fake does not support timePrecision)")
+        hits =[n for n, item in sorted(self.items.items()) if all(self._matches(item, *cond) for cond in conds)]
         return {"queryType": "flat", "workItems": [{"id": n, "url": f"{self.base}/_apis/wit/workItems/{n}"}
                                                    for n in hits]}
 
@@ -351,7 +454,9 @@ class FakeAdo:
     def _builds(self, query, body) -> tuple:
         if query.get("queryOrder") != "queueTimeDescending":
             raise FakeError(400, "the fake lists builds newest first only")
-        rows = list(reversed(self.builds))
+        rows = [b for b in reversed(self.builds)
+                if query.get("branchName", b["sourceBranch"]) == b["sourceBranch"]
+                and query.get("repositoryId", self.repo_id) == b["repository"]["id"]]
         start = int(query.get("continuationToken") or 0)
         size = min(int(query.get("$top") or 1000), self.page)
         extra = {"x-ms-continuationtoken": str(start + size)} if start + size < len(rows) else {}
@@ -360,3 +465,57 @@ class FakeAdo:
 
     def _connection(self, query, body) -> dict:
         return {"authenticatedUser": self.identity(), "instanceId": "00000000-0000-4000-8000-000000000001"}
+
+    # -- the evidence export (plan A6) -------------------------------------------
+
+    def _skip_page(self, rows: list, query: dict) -> list:
+        """$top/$skip paging; the fake serves at most `page` rows however many were asked for."""
+        skip, top = int(query.get("$skip") or 0), min(int(query.get("$top") or 100), self.page)
+        return rows[skip : skip + top]
+
+    def _repository(self, query, body, repo) -> dict:
+        if repo.lower() not in (self.repo.lower(), self.repo_id):
+            raise FakeError(404, f"TF401019: The Git repository with name or identifier {repo} does not exist.")
+        return {"id": self.repo_id, "name": self.repo, "defaultBranch": "refs/heads/main",
+                "project": {"id": self.project_id, "name": self.project},
+                "webUrl": f"{self.base}/{self.project}/_git/{self.repo}"}
+
+    def _list_prs(self, query, body, repo) -> dict:
+        self._repository(query, body, repo)
+        status, target = query.get("searchCriteria.status", "active"), query.get("searchCriteria.targetRefName")
+        rows = [dict(p, description=(p.get("description") or "")[:LIST_DESCRIPTION])
+                for _, p in sorted(self.prs.items(), reverse=True)
+                if status in ("all", p["status"]) and target in (None, p["targetRefName"])]
+        page = self._skip_page(rows, query)
+        return {"count": len(page), "value": page}
+
+    def _threads(self, query, body, repo, id) -> dict:
+        self._pr(repo, id)
+        rows = self.threads.get(int(id), [])
+        return {"count": len(rows), "value": rows}
+
+    def _evaluations(self, query, body) -> dict:
+        m = _ARTIFACT_RE.fullmatch(query.get("artifactId", ""))
+        if not m or m.group("project") != self.project_id:
+            raise FakeError(400, f"the fake expects artifactId vstfs:///CodeReview/CodeReviewId/{self.project_id}/<pr>")
+        rows = [e for e in self.evaluations.get(int(m.group("pr")), [])
+                if e["status"] != "notApplicable" or query.get("includeNotApplicable") == "true"]
+        page = self._skip_page(rows, query)
+        return {"count": len(page), "value": page}
+
+    def _policy_configs(self, query, body) -> tuple:
+        if query.get("repositoryId") != self.repo_id or not query.get("refName"):
+            raise FakeError(400, "the fake answers repositoryId=<its repository id>&refName=<a ref> only")
+        rows = [p for p in self.policies if any(s["refName"] == query["refName"] for s in p["settings"]["scope"])]
+        start = int(query.get("continuationToken") or 0)
+        extra = {"x-ms-continuationtoken": str(start + self.page)} if start + self.page < len(rows) else {}
+        page = rows[start : start + self.page]
+        return 200, {"count": len(page), "value": page}, extra
+
+    def _updates(self, query, body, id) -> dict:
+        self._item(id)
+        page = self._skip_page(self.updates.get(int(id), []), query)
+        return {"count": len(page), "value": page}
+
+    def _retention(self, query, body) -> dict:
+        return json.loads(json.dumps(self.retention))

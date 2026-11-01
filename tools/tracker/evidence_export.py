@@ -506,12 +506,19 @@ def _ado_pr(reader: AdoReader, number: int, sha: str, project_id: str, builds: l
 
 
 def _ado_issue_record(reader: AdoReader, number: int, item: Optional[dict] = None) -> dict:
-    """A work item as the backend reads it (labels, type, status, state, markers), outside its scope check,
-    plus the revisions: rev, who, when and the names of the changed fields, never their values."""
+    """A work item as the backend reads it (labels, type, status, state, markers) plus the revisions: rev, who,
+    when and the names of the changed fields, never their values. Work item ids are organisation-wide, so a
+    `Refs #N` can name another project's or type's item, or none: that is recorded by id only, never read."""
     import ado
 
     b = reader.backend
-    d = item or reader(f"_apis/wit/workitems/{int(number)}")
+    try:
+        d = item or reader(f"_apis/wit/workitems/{int(number)}")
+    except ado.NotFound:
+        return {"number": int(number), "pull_requests": [], "skipped": "no such work item"}
+    if not b.in_scope(d):
+        return {"number": int(number), "pull_requests": [],
+                "skipped": f"not a {b.wit} under {b.area}: outside the tracker's scope"}
     issue = b._issue(d, b._comments(number))
     f = d.get("fields") or {}
     updates = reader.skip_pages(f"_apis/wit/workItems/{int(number)}/updates", top=200)
@@ -540,8 +547,15 @@ def collect_ado(reader: AdoReader, git: Callable, repo: str, frm: str, to: str, 
     repository = reader(repo_path)
     repo_id, project_id = repository["id"], repository["project"]["id"]
     branch = repository.get("defaultBranch") or "refs/heads/main"
+    day = _dt.timedelta(days=1)
+    # a PR into the range closed inside the window (the server makes the merge commit at completion); a day
+    # on each side for clock skew. Without the window the listing reads the repository's whole PR history.
+    stamp = "%Y-%m-%dT%H:%M:%SZ"
     listing = reader.skip_pages(f"{repo_path}/pullrequests?searchCriteria.status=completed"
-                                f"&searchCriteria.targetRefName={ado.q(branch)}")
+                                f"&searchCriteria.targetRefName={ado.q(branch)}"
+                                f"&searchCriteria.queryTimeRangeType=closed"
+                                f"&searchCriteria.minTime={since - day:{stamp}}"
+                                f"&searchCriteria.maxTime={until + day:{stamp}}")
     members, excluded = [], []
     for item in listing:
         number, sha = int(item["pullRequestId"]), (item.get("lastMergeCommit") or {}).get("commitId")
@@ -555,7 +569,6 @@ def collect_ado(reader: AdoReader, git: Callable, repo: str, frm: str, to: str, 
     numbers = {ref for p in prs for ref in p["refs"]}
     # WIQL compares dates without a time unless timePrecision is set, and in the caller's time zone: ask
     # for a day more on each side, then cut the window exactly here
-    day = _dt.timedelta(days=1)
     query = ("SELECT [System.Id] FROM WorkItems WHERE "
              f"[System.AreaPath] UNDER {ado.wiql_str(b.area)} AND [System.WorkItemType] = {ado.wiql_str(b.wit)} "
              f"AND [{CLOSED_DATE}] >= '{since - day:%Y-%m-%d}' AND [{CLOSED_DATE}] <= '{until + day:%Y-%m-%d}' "

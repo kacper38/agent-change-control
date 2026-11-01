@@ -1,5 +1,6 @@
 """evidence_export: captures with hashes and tool versions, change records from a fake gh api (plan step 3.7)
 and from the fake Azure DevOps REST API (plan A6)."""
+import datetime as _dt
 import hashlib
 import io
 import json
@@ -300,7 +301,7 @@ CLOSED_DATE = "Microsoft.VSTS.Common.ClosedDate"
 PR_BODY = "Summary.\n\n" + "x" * 500 + "\n\nRefs #1"  # past the list item's cut: only the PR detail has the ref
 
 
-def seed_ado(tracker, backend, fake, merge_sha="bbb"):
+def seed_ado(tracker, backend, fake, merge_sha="bbb", body=PR_BODY):
     """PR 7 completed into main (two votes, one build, one policy evaluation) and work item 1 with ready, claim,
     review and done markers and three revisions; plus the PRs and items the window must sort out."""
     fake.now = "2026-10-29T12:20:00.1234567Z"
@@ -312,7 +313,7 @@ def seed_ado(tracker, backend, fake, merge_sha="bbb"):
     fake.seed_item("closed just after until", **{"System.State": "Closed", CLOSED_DATE: "2026-10-29T14:00:00.5Z"})
     fake.seed_item("closed weeks before", **{"System.State": "Closed", CLOSED_DATE: "2026-10-01T10:00:00Z"})
     fake.now = "2026-10-29T12:40:00Z"
-    fake.add_pr(7, source="step-1", description=PR_BODY)
+    fake.add_pr(7, source="step-1", description=body)
     fake.vote(7, REVIEWER, -5)
     fake.comment_pr(7, "one question")
     fake.vote(7, REVIEWER, 10)
@@ -328,6 +329,9 @@ def seed_ado(tracker, backend, fake, merge_sha="bbb"):
     fake.add_pr(8)
     fake.now = "2026-10-29T12:59:59.9Z"
     fake.complete_pr(8, merge_sha="zzz")  # completed in the window, but not into this range
+    fake.add_pr(11)
+    fake.now = "2026-10-29T13:30:00Z"
+    fake.complete_pr(11, merge_sha="www")  # also in the window, not into this range: a third listed PR
     fake.add_pr(6)
     fake.now = "2026-10-01T10:00:00Z"
     fake.complete_pr(6, merge_sha="yyy")  # before the window
@@ -346,7 +350,7 @@ def test_collect_ado_reads_the_records_through_the_fake_api(ev, tracker, ado_fak
     assert set(rec) == set(github), "the same top-level keys on both forges"
     assert (rec["forge"], rec["api_version"], rec["repo"]) == ("ado", "7.1", "org/proj/repo")
     assert rec["range"] == github["range"]
-    assert [p["number"] for p in rec["pull_requests"]] == [7] and rec["pull_requests_merged_elsewhere"] == [8]
+    assert [p["number"] for p in rec["pull_requests"]] == [7] and rec["pull_requests_merged_elsewhere"] == [8, 11]
     p = rec["pull_requests"][0]
     assert (p["author"], p["merged_by"], p["merge_sha"], p["head"], p["base"]) == (fake.user, HUMAN, "bbb",
                                                                                     "step-1", "main")
@@ -389,6 +393,29 @@ def test_collect_ado_reads_the_records_through_the_fake_api(ev, tracker, ado_fak
     # read-only, and every list read to its end
     assert [(m, path) for m, path, _, _ in fake.calls if m != "GET"] == [("POST", "/org/proj/_apis/wit/wiql")]
     assert len([c for c in fake.calls if c[1].endswith("/pullrequests")]) == 3, "two pages and the empty one"
+    # the listing asks for the closed-time window (a day wider on each side), not the whole PR history
+    listing = next(q for _, path, q, _ in fake.calls if path.endswith("/pullrequests"))
+    lo = ev.parse_ts(rec["range"]["since"]) - _dt.timedelta(days=1)
+    hi = ev.parse_ts(rec["range"]["until"]) + _dt.timedelta(days=1)
+    assert (listing["searchCriteria.queryTimeRangeType"], listing["searchCriteria.minTime"],
+            listing["searchCriteria.maxTime"]) == ("closed", f"{lo:%Y-%m-%dT%H:%M:%SZ}", f"{hi:%Y-%m-%dT%H:%M:%SZ}")
+    assert (lo.isoformat(), hi.isoformat()) == ("2026-10-28T12:00:00+00:00", "2026-10-30T14:00:00+00:00")
+
+
+def test_collect_ado_records_refs_outside_the_scope_by_id_only(ev, tracker, ado_fake, tmp_path):
+    """Work item ids are organisation-wide: a `Refs #N` to another type (or area path), or to no item, must not
+    copy that item into the pack."""
+    backend, fake = ado_fake()
+    bug = fake.seed_item("another team's item", "## Acceptance criteria\n\n- [ ] their text\n", wit="Bug")  # #1
+    n = seed_ado(tracker, backend, fake, body=PR_BODY + f"\nRefs #{bug + 1}\nRefs #999")  # PR_BODY refs #1
+    rec = ev.collect_ado(ev.AdoReader(backend), fake_git, "org/proj/repo", "v1", "HEAD", str(tmp_path))
+    assert rec["pull_requests"][0]["refs"] == [bug, n, 999]
+    by = {i["number"]: i for i in rec["issues"]}
+    assert by[bug] == {"number": bug, "pull_requests": [7],
+                       "skipped": f"not a {backend.wit} under {backend.area}: outside the tracker's scope"}
+    assert by[999] == {"number": 999, "pull_requests": [7], "skipped": "no such work item"}
+    assert by[n]["status"] == "done" and "skipped" not in by[n]
+    assert "their text" not in json.dumps(rec) and "another team" not in json.dumps(rec)
 
 
 def test_export_cli_on_azure_devops_writes_schema_2(ev, tracker, ado_fake, tmp_path):

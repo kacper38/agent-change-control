@@ -5,6 +5,8 @@ __pycache__/
 uv.lock
 # personal Claude Code settings
 .claude/settings.local.json
+# the owner's uncommitted guard override (rules_off; honoured in the own boundary only)
+.claude/guard.local.json
 # written by `install.sh --into .`; meaningful in task repos, noise in the kit's own repo
 .claude/kit-version
 .claude/kit-manifest.sha256

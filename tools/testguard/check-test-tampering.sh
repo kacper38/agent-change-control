@@ -17,9 +17,12 @@
 #   default     compares merge-base(BASE, HEAD)..HEAD: committed changes (CI)
 #   --worktree  compares merge-base(BASE, HEAD) with the working tree, so uncommitted edits count (hook);
 #               never calls gh (no network from a hook): the label check degrades to WARN
-# Env: BASE_REF (PR base branch, from github.base_ref), PR_LABELS (comma-separated
-# label names), PR_TITLE, PR_NUMBER + GH_TOKEN (gh-CLI fallback; PR_NUMBER is
-# required in CI, where the detached-HEAD checkout means gh cannot infer the PR).
+# Env: BASE_REF (PR base branch: a bare name from github.base_ref, or refs/heads/<name> as Azure
+# Repos reports it; the prefix is stripped), PR_LABELS (comma-separated label names), PR_TITLE,
+# PR_NUMBER + GH_TOKEN (gh-CLI fallback; PR_NUMBER is required in CI, where the detached-HEAD
+# checkout means gh cannot infer the PR). PR_LABELS_SET=1 makes PR_LABELS authoritative even when
+# empty or unset: an unlabelled PR then has no labels instead of "no PR context" (Azure Pipelines,
+# where tools/testguard/ado_pr_context.py sets both and may not export an empty variable).
 # Without PR context the label check degrades to WARN so local runs stay useful.
 # Exits 0 silently when nothing applies.
 set -euo pipefail
@@ -30,6 +33,7 @@ WORKTREE=0
 cd "$(git rev-parse --show-toplevel)"
 
 BASE="${BASE_REF:-origin/main}"
+BASE="${BASE#refs/heads/}" # Azure Repos: System.PullRequest.TargetBranch is refs/heads/<name>
 # github.base_ref is a bare branch name; try the remote-tracking ref before giving up.
 git rev-parse --verify --quiet "$BASE" >/dev/null || BASE="origin/${BASE}"
 if ! git rev-parse --verify --quiet "$BASE" >/dev/null; then
@@ -61,8 +65,8 @@ is_test_file() {
 # has_label <name>: 0 = present, 1 = absent, 2 = unknown (no PR context available)
 has_label() {
   local label="$1" labels
-  if [ -n "${PR_LABELS:-}" ]; then
-    case ",${PR_LABELS}," in
+  if [ -n "${PR_LABELS:-}" ] || [ "${PR_LABELS_SET:-}" = "1" ]; then
+    case ",${PR_LABELS:-}," in
       *",${label},"*) return 0 ;;
       *) return 1 ;;
     esac

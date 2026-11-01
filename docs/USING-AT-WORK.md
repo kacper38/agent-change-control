@@ -209,7 +209,8 @@ review in GitHub AI credits on the linked Azure subscription: set a cap and
 record it in the work repo's `DECISIONS.md`. The human approval stays the
 control.
 
-**Not yet on Azure DevOps.** `evidence_export.py export` reads GitHub through
-`gh`; its Azure DevOps reader and schema `/2` are plan step A6. The
+**Not yet verified live on Azure DevOps.** `evidence_export.py export` reads
+Azure DevOps too (schema `/2`), tested against a fake API only; its first live
+run is plan step A0, and the branch ACL stays null until then. The
 session-start digest may stay silent: `az account get-access-token` plus one
 REST read must fit its three-second budget, and v1 has no token cache.

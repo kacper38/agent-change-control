@@ -157,10 +157,12 @@ offline against a fake API; live run deferred. Settings and env vars:
   from `gh api`: PRs merged in the git range (merge SHAs, reviews, check runs), the
   issues they reference or that closed in the window (tracker markers, acceptance boxes),
   rulesets, the captures re-hashed, tool versions. `/validation-evidence` runs both.
-- On Azure DevOps, `capture` works as is; `export` reads GitHub today (schema
-  `agent-change-control/change-records/1`). The Azure DevOps reader and schema `/2`
-  (completed PRs, votes, builds and policy evaluations, completion options, work item
-  revisions, policy configurations, branch ACL, retention) are plan step A6.
+- On Azure DevOps, `capture` works as is and `export` reads the forge the origin names
+  (schema `agent-change-control/change-records/2` on both forges: completed PRs, votes,
+  builds and policy evaluations, completion options, work item revisions, policy
+  configurations, retention; a section a forge lacks is null, the branch ACL on both
+  for now). Verified against a fake Azure DevOps API only; the first live run is plan
+  step A0 (`docs/PLAN-2026-11-ado-port.md`).
 
 ## Memory and ledger (Claude Code, home machine)
 

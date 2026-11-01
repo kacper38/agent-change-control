@@ -6,9 +6,10 @@
 # Nightly plus manual runs only: Azure Pipelines has no work-item trigger (that needs a service hook).
 # Schedules run in UTC without daylight saving; a schedule set in the pipeline UI overrides this one.
 # The job token acts as the Build Service identity: it needs "Edit work items in this node" on the
-# area path, and its identity GUID belongs in KZ_TRACKER_BOTS (a pipeline variable) so its comments
-# never count as human. The backend reads SYSTEM_COLLECTIONURI, SYSTEM_TEAMPROJECT and
-# BUILD_REPOSITORY_NAME, which Azure Pipelines presets.
+# area path. Its identity GUID belongs in KZ_TRACKER_BOTS where `tracker owner done` runs (the
+# owner's terminal, not this pipeline), so a PR that identity completed never passes as a human
+# merge. The backend reads SYSTEM_COLLECTIONURI, SYSTEM_TEAMPROJECT and BUILD_REPOSITORY_NAME,
+# which Azure Pipelines presets.
 trigger: none
 pr: none
 

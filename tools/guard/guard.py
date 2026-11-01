@@ -907,13 +907,32 @@ def _http_writes(seg: list[str], head: str, url: str) -> bool:
     return False
 
 
+_AZ_GLOBAL_FLAGS = {"--debug", "--verbose", "--only-show-errors"}
+_AZ_GLOBAL_VALUED = {"-o", "--output", "--query", "--subscription", "--org", "--organization", "-p", "--project",
+                     "--detect"}
+
+
+def _az_words(seg: list[str]) -> list[str]:
+    """The az command words. az accepts its global options before the command (`az -o json devops invoke`),
+    so those are skipped, with their value; the walk stops at the first other option."""
+    words: list[str] = []
+    skip = False
+    for t in seg[1:]:
+        if skip:
+            skip = False
+        elif t in _AZ_GLOBAL_VALUED:
+            skip = True
+        elif t.startswith("-"):
+            if t not in _AZ_GLOBAL_FLAGS and t.split("=", 1)[0] not in _AZ_GLOBAL_VALUED:
+                break
+        else:
+            words.append(t)
+    return words
+
+
 def _az_tracker_guard(seg: list[str]) -> Optional[Decision]:
     """`az boards work-item` writes, `az devops invoke`, `az rest` writes to _apis/wit, PR completion shortcuts."""
-    words: list[str] = []
-    for t in seg[1:]:  # az finds its command in the words before the first option
-        if t.startswith("-"):
-            break
-        words.append(t)
+    words = _az_words(seg)
     if words[:2] == ["boards", "work-item"] and words[2:3] and words[2] in _AZ_WORK_ITEM_REPLACEMENT:
         if words[2] == "relation" and words[3:4] and words[3] in _AZ_RELATION_READS:
             return None

@@ -243,6 +243,8 @@ CASES: dict = {
             "az repos pr create --title x --auto-complete true --transition-work-items true",
             "az repos pr update --id 7 --status completed", "az repos pr update --id 7 --transition-work-items",
             "cd repo && az boards work-item update --id 1 --state Done",
+            "az --only-show-errors boards work-item update --id 12 --state Done",  # global options first
+            "az -o json devops invoke --area wit --resource workitems --route-parameters id=12",
         ),
         *shell(
             "allow",
@@ -255,6 +257,7 @@ CASES: dict = {
             "az repos pr create --title x --source-branch step-1 --transition-work-items false",
             "az repos pr update --id 7 --title y", "az repos pr list --status completed",
             "git commit -q -F - <<'EOF'\ndocs: x\n\nnever send bypassRules=true\nEOF",
+            "az --output table boards work-item show --id 12",  # a global option before a read
         ),
     ],
 }

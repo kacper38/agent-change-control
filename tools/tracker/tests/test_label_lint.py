@@ -44,3 +44,21 @@ def test_report_comments_once_and_keeps_one_tracking_issue(tracker, label_lint):
     assert counts == {"issues": 0, "comments": 0, "tracking": "updated"}
     assert "No offending issues" in fb.get_issue(tracking[0].number).body
     assert len(fb.list_issues()) == 2, "the tracking issue is not closed by the job"
+
+
+def test_process_mode_reports_a_state_without_its_marker(tracker, label_lint):
+    fb = tracker.FakeBackend()
+    fb.mode = "process"  # what AdoBackend reports in KZ_TRACKER_ADO_MODE=process
+    dragged = mk(tracker, fb, ["type/todo", "status/ready"])
+    promoted = mk(tracker, fb, ["type/todo", "status/ready"])
+    fb.comment(promoted, tracker.mark("ready", by="owner"))
+    reopened = mk(tracker, fb, ["type/todo", "status/review"])
+    fb.comment(reopened, tracker.mark("review", by="agent"))
+    fb.comment(reopened, tracker.mark("block", by="agent"))
+    backlog = mk(tracker, fb, ["type/todo", "status/backlog"])
+    found = {i.number: p for i, p in label_lint.findings(fb)}
+    assert "state without a matching marker" in found[dragged][0] and "the latest is none" in found[dragged][0]
+    assert "needs a `review` marker, the latest is `block`" in found[reopened][0]
+    assert promoted not in found and backlog not in found
+    fb.mode = "tags"
+    assert label_lint.findings(fb) == [], "tags mode keeps the label-only checks"

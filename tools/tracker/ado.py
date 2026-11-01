@@ -7,10 +7,13 @@ Repository  --repo ORG/PROJECT/REPO, else KZ_TRACKER_REPO, else the pipeline var
             SYSTEM_COLLECTIONURI + SYSTEM_TEAMPROJECT + BUILD_REPOSITORY_NAME, else the origin URL
 Token       SYSTEM_ACCESSTOKEN (pipelines), else `az account get-access-token` (Entra, about 1 h).
             No PAT code path; the token never appears in an error message
-Scope       work items of type KZ_TRACKER_ADO_TYPE (default Task) under the area path KZ_TRACKER_AREA
-            (default: the project); anything outside is refused, never written
+Scope       work items of type KZ_TRACKER_ADO_TYPE (default Task; Change in process mode) under the area
+            path KZ_TRACKER_AREA (default: the project); anything outside is refused, never written
 Identity    IdentityRef.id GUIDs, lowercase: whoami, comment authors, PR closedBy (KZ_TRACKER_BOTS lists GUIDs)
-Labels      type/* and status/* are System.Tags; every write is a JSON Patch led by `test /rev`
+Labels      KZ_TRACKER_ADO_MODE=tags (default): type/* and status/* are System.Tags.
+            KZ_TRACKER_ADO_MODE=process: status/* is System.State (STATE_OF), type/* is Custom.ChangeType,
+            so the server holds exactly one status; removing a status is a no-op. Other labels stay tags.
+            Every write is a JSON Patch led by `test /rev`
 Text        Descriptions are created in Markdown mode; HTML items are refused. Markers are Markdown comments
 """
 import http.client
@@ -35,6 +38,11 @@ PATCH_TYPE = "application/json-patch+json"
 BATCH = 200  # workitemsbatch limit
 BUILD_PAGES = 5  # pr_checks searches the 1000 most recent builds of the project for the SHA
 CLOSED_CATEGORIES = ("Completed", "Removed")
+MODES = ("tags", "process")
+TYPE_FIELD = "Custom.ChangeType"
+STATE_OF = {"backlog": "Backlog", "ready": "Ready", "in-progress": "In Progress", "blocked": "Blocked",
+            "review": "Review", "done": "Done", "dropped": "Removed"}  # process mode: status -> System.State
+STATUS_OF = {state: status for status, state in STATE_OF.items()}
 _PR_URL_RE = re.compile(r"/([^/]+)/_git/([^/?#]+)/pullrequest/(\d+)", re.IGNORECASE)
 _REMOTES = (
     re.compile(r"^https://(?:[^@/]+@)?dev\.azure\.com/(?P<org>[^/]+)/(?P<project>[^/]+)/_git/(?P<repo>[^/?#]+)"),
@@ -108,6 +116,11 @@ def wiql_str(text: str) -> str:
     return "'" + text.replace("'", "''") + "'"
 
 
+def status_label(state: str) -> str:
+    """status/<x> for a System.State; a state outside STATE_OF keeps its own name (label-lint reports it)."""
+    return "status/" + STATUS_OF.get(state, state.lower().replace(" ", "-"))
+
+
 def strip_ref(ref: Optional[str]) -> str:
     ref = ref or ""
     return ref[len("refs/heads/") :] if ref.startswith("refs/heads/") else ref
@@ -130,9 +143,9 @@ class AdoBackend(tracker.Backend):
     def __init__(self, repo: Optional[str] = None, transport=None, mode: Optional[str] = None):
         self.base, self.project, self.repo = resolve(repo)
         self.mode = (mode or os.environ.get("KZ_TRACKER_ADO_MODE") or "tags").strip().lower()
-        if self.mode != "tags":
-            raise tracker.TrackerError(f"KZ_TRACKER_ADO_MODE={self.mode!r}: expected tags")
-        self.wit = os.environ.get("KZ_TRACKER_ADO_TYPE") or "Task"
+        if self.mode not in MODES:
+            raise tracker.TrackerError(f"KZ_TRACKER_ADO_MODE={self.mode!r}: expected tags or process")
+        self.wit = os.environ.get("KZ_TRACKER_ADO_TYPE") or ("Change" if self.mode == "process" else "Task")
         self.area = os.environ.get("KZ_TRACKER_AREA") or self.project
         self.transport = transport or urllib_transport
         self._token: Optional[str] = None
@@ -248,8 +261,27 @@ class AdoBackend(tracker.Backend):
                                        "or record the change with `tracker new`")
         return d
 
+    def _split(self, labels: list) -> tuple:
+        """(fields, tags) for a write: in process mode status/* and type/* are fields, the rest tags."""
+        fields: dict = {}
+        tags: list = []
+        for lb in labels:
+            kind, _, value = lb.partition("/")
+            if self.mode == "process" and kind == "status":
+                fields["System.State"] = STATE_OF.get(value, value)
+            elif self.mode == "process" and kind == "type":
+                fields[TYPE_FIELD] = value
+            else:
+                tags.append(lb)
+        return fields, tags
+
     def _labels(self, f: dict) -> list:
-        return split_tags(f.get("System.Tags", ""))
+        labels = split_tags(f.get("System.Tags", ""))
+        if self.mode == "process":
+            labels.append(status_label(f.get("System.State", "")))
+            if f.get(TYPE_FIELD):
+                labels.append("type/" + f[TYPE_FIELD])
+        return labels
 
     def _issue(self, d: dict, comments: list) -> tracker.Issue:
         f = d.get("fields") or {}
@@ -273,6 +305,10 @@ class AdoBackend(tracker.Backend):
         return self._issue(self._item(number), self._comments(number))
 
     def _label_cond(self, label: str) -> str:
+        fields, _ = self._split([label])
+        if fields:
+            field, value = next(iter(fields.items()))
+            return f"[{field}] = {wiql_str(value)}"
         return f"[System.Tags] CONTAINS {wiql_str(label)}"
 
     def list_issues(self, labels: Optional[list] = None, state: str = "open") -> list:
@@ -286,7 +322,7 @@ class AdoBackend(tracker.Backend):
         query = "SELECT [System.Id] FROM WorkItems WHERE " + " AND ".join(conds) + " ORDER BY [System.Id]"
         ids = [int(w["id"]) for w in values(self._request("POST", "_apis/wit/wiql", {"query": query}), "workItems")]
         fields = ["System.Id", "System.Title", "System.Tags", "System.State", "System.WorkItemType",
-                  "System.CreatedBy"]
+                  "System.CreatedBy"] + ([TYPE_FIELD] if self.mode == "process" else [])
         out = []
         for i in range(0, len(ids), BATCH):
             batch = self._request("POST", "_apis/wit/workitemsbatch", {"ids": ids[i : i + BATCH], "fields": fields})
@@ -307,8 +343,10 @@ class AdoBackend(tracker.Backend):
                {"op": "add", "path": "/fields/System.Description", "value": body},
                {"op": "add", "path": "/multilineFieldsFormat/System.Description", "value": "Markdown"},
                {"op": "add", "path": "/fields/System.AreaPath", "value": self.area}]
-        if labels:
-            ops.append({"op": "add", "path": "/fields/System.Tags", "value": "; ".join(labels)})
+        fields, tags = self._split(labels)
+        if tags:
+            fields["System.Tags"] = "; ".join(tags)
+        ops += [{"op": "add", "path": f"/fields/{k}", "value": v} for k, v in fields.items()]
         d = self._request("POST", f"_apis/wit/workitems/${q(self.wit)}", ops, content_type=PATCH_TYPE)
         return self.get_issue(int(d["id"]))
 
@@ -317,14 +355,20 @@ class AdoBackend(tracker.Backend):
         self._patch(number, d["rev"], {"System.Description": body})
 
     def _relabel(self, number: int, add: list, remove: list) -> None:
-        """Read-modify-write of System.Tags under `test /rev`; tags compare case-insensitively, as on the server."""
+        """Read-modify-write under `test /rev`; tags compare case-insensitively, as on the server. In process
+        mode a removed status or type is a no-op: the field is single-valued and the add replaced it."""
         d = self._item(number)
-        tags = self._labels(d.get("fields") or {})
-        drop = {lb.lower() for lb in remove}
+        f = d.get("fields") or {}
+        fields, add_tags = self._split(add)
+        fields = {k: v for k, v in fields.items() if f.get(k) != v}
+        tags = split_tags(f.get("System.Tags", ""))
+        drop = {lb.lower() for lb in self._split(remove)[1]}
         new = [t for t in tags if t.lower() not in drop]
-        new += [lb for lb in add if lb.lower() not in {t.lower() for t in new}]
+        new += [lb for lb in add_tags if lb.lower() not in {t.lower() for t in new}]
         if new != tags:
-            self._patch(number, d["rev"], {"System.Tags": "; ".join(new)})
+            fields["System.Tags"] = "; ".join(new)
+        if fields:
+            self._patch(number, d["rev"], fields)
 
     def add_labels(self, number: int, labels: list) -> None:
         self._relabel(number, labels, [])
@@ -351,16 +395,36 @@ class AdoBackend(tracker.Backend):
     def _tag_names(self) -> list:
         return [t.get("name", "") for t in values(self._request("GET", "_apis/wit/tags", api_version=TAGS_API))]
 
+    def _allowed(self, field: str) -> list:
+        """The values the work item type accepts: its states, or a picklist field's allowed values."""
+        if field == "System.State":
+            return [s.get("name") for s in self._wit_states()]
+        d = self._request("GET", f"_apis/wit/workitemtypes/{q(self.wit)}/fields/{q(field)}?$expand=allowedValues")
+        return list(d.get("allowedValues") or [])
+
     def ensure_label(self, name: str, color: str, description: str) -> str:
         """Tags have no colour, description or create call; one exists once a work item uses it.
-        So: 'updated' when the project knows the tag, else 'created'; nothing is written."""
+        So: 'updated' when the project knows the tag, else 'created'; nothing is written.
+        Process mode, status/* and type/*: 'updated' when the type has the state or value, else refused."""
+        fields, _ = self._split([name])
+        if fields:
+            field, value = next(iter(fields.items()))
+            if value not in self._allowed(field):
+                raise tracker.Refused(f"{name}: work item type {self.wit} has no {field} `{value}`; "
+                                      "a process admin adds it to the inherited process")
+            return "updated"
         known = {t.lower() for t in self._tag_names()}
         self._ensured.add(name)
         return "updated" if name.lower() in known else "created"
 
     def list_labels(self) -> list:
-        """The project's tags plus the names ensured by this process (a tag appears on first use)."""
-        return sorted(set(self._tag_names()) | self._ensured)
+        """The project's tags plus the names ensured by this process (a tag appears on first use);
+        in process mode also the type's states as status/<x> and its change types as type/<x>."""
+        names = set(self._tag_names()) | self._ensured
+        if self.mode == "process":
+            names |= {status_label(s) for s in self._allowed("System.State")}
+            names |= {"type/" + v for v in self._allowed(TYPE_FIELD)}
+        return sorted(names)
 
     # -- pull requests and builds ---------------------------------------------
 

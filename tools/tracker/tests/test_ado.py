@@ -1,4 +1,4 @@
-"""Azure DevOps support: backend choice by origin host (A1) and AdoBackend on the fake REST API (A2)."""
+"""Azure DevOps support: backend choice by origin host (A1), AdoBackend on the fake REST API (A2), process mode (A7)."""
 import io
 
 import pytest
@@ -326,3 +326,63 @@ def test_owner_done_refuses_a_bot_merger_and_a_partial_build(tracker, ado_fake, 
     monkeypatch.setenv("KZ_TRACKER_BOTS", BOT)
     code, out = run(tracker, backend, DONE, human=True)
     assert code == 2 and "not a human" in out and "check `ci` is failure" in out
+
+
+# --- process mode: status/* is System.State (plan A7) ---------------------------------------------
+
+
+def test_mode_comes_from_the_env_and_is_checked(tracker, ado, ado_fake, monkeypatch):
+    _, fake = ado_fake()
+    monkeypatch.setenv("KZ_TRACKER_ADO_MODE", "process")
+    backend = ado.AdoBackend("org/proj/repo", transport=fake)
+    assert (backend.mode, backend.wit) == ("process", "Change")
+    monkeypatch.setenv("KZ_TRACKER_ADO_MODE", "states")
+    with pytest.raises(tracker.TrackerError, match="expected tags or process"):
+        ado.AdoBackend("org/proj/repo", transport=fake)
+
+
+def test_process_mode_maps_status_and_type_to_fields(tracker, ado_fake):
+    backend, fake = ado_fake("process")
+    issue = backend.create_issue("t", "b", ["type/bug", "status/backlog", "custom"])
+    f = fake.items[issue.number]["fields"]
+    assert (f["System.State"], f["Custom.ChangeType"], f["System.Tags"]) == ("Backlog", "bug", "custom")
+    assert sorted(backend.get_issue(issue.number).labels) == ["custom", "status/backlog", "type/bug"]
+    backend.add_labels(issue.number, ["status/in-progress"])
+    assert fake.items[issue.number]["fields"]["System.State"] == "In Progress"
+    calls = len(fake.calls)
+    backend.remove_labels(issue.number, ["status/backlog", "type/bug"])
+    assert all(c[0] == "GET" for c in fake.calls[calls:]), "removing a status or type writes nothing"
+    assert [i.number for i in backend.list_issues(["status/in-progress", "type/bug"])] == [issue.number]
+    assert backend.list_issues(["status/ready"]) == []
+    wiql = [c[3]["query"] for c in fake.calls if c[1].endswith("/wiql")][-1]
+    assert "[System.State] = 'Ready'" in wiql and "System.Tags" not in wiql
+
+
+def test_process_mode_labels_sync_checks_the_process(tracker, ado_fake):
+    backend, fake = ado_fake("process")
+    code, out = run(tracker, backend, ["owner", "labels-sync"], human=True)
+    assert code == 0 and "0 created, 12 updated" in out
+    assert {"status/dropped", "status/in-progress", "type/agent-note"} <= set(backend.list_labels())
+    fake.states["Change"] = [s for s in fake.states["Change"] if s[0] != "Blocked"]
+    backend._states.clear()
+    code, out = run(tracker, backend, ["owner", "labels-sync"], human=True)
+    assert code == 2 and "no System.State `Blocked`" in out and "process admin" in out
+    fake.picklists["Custom.ChangeType"].remove("handoff")
+    with pytest.raises(tracker.Refused, match="Custom.ChangeType `handoff`"):
+        backend.ensure_label("type/handoff", "", "")
+
+
+def test_process_mode_end_to_end_and_the_board_drag_lint(tracker, label_lint, ado_fake, tmp_path):
+    backend, fake = ado_fake("process")
+    in_review(tracker, backend, fake, tmp_path)
+    assert fake.items[1]["fields"]["System.State"] == "Review"
+    fake.complete_pr(7, merge_sha="m3rg3", closed_by=HUMAN)
+    fake.add_build("m3rg3")
+    code, out = run(tracker, backend, DONE, human=True)
+    assert code == 0, out
+    assert backend.get_issue(1).state == "closed" and fake.items[1]["fields"]["System.State"] == "Done"
+    assert label_lint.findings(backend) == []
+    other = backend.create_issue("dragged", "b", ["type/todo", "status/backlog"])
+    fake.items[other.number]["fields"]["System.State"] = "Ready"  # a board drag, no tracker verb
+    found = {i.number: p for i, p in label_lint.findings(backend)}
+    assert list(found) == [other.number] and "state without a matching marker" in found[other.number][0]

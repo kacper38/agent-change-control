@@ -26,7 +26,7 @@ import subprocess
 import sys
 from typing import Callable, Optional
 
-VERSION = "0.4.1"
+VERSION = "0.5.0"
 
 # ----------------------------------------------------------------------------
 # Harness normalization
@@ -843,6 +843,19 @@ _CURL_MUTATING_FLAGS = {"-d", "--data", "--data-raw", "--data-binary", "--data-u
                         "--upload-file", "--post-data", "--post-file"}
 _ISSUE_API_RE = re.compile(r"(^|/)repos/[^/\s]+/[^/\s]+/(issues|labels)(/|$|\?)")
 TRACKER_MSG = "tracker-guard: {what}. Use {use}; the tracker is the only writer of issues and labels."
+# Azure DevOps: work items are the issues, tags the labels; any host, so Azure DevOps Server paths count too
+_AZ_WORK_ITEM_REPLACEMENT = {
+    "create": _GH_ISSUE_REPLACEMENT["create"],
+    "update": "`tracker claim|block|review` for status tags, `tracker note N \"text\"` for comments; "
+              "bodies are frozen after ready",
+    "delete": _GH_ISSUE_REPLACEMENT["delete"],
+    "relation": "nothing: ask the owner",
+}
+_AZ_RELATION_READS = {"show", "list-type"}
+_ADO_WIT_RE = re.compile(r"/_apis/wit(/|\?|$)", re.IGNORECASE)
+_BYPASS_RULES_RE = re.compile(r"bypassRules\s*=\s*true|--bypass-rules\b", re.IGNORECASE)
+_HTTP_VERBS = {"POST", "PATCH", "PUT", "DELETE"}
+_HTTPIE_SEP_RE = re.compile(r":=|==|=|:|@")  # httpie/xh request items: the first separator decides the kind
 
 
 def _flag_value(seg: list[str], names: set) -> Optional[str]:
@@ -855,11 +868,88 @@ def _flag_value(seg: list[str], names: set) -> Optional[str]:
     return None
 
 
+def _az_flag_on(seg: list[str], name: str) -> bool:
+    """An az three-state flag is on when given bare or with any value but `false`."""
+    for i, t in enumerate(seg):
+        if t == name:
+            return (seg[i + 1] if i + 1 < len(seg) else "").lower() != "false"
+        if t.startswith(name + "="):
+            return t[len(name) + 1 :].lower() != "false"
+    return False
+
+
+def _http_writes(seg: list[str], head: str, url: str) -> bool:
+    """curl/wget/httpie/xh: an explicit write method, a data flag, or httpie's implicit POST (data items)."""
+    method = (_flag_value(seg, {"-X", "--request", "--method"}) or "").upper()
+    if not method:  # curl -XPATCH
+        method = next((t[2:].upper() for t in seg[1:] if t.startswith("-X") and len(t) > 2), "")
+    if method in _HTTP_VERBS:
+        return True
+    if any(t.split("=", 1)[0] in _CURL_MUTATING_FLAGS or t.startswith("--data") or t[:2] == "-d" for t in seg[1:]):
+        return True  # `--data-raw=x`, `-d@body.json` and `--post-data=x` count like their spaced forms
+    if head in ("curl", "wget"):
+        return False
+    if any(t.upper() in _HTTP_VERBS for t in seg[1:]):
+        return True
+    for t in seg[1:]:
+        if t == url or t.startswith("-") or "://" in t:
+            continue
+        m = _HTTPIE_SEP_RE.search(t)
+        if m and m.group(0) in (":=", "=", "@"):  # `field=v`, `field:=json`, `field@file`; `H:v` and `q==v` are reads
+            return True
+    return False
+
+
+def _az_tracker_guard(seg: list[str]) -> Optional[Decision]:
+    """`az boards work-item` writes, `az devops invoke`, `az rest` writes to _apis/wit, PR completion shortcuts."""
+    words: list[str] = []
+    for t in seg[1:]:  # az finds its command in the words before the first option
+        if t.startswith("-"):
+            break
+        words.append(t)
+    if words[:2] == ["boards", "work-item"] and words[2:3] and words[2] in _AZ_WORK_ITEM_REPLACEMENT:
+        if words[2] == "relation" and words[3:4] and words[3] in _AZ_RELATION_READS:
+            return None
+        return "deny", TRACKER_MSG.format(what=f"`az boards work-item {words[2]}` bypasses the tracker",
+                                          use=_AZ_WORK_ITEM_REPLACEMENT[words[2]])
+    if words[:2] == ["devops", "invoke"]:
+        return "deny", TRACKER_MSG.format(what="`az devops invoke` is a generic REST writer",
+                                          use="the tracker verbs (reads: `tracker list|show`)")
+    if words[:1] == ["rest"]:
+        uri = _flag_value(seg, {"--uri", "--url", "-u"}) or ""
+        method = (_flag_value(seg, {"--method", "-m"}) or "GET").upper()
+        body = any(t in ("--body", "-b") or t.startswith("--body=") for t in seg)
+        if _ADO_WIT_RE.search(uri) and (method in _HTTP_VERBS or body):
+            return "deny", TRACKER_MSG.format(what=f"`az rest {method}` writes work items at {uri}",
+                                              use="the tracker verbs")
+    if words[:2] == ["repos", "pr"] and words[2:3] in (["create"], ["update"]):
+        verb = f"az repos pr {words[2]}"
+        if (_flag_value(seg, {"--status"}) or "").lower() == "completed":
+            return "deny", TRACKER_MSG.format(what=f"`{verb} --status completed` merges behind the tracker",
+                                              use="the web UI (a human completes the PR), then `tracker owner done N`")
+        if _az_flag_on(seg, "--transition-work-items"):
+            return "deny", TRACKER_MSG.format(what=f"`{verb} --transition-work-items` moves work items on merge",
+                                              use="`tracker owner done N` (a human runs it); pass "
+                                                  "`--transition-work-items false`")
+        if _az_flag_on(seg, "--bypass-policy"):
+            return "deny", TRACKER_MSG.format(what=f"`{verb} --bypass-policy` skips the branch policies",
+                                              use="nothing: policies are never bypassed; ask the owner")
+    return None
+
+
 def rule_tracker_guard(ev: Event, cfg: dict) -> Optional[Decision]:
     if ev.event != "PreToolUse" or ev.kind != "shell" or not ev.command:
         return None
-    for seg in segments(strip_heredocs(ev.command)):
+    command = strip_heredocs(ev.command)
+    if _BYPASS_RULES_RE.search(command):
+        return "deny", TRACKER_MSG.format(what="`bypassRules` skips the work item rules",
+                                          use="the tracker verbs; process rules are never bypassed")
+    for seg in segments(command):
         head = os.path.basename(seg[0])
+        if head == "az":
+            d = _az_tracker_guard(seg)
+            if d:
+                return d
         if head == "gh" and len(seg) >= 3 and seg[1] == "issue" and seg[2] in _GH_ISSUE_REPLACEMENT:
             label = _flag_value(seg, {"--label", "-l"})
             if seg[2] == "create" and label and set(label.split(",")) <= _TEMP_ALLOWED_LABELS:
@@ -885,14 +975,10 @@ def rule_tracker_guard(ev: Event, cfg: dict) -> Optional[Decision]:
                 return "deny", TRACKER_MSG.format(what=f"`gh api {method} {path}` writes issues or labels",
                                                   use="the tracker verbs")
         if head in ("curl", "wget", "http", "https", "xh"):
-            url = next((t for t in seg[1:] if "api.github.com/repos/" in t), "")
-            if url and _ISSUE_API_RE.search(url):
-                method = (_flag_value(seg, {"-X", "--request", "--method"}) or "").upper()
-                verbs = {"POST", "PATCH", "PUT", "DELETE"}
-                mutating = (method in verbs or any(t in _CURL_MUTATING_FLAGS for t in seg)
-                            or (head != "curl" and head != "wget" and any(t.upper() in verbs for t in seg[1:])))
-                if mutating:
-                    return "deny", TRACKER_MSG.format(what=f"`{head}` writes to {url}", use="the tracker verbs")
+            url = next((t for t in seg[1:] if ("api.github.com/repos/" in t and _ISSUE_API_RE.search(t))
+                        or _ADO_WIT_RE.search(t)), "")
+            if url and _http_writes(seg, head, url):
+                return "deny", TRACKER_MSG.format(what=f"`{head}` writes to {url}", use="the tracker verbs")
         words = seg[1:] if head in ("python", "python3") else seg
         if words and os.path.basename(words[0]) in ("tracker", "tracker.py") and "owner" in words[1:2]:
             use = "`tracker new|claim|block|review|note`; ask the owner to promote or close"

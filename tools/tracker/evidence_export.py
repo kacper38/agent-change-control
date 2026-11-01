@@ -20,9 +20,10 @@
 Schema change-records/2 = /1 plus forge, api_version, tools.transport, completion_options (per PR), revisions
 (per issue), policies, branch_acl, branch_acl_note and retention; a section the forge lacks is null (rulesets on
 Azure DevOps, the Azure DevOps sections on GitHub). On Azure DevOps a review also carries `vote` (the raw value
-its state maps from) and `source`, a check `raw_result` and `blocking`. Timestamps stay as the forge wrote them
-and compare as datetimes. Standard library plus gh on GitHub; never writes to the forge. `validation-evidence`
-calls both verbs.
+its state maps from) and `source`, a check `raw_result` and `blocking`. A work item a PR references outside the
+tracker's type and area path, or one that does not exist, is `{number, pull_requests, skipped}` only (ids are
+organisation-wide on Azure DevOps). Timestamps stay as the forge wrote them and compare as datetimes. Standard
+library plus gh on GitHub; never writes to the forge. `validation-evidence` calls both verbs.
 """
 import argparse
 import datetime as _dt
@@ -550,12 +551,13 @@ def collect_ado(reader: AdoReader, git: Callable, repo: str, frm: str, to: str, 
     day = _dt.timedelta(days=1)
     # a PR into the range closed inside the window (the server makes the merge commit at completion); a day
     # on each side for clock skew. Without the window the listing reads the repository's whole PR history.
-    stamp = "%Y-%m-%dT%H:%M:%SZ"
+    stamp = "%Y-%m-%dT%H:%M:%SZ"  # the literal Z: both bounds are converted to UTC first
+    utc = _dt.timezone.utc
     listing = reader.skip_pages(f"{repo_path}/pullrequests?searchCriteria.status=completed"
                                 f"&searchCriteria.targetRefName={ado.q(branch)}"
                                 f"&searchCriteria.queryTimeRangeType=closed"
-                                f"&searchCriteria.minTime={since - day:{stamp}}"
-                                f"&searchCriteria.maxTime={until + day:{stamp}}")
+                                f"&searchCriteria.minTime={(since - day).astimezone(utc):{stamp}}"
+                                f"&searchCriteria.maxTime={(until + day).astimezone(utc):{stamp}}")
     members, excluded = [], []
     for item in listing:
         number, sha = int(item["pullRequestId"]), (item.get("lastMergeCommit") or {}).get("commitId")

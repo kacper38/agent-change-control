@@ -386,3 +386,18 @@ def test_process_mode_end_to_end_and_the_board_drag_lint(tracker, label_lint, ad
     fake.items[other.number]["fields"]["System.State"] = "Ready"  # a board drag, no tracker verb
     found = {i.number: p for i, p in label_lint.findings(backend)}
     assert list(found) == [other.number] and "state without a matching marker" in found[other.number][0]
+
+
+def test_in_scope_is_the_tracker_type_under_its_area_path(ado_fake):
+    backend, fake = ado_fake()
+    backend.area = f"{fake.project}\\Kit"
+
+    def item(area, wit="Task"):
+        return {"fields": {"System.AreaPath": area, "System.WorkItemType": wit}}
+
+    assert backend.in_scope(item(f"{fake.project}\\Kit"))
+    assert backend.in_scope(item(f"{fake.project}\\kit\\Child", "task")), "case-insensitive, children included"
+    assert not backend.in_scope(item(f"{fake.project}\\Kit2")), "a sibling node that shares the prefix"
+    assert not backend.in_scope(item(fake.project)), "the parent node"
+    assert not backend.in_scope(item(f"{fake.project}\\Kit", "Bug")), "another type under the area"
+    assert not backend.in_scope({})

@@ -168,8 +168,8 @@ Set:
   It never holds `ForcePush`, `PolicyExempt`, `PullRequestBypassPolicy`,
   `BYPASS_RULES` or `WORK_ITEM_DELETE`.
 - `KZ_TRACKER_BOTS`: the lowercase GUIDs of the Build Service and of every
-  service principal, comma-separated, as a pipeline variable and in the shell
-  where a human runs `tracker owner done`.
+  service principal, comma-separated, in the shell where a human runs
+  `tracker owner done` (nothing in the pipelines reads it).
 
 Why: Azure DevOps identities carry no `[bot]` suffix; `owner done` refuses a
 merge whose `closedBy.id` is on the list, and nothing else tells a pipeline

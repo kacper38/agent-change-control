@@ -54,6 +54,9 @@ CASES: dict = {
         ("allow", "edit", {"path": "main.tf"}),
         ("allow", "edit", {"path": "src/keys.py"}),
         ("allow", "write", {"path": "~/.ssh/id_ed25519.pub", "content": "ssh-ed25519 AAAA"}),
+        ("deny", "write", {"path": "~/.azure/config", "content": "[core]"}),
+        ("deny", "edit", {"path": "~/.azure/msal_token_cache.json"}),
+        ("allow", "write", {"path": "ci/azure-pipelines.yml", "content": "trigger: [main]"}),
     ],
     "secret-read": [
         ("ask", "read", {"path": ".env"}),
@@ -67,6 +70,10 @@ CASES: dict = {
         ("allow", "read", {"path": "README.md"}),
         ("allow", "read", {"path": "src/config.py"}),
         ("allow", "read", {"path": "infra/prod.tfvars"}),
+        ("ask", "read", {"path": "~/.azure/msal_token_cache.json"}),
+        ("ask", "read", {"path": "~/.azure/azuredevops/personalAccessTokens"}),
+        ("allow", "read", {"path": "ci/azure-pipelines.yml"}),
+        ("allow", "read", {"path": "infra/azure/main.bicep"}),
     ],
     "secret-shell": [
         *shell(
@@ -88,6 +95,10 @@ CASES: dict = {
             "cat > notes.md <<'EOF'\nTo rotate: echo NEW=1 > .env and restart\nEOF",
             "python3 - <<'PY'\nopen('.env.example').read()\nPY\necho done",
         ),
+        # Azure CLI token caches (ADO port step A3)
+        *shell("deny", "echo '[core]' > ~/.azure/config"),
+        *shell("ask", "cat ~/.azure/msal_token_cache.json", "tar czf /tmp/az.tgz ~/.azure"),
+        *shell("allow", "az account show", "cat ci/azure-pipelines.yml"),
     ],
     "git-guard": [
         *shell(

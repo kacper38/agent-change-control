@@ -1,0 +1,21 @@
+{
+  "_fixture": {
+    "case": {
+      "command": "cat ci/azure-pipelines.yml"
+    },
+    "format": "vscode",
+    "harness": "copilot",
+    "rule": "secret-shell",
+    "source": "synthesized 2026-10-29 from the GitHub hooks reference and VS Code hooks docs; replace with a capture from VS Code + Copilot (plan step 1.3 on the work machine)"
+  },
+  "cwd": "/work/repo",
+  "hook_event_name": "PreToolUse",
+  "session_id": "0f6c2c9e-0000-4000-8000-000000000001",
+  "timestamp": "2026-10-29T10:00:00.000Z",
+  "tool_input": {
+    "command": "cat ci/azure-pipelines.yml"
+  },
+  "tool_name": "bash",
+  "tool_use_id": "call_00000001",
+  "transcript_path": "~/.copilot/session-state/<session>/events.jsonl"
+}

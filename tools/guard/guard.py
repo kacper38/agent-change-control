@@ -351,6 +351,9 @@ _SECRET_IN_DIR = {
     ("gh", "hosts.yml"): "~/.config/gh/hosts.yml",
     (".docker", "config.json"): "~/.docker/config.json",
 }
+# the directory itself and everything under it: Azure CLI token caches (msal_token_cache.*), service principal
+# entries, the azure-devops extension's PAT fallback store; any `.azure` directory, as for the pairs above
+_SECRET_DIRS = {".azure"}
 
 
 def secret_class(path: Optional[str]) -> Optional[str]:
@@ -362,6 +365,8 @@ def secret_class(path: Optional[str]) -> Optional[str]:
     if _EXAMPLE_RE.search(base):
         return None
     if (parent, base) in _SECRET_IN_DIR:
+        return "secret"
+    if _SECRET_DIRS.intersection(path.replace("\\", "/").split("/")):
         return "secret"
     if _SECRET_NAME_RE.match(base):
         return "secret"

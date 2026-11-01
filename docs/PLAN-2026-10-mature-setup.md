@@ -38,7 +38,7 @@ Method: inventory of four repos → three design lenses → one adversarial skep
 2. **Q6** — Bot identity for agent sessions, decided at step 2.8 after two weeks of dogfood: a GitHub App (short-lived installation tokens, author shows as `app[bot]`, no second e-mail, needs a 30-line token helper) or a machine user with a fine-grained PAT (simpler, one more account to keep). Default recommendation: GitHub App.
 3. **Q7** — Commit trailer `Co-Authored-By: Claude …` allowed, neither required nor banned. Default: yes.
 4. **Q-B (new)** — The work pilot (step 3.9): which repo; is it on GitHub Enterprise (then the GitHub adapter works as is) or another tracker (then `tracker` stays read-only there until an adapter exists); which model names the work picker shows. Needed before step 3.9, not before.
-5. Deferred with Appendix A: Q-A (forge on a VPS vs pierun) and Q3 (`git.kacperhomelab.org`). Q4 is settled by rev 5: the private app repo stays on GitHub.
+5. Deferred with Appendix A: Q-A (forge on a VPS vs pierun) and Q3 (the home forge hostname). Q4 is settled by rev 5: the private app repo stays on GitHub.
 
 ## 3. Step plan (one step = one commit with its verification; S < 1 h, M ≈ half day, L = days)
 

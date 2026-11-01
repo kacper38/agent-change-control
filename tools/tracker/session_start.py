@@ -47,11 +47,14 @@ def main(argv: list) -> int:
     alarm = hasattr(signal, "SIGALRM")  # Windows has none: the backend's own timeouts are the budget there
     try:
         if alarm:
-            signal.signal(signal.SIGALRM, _timeout)
+            previous = signal.signal(signal.SIGALRM, _timeout)
             signal.alarm(BUDGET_SECONDS)
-        lines = digest(tracker.backend_for(argv[0] if argv else None))
-        if alarm:
-            signal.alarm(0)
+        try:
+            lines = digest(tracker.backend_for(argv[0] if argv else None))
+        finally:
+            if alarm:  # on failure too: a pending alarm fires inside whatever runs next in this process
+                signal.alarm(0)
+                signal.signal(signal.SIGALRM, previous)
     except (TimeoutError, tracker.TrackerError, OSError, ValueError):
         return 0
     for line in lines:

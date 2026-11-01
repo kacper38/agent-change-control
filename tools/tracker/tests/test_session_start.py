@@ -48,3 +48,22 @@ def test_digest_runs_where_sigalrm_is_missing(session_start, monkeypatch):
     with redirect_stdout(out):
         code = session_start.main([])
     assert code == 0 and "#1 ready one" in out.getvalue()
+
+
+def test_failure_leaves_no_alarm_behind(session_start, monkeypatch):
+    trk = session_start.tracker
+    sig = session_start.signal
+
+    class Broken(trk.Backend):
+        def __init__(self, repo=None):
+            pass
+
+        def list_issues(self, labels=None, state="open"):
+            raise trk.TrackerError("gh: not logged in")
+
+    monkeypatch.setattr(trk, "backend_for", Broken)
+    before = sig.getsignal(sig.SIGALRM)
+    with redirect_stdout(io.StringIO()):
+        session_start.main([])
+    assert sig.alarm(0) == 0, "a pending alarm fires inside whatever runs next (seen as a killed git push)"
+    assert sig.getsignal(sig.SIGALRM) is before

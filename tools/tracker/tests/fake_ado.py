@@ -16,6 +16,7 @@ LIST_DESCRIPTION in list items), PR threads with votes (`vote`), policy evaluati
 ClosedDate (date precision only) and build retention. `now` is the server clock for the dates it stamps;
 entering a Completed-category state stamps ClosedDate and ClosedBy, as the process rules do.
 """
+import datetime as _dt
 import json
 import re
 import urllib.parse
@@ -35,6 +36,14 @@ _WIQL_RE = re.compile(r"SELECT \[System\.Id\] FROM WorkItems WHERE (?P<where>.+)
 _ARTIFACT_RE = re.compile(r"vstfs:///CodeReview/CodeReviewId/(?P<project>[^/]+)/(?P<pr>\d+)")
 
 
+def _ts(text: str) -> _dt.datetime:
+    """The fake's clock reader: UTC only (`Z` or `+00:00`), any fraction length (the live API sends seven digits)."""
+    m = re.fullmatch(r"(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)(?:\.(\d+))?(?:Z|\+00:00)", text or "")
+    if not m:
+        raise FakeError(400, f"the fake reads UTC timestamps only: {text!r}")
+    return _dt.datetime.fromisoformat(m.group(1) + "." + (m.group(2) or "")[:6].ljust(6, "0") + "+00:00")
+
+
 class FakeError(Exception):
     def __init__(self, status: int, message: str):
         super().__init__(message)
@@ -49,7 +58,7 @@ class FakeAdo:
         self.org, self.project, self.repo = org, project, repo
         self.base = f"https://dev.azure.com/{org}"
         self.user, self.token, self.page = user, token, page
-        self.states = {"Task": list(AGILE_TASK)}
+        self.states = {"Task": list(AGILE_TASK), "Bug": list(AGILE_TASK)}  # Bug: a second type, for scope tests
         self.picklists: dict = {}  # field -> allowed values, on the Change type
         if process:
             self.states["Change"] = list(KIT_CHANGE)
@@ -483,9 +492,19 @@ class FakeAdo:
     def _list_prs(self, query, body, repo) -> dict:
         self._repository(query, body, repo)
         status, target = query.get("searchCriteria.status", "active"), query.get("searchCriteria.targetRefName")
+        lo, hi = query.get("searchCriteria.minTime"), query.get("searchCriteria.maxTime")
+        if (lo or hi) and query.get("searchCriteria.queryTimeRangeType", "created") != "closed":
+            raise FakeError(400, "the fake filters a time range on closedDate only (queryTimeRangeType=closed)")
+
+        def in_window(p: dict) -> bool:
+            closed = p.get("closedDate")
+            if not (lo or hi):
+                return True
+            return bool(closed) and (not lo or _ts(closed) >= _ts(lo)) and (not hi or _ts(closed) <= _ts(hi))
+
         rows = [dict(p, description=(p.get("description") or "")[:LIST_DESCRIPTION])
                 for _, p in sorted(self.prs.items(), reverse=True)
-                if status in ("all", p["status"]) and target in (None, p["targetRefName"])]
+                if status in ("all", p["status"]) and target in (None, p["targetRefName"]) and in_window(p)]
         page = self._skip_page(rows, query)
         return {"count": len(page), "value": page}
 

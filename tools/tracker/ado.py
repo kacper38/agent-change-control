@@ -242,6 +242,12 @@ class AdoBackend(tracker.Backend):
             self._states[wit] = values(self._request("GET", f"_apis/wit/workitemtypes/{q(wit)}/states"))
         return self._states[wit]
 
+    def in_scope(self, d: dict) -> bool:
+        """Whether a work item (as the API returns it) is of the tracker's type under its area path."""
+        f = d.get("fields") or {}
+        area, wit = str(f.get("System.AreaPath", "")).lower(), str(f.get("System.WorkItemType", "")).lower()
+        return (area == self.area.lower() or area.startswith(self.area.lower() + "\\")) and wit == self.wit.lower()
+
     def _item(self, number: int) -> dict:
         """The full work item (no `fields=`, which would drop multilineFieldsFormat), checked for scope and format."""
         try:
@@ -250,8 +256,7 @@ class AdoBackend(tracker.Backend):
             raise tracker.TrackerError(f"work item #{number} not found") from None
         f = d.get("fields") or {}
         area, wit = str(f.get("System.AreaPath", "")), str(f.get("System.WorkItemType", ""))
-        if not (area.lower() == self.area.lower() or area.lower().startswith(self.area.lower() + "\\")) \
-                or wit.lower() != self.wit.lower():
+        if not self.in_scope(d):
             raise tracker.TrackerError(f"work item #{number} ({wit} in {area}) is outside the tracker's scope "
                                        f"({self.wit} under {self.area}); set KZ_TRACKER_AREA / KZ_TRACKER_ADO_TYPE")
         fmt = str((d.get("multilineFieldsFormat") or {}).get("System.Description", "")).lower()

@@ -2,7 +2,7 @@
 
 A change-control kit for **AI-assisted platform engineering in regulated
 (GxP) environments**: a working agreement, deterministic hooks, a tracker on
-GitHub Issues and an evidence export, shipped as plain files that
+GitHub Issues or Azure Boards and an evidence export, shipped as plain files that
 [Claude Code](https://claude.com/claude-code) and VS Code + GitHub Copilot
 read the same way. Built for taking a service from ticket to running,
 auditable infrastructure, with AI/RAG workloads as a first-class concern.
@@ -20,7 +20,13 @@ git clone https://github.com/kacper38/agent-change-control.git
 ./agent-change-control/install.sh --into <your-task-repo>
                                        # copies what kit.manifest lists,
                                        # writes .claude/kit-version
+                                       # forge from the origin; override
+                                       # with --forge github|ado
 ```
+
+An Azure DevOps target gets `azure-pipelines.yml`, `azure-pipelines-label-lint.yml`
+and `docs/ADO-ADMIN.md` instead of the GitHub workflows and issue forms; see
+[`docs/USING-AT-WORK.md`](docs/USING-AT-WORK.md) §7.
 
 Into the home account, Claude Code only (agents and skills under `~/.claude`):
 
@@ -41,7 +47,7 @@ Process & compliance core:
 | Agent | Role |
 |---|---|
 | `platform-planner` | Plan before code: assumptions, questions, steps with a verification command each, trade-offs, cut line |
-| `infra-reviewer` | Dockerfile / GitHub Actions / Terraform / compose review — correctness and best practices |
+| `infra-reviewer` | Dockerfile / GitHub Actions / Azure Pipelines / Terraform / compose review — correctness and best practices |
 | `gxp-compliance-reviewer` | Same artifacts through a GAMP 5 auditor's lens: audit trail, ALCOA+, validation evidence |
 | `rag-infra-advisor` | AI-infra decisions: vector store, private LLM endpoints, model+prompt+index versioning, eval in CI, cost, data residency |
 
@@ -82,10 +88,11 @@ Anti-over-engineering (the lazy family):
 | `/ponytail-audit` | Same lens over the whole repo — ranked by removable lines/deps |
 | `/ponytail-debt` | Harvest `ponytail:` markers into a debt ledger with upgrade triggers |
 
-## Tracker — GitHub Issues as the system of record
+## Tracker — GitHub Issues or Azure Boards as the system of record
 
 `tools/tracker/tracker.py` is the only writer of issues and labels an agent uses
-(the `tracker-guard` hook denies `gh issue …`, `gh label …` and raw API writes).
+(the `tracker-guard` hook denies `gh issue …`, `gh label …`, `az boards work-item`
+writes, `az devops invoke`, any `bypassRules` and raw API writes).
 State lives in two label families, `type/*` and `status/*`, with a transition
 table that says who may move what:
 
@@ -104,6 +111,16 @@ Owner verbs refuse without a TTY, so an agent cannot promote or close. The
 never edits them. Issue forms under `.github/ISSUE_TEMPLATE/` carry the
 definition-of-ready fields.
 
+The backend follows the origin (`KZ_TRACKER_BACKEND=github|ado` overrides it).
+On Azure DevOps, `tools/tracker/ado.py` keeps the same verbs over the REST API
+with an Entra token (no PAT): issues are work items under one area path,
+labels are tags (`tags` mode, the default) or, in `process` mode, the
+`System.State` of a custom `Change` type with server-side transition rules.
+label-lint runs as the nightly `azure-pipelines-label-lint.yml`. Verified
+offline against a fake API; live run deferred. Settings and env vars:
+[`docs/USING-AT-WORK.md`](docs/USING-AT-WORK.md) §7 and
+[`docs/ADO-ADMIN.md`](docs/ADO-ADMIN.md).
+
 ## Review and egress
 
 - `bin/fresh-review` sends `origin/main...HEAD` (through the egress screen) to a
@@ -115,6 +132,10 @@ definition-of-ready fields.
   size, and the client boundary. Held items are listed, counted and never dropped (exit 3).
 - `.githooks/commit-msg` (`core.hooksPath`, set by the installer) enforces
   `type(scope): imperative subject`, no closing keywords; CI re-checks the PR range.
+- On Azure DevOps, `azure-pipelines.yml` runs the same gates (test, commit-msg,
+  guards, aggregated by `ci`) on `main` and, through a build-validation branch
+  policy, on every PR; it leases every run that is not a PR build, so the logs
+  of `main` outlive the retention period.
 
 ## Guards (hook feedback now, CI red later)
 
@@ -125,7 +146,7 @@ definition-of-ready fields.
   test file; the CI job `guards` runs it against the PR base. A removal passes only
   with the human-applied `test-removal-ok` PR label.
 - `tools/scan/latest_tag.py`: `:latest` or untagged image references in Dockerfiles,
-  compose files and workflows (digests, build stages and `scratch` pass). `hook` judges
+  compose files, workflows and `azure-pipelines*.yml` (digests, build stages and `scratch` pass). `hook` judges
   the file just written; `scan [PATH...]` walks the tracked tree in CI, exit 1 on findings.
 
 ## Evidence pack
@@ -136,6 +157,10 @@ definition-of-ready fields.
   from `gh api`: PRs merged in the git range (merge SHAs, reviews, check runs), the
   issues they reference or that closed in the window (tracker markers, acceptance boxes),
   rulesets, the captures re-hashed, tool versions. `/validation-evidence` runs both.
+- On Azure DevOps, `capture` works as is; `export` reads GitHub today (schema
+  `agent-change-control/change-records/1`). The Azure DevOps reader and schema `/2`
+  (completed PRs, votes, builds and policy evaluations, completion options, work item
+  revisions, policy configurations, branch ACL, retention) are plan step A6.
 
 ## Memory and ledger (Claude Code, home machine)
 
@@ -165,7 +190,8 @@ the task repo, so the principles are always active where you work.
 
 Decisions live in [`DECISIONS.md`](DECISIONS.md); the one-page system
 description in [`docs/SYSTEM.md`](docs/SYSTEM.md); the current plan in
-[`docs/PLAN-2026-10-mature-setup.md`](docs/PLAN-2026-10-mature-setup.md).
+[`docs/PLAN-2026-10-mature-setup.md`](docs/PLAN-2026-10-mature-setup.md), the Azure
+DevOps port in [`docs/PLAN-2026-11-ado-port.md`](docs/PLAN-2026-11-ado-port.md).
 
 A one-page visual overview lives in
 [`setup-overview.html`](setup-overview.html) (Polish). A non-normative study
@@ -180,7 +206,9 @@ GitHub Copilot read the same way: `AGENTS.md`, `.claude/settings.json`
 `tools/guard`, `tools/tracker` and the rest of `kit.manifest`.
 `install.sh --into <repo>` copies them, keeps files the target edited
 locally (unless `--force`) and writes `.claude/kit-version` with the source
-commit. Where the installer may not run, copy by hand:
+commit and the forge (`--forge github|ado`, default: from the origin; entries
+marked `@github` or `@ado` in `kit.manifest` go to that forge only). Where the
+installer may not run, copy by hand:
 
 ```bash
 cp AGENTS.md <repo>/AGENTS.md && printf '@AGENTS.md\n' > <repo>/CLAUDE.md

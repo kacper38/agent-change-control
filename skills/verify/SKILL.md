@@ -9,7 +9,7 @@ When the user runs `/verify`:
 
 ## Detect the project's check commands
 
-Look for the project's check commands in `package.json` scripts, `Makefile`, `justfile`, `pyproject.toml`, or CI config (`.github/workflows/`, etc.). Use what the project defines — don't assume a toolchain.
+Look for the project's check commands in `package.json` scripts, `Makefile`, `justfile`, `pyproject.toml`, or CI config (`.github/workflows/`, `azure-pipelines.yml`, etc.). Use what the project defines — don't assume a toolchain.
 
 ## Steps (stop on first failure)
 

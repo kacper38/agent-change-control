@@ -76,7 +76,7 @@ Bias toward caution over speed; for trivial tasks use judgment.
 - Next.js + TypeScript (strict) for frontends; gate: `eslint` + `tsc --noEmit`
   + `next build`; zod at trust boundaries; `npm ci`, never `npm install`, in CI
 - Docker multi-stage; docker-compose for local deps (db, vector store)
-- GitHub Actions: lint → test → build → push (OIDC)
+- GitHub Actions or Azure Pipelines (same gates): lint → test → build → push (OIDC)
 - Terraform, modular (`variables.tf` / `outputs.tf`, remote state + locking);
   compute: match the client's existing container platform first (enterprise
   pharma often runs EKS/AKS); greenfield default ECS Fargate behind ALB (AWS)
@@ -120,5 +120,8 @@ offers and record the mapping in that repo's `DECISIONS.md`.
   there, so hooks must be fast and never call the network.
 - Copilot CLI and cloud agent: this file; hooks only from `.github/hooks/*.json`;
   the cloud agent treats `ask` as `deny`.
+- Any forge: the kit's `.github/hooks/` and `.github/instructions/` are harness
+  files Copilot reads from the working tree, on Azure Repos as on GitHub (VS Code
+  hooks doc, read 2026-11-01); only the workflows and issue forms are GitHub's.
 - Verified against the VS Code and GitHub docs on 2026-10-29. Plan:
   `docs/PLAN-2026-10-mature-setup.md`; decisions: `DECISIONS.md`.

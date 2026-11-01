@@ -32,6 +32,24 @@ the compliance lens belongs to gxp-compliance-reviewer — don't duplicate it.
   identity federation replace the OIDC block; protected environments (GitLab)
   / environment approvals (ADO) replace protection rules. Same checklist.
 
+**Azure Pipelines**
+- PR validation comes from a build-validation branch policy (YAML `pr:` is
+  ignored on Azure Repos; draft PRs do not run); `trigger: main` so the merge
+  commit gets a build; `fetchDepth: 0` where a job diffs history
+- tasks pinned `Name@X.Y.Z` where a full version is known (no SHA pin exists:
+  name the gap), script steps over Marketplace tasks; `vmImage` explicit, not
+  `*-latest`
+- `System.AccessToken` mapped under `env:` only into the steps that call the
+  REST API, never echoed or passed on argv; job authorization scope limited to
+  the project; the Build Service identity holds no bypass or force-push right
+- service connections use workload identity federation; secrets in secret
+  variables or Key Vault-linked variable groups; deploys run as deployment jobs
+  against Environments with approvals and checks
+- scripts read predefined variables from env (`$BUILD_REASON`), not `$(...)`
+  macros (an undefined macro stays literal); multi-line bash starts with
+  `set -euo pipefail`
+- `main` runs leased (retention lease step) when they are evidence
+
 **Terraform**
 - modules with `variables.tf`/`outputs.tf`; no hardcoded values that should be vars
 - remote backend + state locking declared (or a TODO naming it)

@@ -317,7 +317,8 @@ def cost_report(tdir: str, days: int, out, now: Optional[_dt.datetime] = None) -
     decisions = load_decisions(tdir, since)
     if decisions:
         out.write("hook prompts per rule (ask/deny): " + ", ".join(
-            f"{rule} {v['ask']}/{v['deny']}" for rule, v in sorted(decisions.items())) + "\n")
+            f"{rule} {v['ask']}/{v['deny']}" + (f" skipped {v['skipped']}" if v.get("skipped") else "")
+            for rule, v in sorted(decisions.items())) + "\n")
     return 0
 
 

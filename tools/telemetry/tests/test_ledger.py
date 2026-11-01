@@ -173,6 +173,8 @@ def test_cost_report(ledger, tdir):
         json.dumps({"ts": "2026-10-28T11:00:00Z", "verdict": "ask", "rules": ["delete-guard"]}),  # pre-0.4.1 shape
         json.dumps({"ts": "2026-10-28T11:00:00Z", "verdict": "deny",
                     "rules": {"delete-guard": "ask", "git-guard": "deny"}}),
+        json.dumps({"ts": "2026-10-28T12:00:00Z", "verdict": "skipped",  # guard >= 0.5.1: a rule in rules_off
+                    "rules": {"scratch-md": "skipped"}}),
     ]) + "\n")
     out = io.StringIO()
     assert ledger.cost_report(str(tdir), 7, out, now=now) == 0
@@ -180,7 +182,7 @@ def test_cost_report(ledger, tdir):
     assert "1 sessions in the last 7 days" in text
     assert "alpha" in text and "$0.50" in text and "n/a" in text and "$9.00" not in text
     assert "spawns: 2; sessions with subagent share > 70 %: abcdefgh" in text
-    assert "hook prompts per rule (ask/deny): delete-guard 2/0, git-guard 0/1" in text
+    assert "hook prompts per rule (ask/deny): delete-guard 2/0, git-guard 0/1, scratch-md 0/0 skipped 1" in text
     out = io.StringIO()
     ledger.cost_report(str(tdir / "empty"), 7, out, now=now)
     assert "no sessions" in out.getvalue()

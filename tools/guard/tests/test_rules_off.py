@@ -19,6 +19,16 @@ def test_local_file_sets_rules_off_and_nothing_else(guard, tmp_path, monkeypatch
     cfg = guard.load_config(_repo(tmp_path / "b", local))
     assert cfg["rules_off"] == ["delete-guard"]
     assert (cfg["boundary"], cfg["protected_branches"], cfg["scratch_md_mode"]) == ("own", ["main"], "ask")
+    committed = tmp_path / "c" / ".claude"
+    committed.mkdir(parents=True)
+    committed.joinpath("guard.json").write_text(json.dumps({"rules_off": ["scratch-md"]}))
+    assert guard.load_config(str(tmp_path / "c"))["rules_off"] == ["scratch-md"], "a committed list is policy"
+
+
+def test_env_needs_a_committed_policy(guard, tmp_path, monkeypatch):
+    monkeypatch.setenv("KZ_RULES_OFF", "delete-guard")
+    assert guard.load_config(str(tmp_path))["rules_off"] == [], "no guard.json anywhere above: nothing to relax"
+    assert guard.load_config(_repo(tmp_path))["rules_off"] == ["delete-guard"]
 
 
 def test_malformed_or_unknown_rules_off_is_reported(guard, tmp_path, monkeypatch, capsys):
@@ -56,6 +66,9 @@ def test_run_hook_skips_a_rule_that_is_off(guard, tmp_path, monkeypatch):
     (tmp_path / ".claude" / "guard.local.json").write_text(json.dumps({"rules_off": ["delete-guard"]}))
     guard.run_hook("pre", None)
     assert seen[-1] is None
+    lines = [json.loads(ln) for ln in (tmp_path / "t" / "decisions.jsonl").read_text().splitlines()]
+    assert [(ln["verdict"], ln["rules"]) for ln in lines] == [("ask", {"delete-guard": "ask"}),
+                                                              ("skipped", {"delete-guard": "skipped"})]
 
 
 def test_client_boundary_keeps_every_rule(guard, tmp_path, monkeypatch):
@@ -77,3 +90,6 @@ def test_client_boundary_keeps_every_rule(guard, tmp_path, monkeypatch):
     monkeypatch.setenv("KZ_BOUNDARY", "client")
     guard.run_hook("pre", None)
     assert seen[-1] is not None and seen[-1][0] == "ask", "KZ_BOUNDARY=client: the override is ignored"
+    monkeypatch.setenv("KZ_BOUNDARY", "onw")
+    guard.run_hook("pre", None)
+    assert seen[-1] is not None and seen[-1][0] == "ask", "a boundary that is not exactly own keeps every rule"

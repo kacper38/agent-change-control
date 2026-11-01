@@ -42,6 +42,11 @@ def ado(tracker):
 
 
 @pytest.fixture(scope="session")
+def ev(tracker):
+    return _load("evidence_export")
+
+
+@pytest.fixture(scope="session")
 def fake_ado():
     return _load("fake_ado", HERE)
 

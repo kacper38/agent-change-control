@@ -112,6 +112,7 @@ if [[ "${1:-}" == "--uninstall" ]]; then
   for m in "${manifests[@]}"; do   # both when both exist: everything either install put here goes
     while IFS= read -r f; do
       [[ -z "$f" || "$f" == \#* ]] && continue
+      [[ "$f" == /* || "$f" == *..* ]] && { echo "install.sh: skipping unsafe manifest entry: $f" >&2; continue; }
       rm -f "$DEST/$f"
     done < "$m"
     rm -f "$m"
@@ -151,7 +152,7 @@ done
   {
     printf '%s\n' "${files[@]}"
     if [[ -f "$LEGACY_MANIFEST" ]]; then   # keep tracking what the pre-rename install put here
-      grep -v '^#' "$LEGACY_MANIFEST" || true
+      grep -v '^#' "$LEGACY_MANIFEST" | grep -v -e '^/' -e '\.\.' || true   # never carry an entry outside CLAUDE_DIR
     fi
   } | sort -u
 } > "$MANIFEST"

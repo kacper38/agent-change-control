@@ -15,6 +15,10 @@ import re
 import urllib.parse
 
 AGILE_TASK = [("New", "Proposed"), ("Active", "InProgress"), ("Closed", "Completed"), ("Removed", "Removed")]
+# process=True: the inherited process of plan A7, a `Change` type with the kit's states and a type picklist
+KIT_CHANGE = [("Backlog", "Proposed"), ("Ready", "Proposed"), ("In Progress", "InProgress"),
+              ("Blocked", "InProgress"), ("Review", "Resolved"), ("Done", "Completed"), ("Removed", "Removed")]
+KIT_TYPES = ["bug", "todo", "handoff", "decision", "agent-note"]
 WRITABLE = {"System.Title", "System.Description", "System.AreaPath", "System.Tags", "System.State"}
 _COND_RE = re.compile(r"\[(?P<field>[\w.]+)\] (?P<op>UNDER|=|CONTAINS|NOT IN|IN) "
                       r"(?P<value>'(?:[^']|'')*'|\('(?:[^']|'')*'(?:, '(?:[^']|'')*')*\))")
@@ -31,11 +35,16 @@ class FakeError(Exception):
 
 class FakeAdo:
     def __init__(self, org: str = "org", project: str = "proj", repo: str = "repo",
-                 user: str = "0a1b2c3d-0000-4000-8000-00000000a11c", token: str = "fake-token", page: int = 2):
+                 user: str = "0a1b2c3d-0000-4000-8000-00000000a11c", token: str = "fake-token", page: int = 2,
+                 process: bool = False):
         self.org, self.project, self.repo = org, project, repo
         self.base = f"https://dev.azure.com/{org}"
         self.user, self.token, self.page = user, token, page
         self.states = {"Task": list(AGILE_TASK)}
+        self.picklists: dict = {}  # field -> allowed values, on the Change type
+        if process:
+            self.states["Change"] = list(KIT_CHANGE)
+            self.picklists["Custom.ChangeType"] = list(KIT_TYPES)
         self.items: dict = {}
         self.comments: dict = {}
         self.tags: list = []
@@ -56,6 +65,7 @@ class FakeAdo:
             ("POST", r"[^/]+/_apis/wit/workItems/(?P<id>\d+)/comments", "7.1-preview.4", self._add_comment),
             ("GET", r"[^/]+/_apis/wit/tags", "7.1-preview.1", self._tags),
             ("GET", r"[^/]+/_apis/wit/workitemtypes/(?P<wit>[^/]+)/states", "7.1", self._states),
+            ("GET", r"[^/]+/_apis/wit/workitemtypes/(?P<wit>[^/]+)/fields/(?P<field>[^/]+)", "7.1", self._field),
             ("GET", r"[^/]+/_apis/git/repositories/(?P<repo>[^/]+)/pullrequests/(?P<id>\d+)", "7.1", self._get_pr),
             ("GET", r"[^/]+/_apis/git/repositories/(?P<repo>[^/]+)/pullrequests/(?P<id>\d+)/iterations", "7.1",
              self._iterations),
@@ -170,9 +180,11 @@ class FakeAdo:
         return out
 
     def _set(self, item: dict, field: str, value) -> None:
-        if field not in WRITABLE:
-            raise FakeError(400, f"TF51535: Cannot find field {field}.")
         wit = item["fields"]["System.WorkItemType"]
+        if field not in WRITABLE and not (wit == "Change" and field in self.picklists):
+            raise FakeError(400, f"TF51535: Cannot find field {field}.")
+        if field in self.picklists and value not in self.picklists[field]:
+            raise FakeError(400, f"TF401320: Rule Error for field {field}: {value!r} is not an allowed value")
         if field == "System.State" and value not in [s for s, _ in self.states[wit]]:
             raise FakeError(400, f"TF401320: Rule Error for field State: {value!r} is not an allowed value")
         if field == "System.AreaPath" and not (value == self.project or value.startswith(self.project + "\\")):
@@ -268,7 +280,7 @@ class FakeAdo:
         if len(ids) > 200:
             raise FakeError(400, "VS403474: at most 200 ids per workitemsbatch call")
         for f in fields or []:
-            if f not in WRITABLE | {"System.Id", "System.WorkItemType", "System.CreatedBy"}:
+            if f not in WRITABLE | set(self.picklists) | {"System.Id", "System.WorkItemType", "System.CreatedBy"}:
                 raise FakeError(400, f"TF51535: Cannot find field {f}.")
         found = [self._shape(self._item(i), fields) for i in ids]
         return {"count": len(found), "value": found}
@@ -300,6 +312,13 @@ class FakeAdo:
             raise FakeError(404, f"VS402323: work item type {wit} does not exist")
         rows = [{"name": s, "color": "b2b2b2", "category": c} for s, c in self.states[wit]]
         return {"count": len(rows), "value": rows}
+
+    def _field(self, query, body, wit, field) -> dict:
+        if wit != "Change" or field not in self.picklists:
+            raise FakeError(404, f"TF51535: Cannot find field {field} on {wit}.")
+        if query.get("$expand") != "allowedValues":
+            raise FakeError(400, "the fake answers $expand=allowedValues only")
+        return {"referenceName": field, "name": "Change Type", "allowedValues": list(self.picklists[field])}
 
     # -- pull requests and builds -----------------------------------------------
 

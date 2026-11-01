@@ -15,6 +15,10 @@ import tracker  # noqa: E402
 
 TRACKING_TITLE = "label-lint: offending issues"
 MARK = "<!-- label-lint:{fp} -->"
+# Azure DevOps process mode: the status is System.State, which a board drag or a REST write can set
+# without the tracker. Every status a verb sets leaves its marker, so a status whose marker is not the
+# latest tracker marker was set outside the protocol.
+MARK_OF = {"ready": "ready", "in-progress": "claim", "blocked": "block", "review": "review", "done": "done"}
 
 
 def problems_for(issue: tracker.Issue) -> list:
@@ -40,12 +44,28 @@ def problems_for(issue: tracker.Issue) -> list:
     return out
 
 
+def marker_problems(issue: tracker.Issue) -> list:
+    """Process mode: the status needs its own marker as the latest tracker marker (`issue` with comments)."""
+    statuses = [lb[len("status/") :] for lb in issue.labels if lb.startswith("status/")]
+    if len(statuses) != 1 or statuses[0] not in MARK_OF:
+        return []
+    want = MARK_OF[statuses[0]]
+    kinds = [m["kind"] for m in tracker.marks(issue) if m.get("kind") in MARK_OF.values()]
+    if kinds and kinds[-1] == want:
+        return []
+    return [f"state without a matching marker: status/{statuses[0]} needs a `{want}` marker, the latest is "
+            f"{'`' + kinds[-1] + '`' if kinds else 'none'}; the state was set outside the tracker verbs"]
+
+
 def findings(backend: tracker.Backend) -> list:
     out = []
+    process = getattr(backend, "mode", "") == "process"
     for issue in backend.list_issues(state="all"):
         if issue.title == TRACKING_TITLE:
             continue
         probs = problems_for(issue)
+        if process:
+            probs += marker_problems(backend.get_issue(issue.number))
         if probs:
             out.append((issue, probs))
     return out

@@ -48,13 +48,13 @@ def fake_ado():
 
 @pytest.fixture
 def ado_fake(ado, fake_ado, monkeypatch):
-    """make() -> (AdoBackend, FakeAdo): a backend on a fresh in-memory Azure DevOps, env cleared."""
+    """make(mode) -> (AdoBackend, FakeAdo): a backend on a fresh in-memory Azure DevOps, env cleared."""
     for var in ADO_ENV:
         monkeypatch.delenv(var, raising=False)
 
-    def make(**fake_args):
-        fake = fake_ado.FakeAdo(**fake_args)
+    def make(mode="tags", **fake_args):
+        fake = fake_ado.FakeAdo(process=mode == "process", **fake_args)
         monkeypatch.setenv("SYSTEM_ACCESSTOKEN", fake.token)
-        return ado.AdoBackend(f"{fake.org}/{fake.project}/{fake.repo}", transport=fake), fake
+        return ado.AdoBackend(f"{fake.org}/{fake.project}/{fake.repo}", transport=fake, mode=mode), fake
 
     return make

@@ -18,7 +18,8 @@ def live(name, var, example):
 
 BACKENDS = [
     "fake",
-    "ado-fake",  # AdoBackend on the in-memory Azure DevOps of tests/fake_ado.py
+    "ado-fake",  # AdoBackend on the in-memory Azure DevOps of tests/fake_ado.py, tags mode
+    "ado-fake-process",  # the same, status/* as System.State
     live("github", "KZ_TRACKER_TEST_REPO", "owner/scratch-repo"),
     live("ado", "KZ_TRACKER_TEST_ADO", "org/scratch-project/repo"),  # mode from KZ_TRACKER_ADO_MODE
 ]
@@ -28,8 +29,8 @@ BACKENDS = [
 def backend(request, tracker):
     if request.param == "fake":
         return tracker.FakeBackend(user="me")
-    if request.param == "ado-fake":
-        return request.getfixturevalue("ado_fake")()[0]
+    if request.param in ("ado-fake", "ado-fake-process"):
+        return request.getfixturevalue("ado_fake")("process" if request.param.endswith("process") else "tags")[0]
     if request.param == "ado":
         return request.getfixturevalue("ado").AdoBackend(os.environ["KZ_TRACKER_TEST_ADO"])
     return tracker.GitHubBackend(os.environ["KZ_TRACKER_TEST_REPO"])

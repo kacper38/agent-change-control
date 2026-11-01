@@ -27,6 +27,8 @@ SECRET_RES = [
     ("github-token", re.compile(r"gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,}")),
     # current format: 84 chars, `AZDO` at [76:80]; the legacy 52-char base32 PAT is left out (false positives)
     ("azure-devops-pat", re.compile(r"(?<![A-Za-z0-9_-])[A-Za-z0-9_-]{76}AZDO[A-Za-z0-9_-]{4}(?![A-Za-z0-9_-])")),
+    # a PAT travels base64-encoded in a Basic header (`:PAT` -> 116 chars); any long Basic credential is held
+    ("basic-auth-header", re.compile(r"(?i)\bbasic\s+[A-Za-z0-9+/]{40,}={0,2}")),
     ("aws-key", re.compile(r"(?:AKIA|ASIA)[0-9A-Z]{16}")),
     ("openai-anthropic-key", re.compile(r"sk-(?:ant-|proj-)?[A-Za-z0-9_-]{20,}")),
     ("slack-token", re.compile(r"xox[baprs]-[A-Za-z0-9-]{10,}")),

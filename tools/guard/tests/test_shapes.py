@@ -76,4 +76,23 @@ def test_cli_string_tool_args_are_parsed(guard, fixtures):
     got = guard.RULES["git-guard"](guard.Event(raw), dict(guard.DEFAULTS))
     assert got is not None and got[0] == "deny"
     raw["toolArgs"] = "not json"
-    assert guard.Event(raw).args == {}, "an unparseable string is treated as no arguments, as in testguard"
+    ev = guard.Event(raw)
+    assert ev.args == {} and ev.unreadable, "an unparseable string: no arguments, and the event says so"
+
+
+def test_unreadable_args_ask_before_the_tool_runs(guard, fixtures, tmp_path, monkeypatch):
+    """Before the tool runs, a call whose arguments no rule can read must not pass silently."""
+    monkeypatch.setenv("KZ_TELEMETRY_DIR", str(tmp_path / "t"))
+    raw = json.loads((fixtures / "_shapes/copilot/preToolUse-bash-cli-string-args.json").read_text())
+    raw["cwd"] = str(tmp_path)
+    seen = []
+    monkeypatch.setattr(guard, "_read_event", lambda: dict(raw))
+    monkeypatch.setattr(guard, "respond", lambda final, event: seen.append(final) or 0)
+    guard.run_hook("pre", None)
+    assert seen[-1] is None, "a parseable string: the rules ran and nothing fired on `ls -la`"
+    raw["toolArgs"] = "{not json"
+    guard.run_hook("pre", None)
+    assert seen[-1] is not None and seen[-1][0] == "ask" and "not JSON" in seen[-1][1]
+    raw["toolArgs"] = "[" * 100000  # deep nesting: RecursionError, not ValueError
+    guard.run_hook("pre", None)
+    assert seen[-1] is not None and seen[-1][0] == "ask"

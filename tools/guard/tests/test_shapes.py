@@ -93,6 +93,14 @@ def test_unreadable_args_ask_before_the_tool_runs(guard, fixtures, tmp_path, mon
     raw["toolArgs"] = "{not json"
     guard.run_hook("pre", None)
     assert seen[-1] is not None and seen[-1][0] == "ask" and "not JSON" in seen[-1][1]
-    raw["toolArgs"] = "[" * 100000  # deep nesting: RecursionError, not ValueError
+    for text in ('["rm -rf /"]', '"git push --force"', "null", "[" * 100000):  # valid JSON, not an object
+        raw["toolArgs"] = text
+        guard.run_hook("pre", None)
+        assert seen[-1] is not None and seen[-1][0] == "ask", text[:20]
+    raw["toolArgs"] = "   "
     guard.run_hook("pre", None)
-    assert seen[-1] is not None and seen[-1][0] == "ask"
+    assert seen[-1] is None, "an empty string is no arguments, not an unreadable call"
+    raw["toolArgs"] = '{"command": "ls"}'
+    monkeypatch.setattr(guard.json, "loads", lambda *_a, **_k: (_ for _ in ()).throw(RecursionError()))
+    guard.run_hook("pre", None)
+    assert seen[-1] is not None and seen[-1][0] == "ask", "RecursionError is caught, not a crash"

@@ -11,7 +11,7 @@ permissions:
 jobs:
   test:
     name: test (python ${{ matrix.python }})
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -46,7 +46,7 @@ jobs:
           [ -z "$(git -C /tmp/kit-live config --get core.hooksPath)" ]
   commit-msg:
     if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -57,7 +57,7 @@ jobs:
 
   guards:
     name: guards (test tampering, image tags)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -77,7 +77,7 @@ jobs:
     name: ci
     if: always()
     needs: [test, commit-msg, guards]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: every needed job succeeded (a skipped job is not green; GitHub would count it as passing)
         env:

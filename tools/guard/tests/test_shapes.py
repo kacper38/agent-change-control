@@ -100,6 +100,9 @@ def test_unreadable_args_ask_before_the_tool_runs(guard, fixtures, tmp_path, mon
     raw["toolArgs"] = "   "
     guard.run_hook("pre", None)
     assert seen[-1] is None, "an empty string is no arguments, not an unreadable call"
+    raw["toolArgs"] = ["rm -rf /"]  # already decoded, still not an object
+    guard.run_hook("pre", None)
+    assert seen[-1] is not None and seen[-1][0] == "ask", "a native non-object hides the call too"
     raw["toolArgs"] = '{"command": "ls"}'
     monkeypatch.setattr(guard.json, "loads", lambda *_a, **_k: (_ for _ in ()).throw(RecursionError()))
     guard.run_hook("pre", None)

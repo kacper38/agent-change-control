@@ -12,9 +12,8 @@ The premise: the engineer decides, plans and verifies; the agent executes.
 Every change must be defensible as validation evidence: plan first, one topic
 per commit, external verification with shown output, decisions recorded.
 
-Status 2026-11-01: the GitHub path is in daily use on this repository. The
-Azure DevOps path is built and verified offline against a fake REST API; no
-live organisation has run it yet. Details in [Status](#status-and-verification).
+Status: the GitHub path is in daily use here; the Azure DevOps path is
+verified offline only ([details](#status-and-verification)).
 
 ## What it is, and is not
 
@@ -64,15 +63,8 @@ close.
 | review | agent | `tracker review N --pr URL` | PR head is the claimed branch; the body carries `Refs #N` |
 | done | human | `tracker owner done N` | merged by a human, green checks on the merge commit, every box ticked or waived |
 
-```
-tracker new --title "…" --ac "…" --scope "…" --scope-limit "…" --source "…"
-tracker owner ready N          # human only: refuses without a terminal
-tracker claim N --branch B
-tracker block N --question "…"
-tracker review N --pr <url>
-tracker owner done N
-tracker list | show N | note N "…" | owner labels-sync
-```
+Also `tracker list`, `show N`, `note N "…"` (no status change) and
+`owner labels-sync`. Owner verbs refuse without a terminal.
 
 PR bodies say `Refs #N`, never `Fixes` or `Closes`: closing is the owner's
 protocol, not the forge's. Before the PR, `bin/fresh-review` sends the diff to
@@ -92,17 +84,14 @@ git clone https://github.com/kacper38/agent-change-control.git
 ./agent-change-control/install.sh --into <your-task-repo>
 ```
 
-The installer copies what [`kit.manifest`](kit.manifest) lists (`AGENTS.md`,
-`CLAUDE.md`, `.claude/settings.json`, `.claude/skills/`, `.claude/agents/`,
-`.github/hooks/`, `.github/instructions/`, the guard, tracker, egress and
-review tools, `.githooks/commit-msg`, the CI files), keeps files the target edited locally unless `--force`, sets
-`core.hooksPath` when it is unset, and writes `.claude/kit-version` with the
-source commit and the forge. The forge comes from the target's origin:
-`dev.azure.com` or `*.visualstudio.com` selects Azure DevOps, anything else
-GitHub; `--forge github|ado` overrides it. A GitHub target gets the workflows
-and issue forms; an Azure DevOps target gets `azure-pipelines.yml`,
-`azure-pipelines-label-lint.yml` and `docs/ADO-ADMIN.md` instead, because
-inactive files would read as controls.
+The installer copies what [`kit.manifest`](kit.manifest) lists, keeps files
+the target edited locally unless `--force`, sets `core.hooksPath` when it is
+unset, and writes `.claude/kit-version` with the source commit and the forge.
+The forge comes from the target's origin: `dev.azure.com` or
+`*.visualstudio.com` selects Azure DevOps, anything else GitHub;
+`--forge github|ado` overrides it. A GitHub target gets the workflows and
+issue forms; an Azure DevOps target gets `azure-pipelines.yml`,
+`azure-pipelines-label-lint.yml` and `docs/ADO-ADMIN.md` instead.
 
 Into the home account, Claude Code only (agents and skills under `~/.claude`):
 
@@ -113,19 +102,12 @@ cd <your-task-repo> && claude
 ```
 
 `./install.sh --uninstall` removes exactly what the manifest lists; backups
-stay in `~/.claude/backups/`. Where the installer may not run, copy by hand
-from the kit's root (its `skills/` and `agents/` land under `.claude/` in the
-target). This gives the agreement, skills and agents only, with none of the
-hooks; for the full set, copy every line of `kit.manifest`:
-
-```bash
-cp AGENTS.md <repo>/AGENTS.md && printf '@AGENTS.md\n' > <repo>/CLAUDE.md
-mkdir -p <repo>/.claude && cp -R skills <repo>/.claude/skills && cp -R agents <repo>/.claude/agents
-```
+stay in `~/.claude/backups/`.
 
 On a work machine with VS Code + GitHub Copilot, follow
-[`docs/USING-AT-WORK.md`](docs/USING-AT-WORK.md); its §7 covers Azure DevOps
-and [`docs/ADO-ADMIN.md`](docs/ADO-ADMIN.md) is the project administrator's
+[`docs/USING-AT-WORK.md`](docs/USING-AT-WORK.md): §1 has the hand-copy
+commands for where the installer may not run, §7 covers Azure DevOps, and
+[`docs/ADO-ADMIN.md`](docs/ADO-ADMIN.md) is the project administrator's
 checklist.
 
 ## What is enforced where
@@ -140,9 +122,9 @@ On the laptop, before a tool call runs:
   subagent spawns. Every rule ships with allow, ask, deny and crash fixtures
   from both harnesses.
 - `.githooks/commit-msg`: `type(scope): imperative subject`, no closing keywords.
-- `tools/egress/egress_screen.py`: the last check before anything leaves the
-  machine (secrets, gitleaks, client markers, size, the client boundary); held
-  items are listed and never dropped.
+- `tools/egress/egress_screen.py --target <name> [--pass] [files]`: the last
+  check before anything leaves the machine (secrets, gitleaks, client markers,
+  size, the client boundary); held items are listed, never dropped, exit 3.
 
 In the tracker, on every write: all guards first, then one comment, then one
 label change (add the new status, then remove its siblings, so a crash leaves
@@ -183,9 +165,8 @@ On the server and in CI:
 
 ### Tracker
 
-`tools/tracker/tracker.py` is the only writer of issues and labels an agent
-uses. The backend follows the origin; `KZ_TRACKER_BACKEND=github|ado`
-overrides it. On GitHub it goes through `gh`; issue forms under
+`tools/tracker/tracker.py`: the backend follows the origin;
+`KZ_TRACKER_BACKEND=github|ado` overrides it. On GitHub it goes through `gh`; issue forms under
 `.github/ISSUE_TEMPLATE/` carry the definition-of-ready fields. On Azure
 DevOps, `tools/tracker/ado.py` keeps the same verbs over the REST API with an
 Entra token: issues are work items of one type under one area path, labels
@@ -199,13 +180,8 @@ variables (`KZ_TRACKER_REPO`, `KZ_TRACKER_AREA`, `KZ_TRACKER_ADO_MODE`,
 
 - `tools/guard/guard.py` takes its knobs from the committed `.claude/guard.json`
   (`protected_branches`, `boundary`, `scratch_md_mode`, telemetry dir). A
-  gitignored `.claude/guard.local.json` beside it (its `rules_off` list,
-  nothing else is read) silences the named rules' asks for one checkout,
-  `KZ_RULES_OFF=rule,rule` for one shell; denies stand, and both count only
-  under a repo root whose committed file says `"boundary": "own"` itself, so
-  a client repo's policy is the committed file alone. A silenced ask is logged
-  as `skipped` in the decision log. Gitignore the local file in a task repo
-  yourself: the installer never edits `.gitignore`.
+  gitignored `.claude/guard.local.json` or `KZ_RULES_OFF=rule,rule` silences
+  the named rules' asks in own-boundary repos only, logged as `skipped`.
 - `tools/testguard/check-test-tampering.sh` (the harness kit's guard plus
   pytest rules): deleted or renamed test files, a `def test_` that disappears,
   added skip/focus markers, `[skip ci]` in commits or the PR title. The
@@ -217,15 +193,13 @@ variables (`KZ_TRACKER_REPO`, `KZ_TRACKER_AREA`, `KZ_TRACKER_ADO_MODE`,
   build stages and `scratch` pass). `hook` judges the file just written;
   `scan [PATH...]` walks the tracked tree in CI, exit 1 on findings.
 
-### Review and egress
+### Review
 
 - `bin/fresh-review` sends `origin/main...HEAD` (through the egress screen) to a
   fresh Opus context with `tools/review/prompt.md` and writes a receipt to
   `.git/fresh-review/<sha>.json`; `/pr-prep` pastes the verdict. At work the
   same prompt is `.github/instructions/review.instructions.md` for Copilot code
   review, on GitHub and on Azure Repos.
-- `tools/egress/egress_screen.py --target <name> [--pass] [files]`: exit 3 with
-  the held items listed when anything must not leave.
 
 ### Evidence pack
 
@@ -266,10 +240,6 @@ Execution bench:
 | `postgres-engineer` | Non-blocking migrations, EXPLAIN/indexing, restore-tested backups, RLS, pgvector tuning |
 | `code-reviewer` | General code review: correctness, security, maintainability |
 
-Reviewer and planner agents have no Edit or Write tools; a test asserts it.
-Models are pinned per task class in the agent frontmatter (see the routing
-table in `AGENTS.md`).
-
 ### Skills
 
 Task lifecycle:
@@ -299,30 +269,22 @@ Anti-over-engineering (the lazy family):
 ### Memory and ledger (Claude Code, home machine only)
 
 - `tools/memory/memstore.py init` puts `~/.claude/projects/*/memory/**` under a
-  bare repo (`~/.claude/memory-store.git`); the PostToolUse hook commits every
-  memory write and validates the frontmatter (`type`, `status`, `stale_after`
-  for project/reference facts, `verified_on`). `index --write` rebuilds
-  `MEMORY.md`, `triage` lists stale or unverified files, `deprecate` retires one.
-  Push stays off until a private remote exists and `KZ_MEMORY_PUSH` names the projects.
-- `tools/telemetry/ledger.py hook` (SessionEnd) writes one line per session id with
-  per-model tokens and cost, subagent share and spawns; `ledger.py cost --days 7`
-  prints the week per project and model plus hook prompts per guard rule.
-  Prices live in `tools/telemetry/prices.json` (dated; unknown tiers stay `null`).
-- Nothing from here is installed at work: no memory, telemetry, tokens or
-  transcripts cross the boundary.
+  bare repo; the PostToolUse hook commits every memory write and validates the
+  frontmatter. `index --write` rebuilds `MEMORY.md`, `triage` lists stale or
+  unverified files, `deprecate` retires one.
+- `tools/telemetry/ledger.py hook` (SessionEnd) writes one line per session with
+  per-model tokens and cost; `ledger.py cost --days 7` prints the week per
+  project and model plus hook prompts per guard rule.
+- Nothing from here is installed at work.
 
 ### Working agreement
 
-[`AGENTS.md`](AGENTS.md): eight non-negotiables (plan first, small steps,
-evidence over claims, DECISIONS.md, regulated context, security reflexes,
-named gaps, back out of bad paths), the four Karpathy coding principles
-(think before coding, simplicity first, surgical changes, goal-driven
-execution, adapted from
+[`AGENTS.md`](AGENTS.md) is canonical: the eight non-negotiables, the four
+Karpathy coding principles (adapted from
 [andrej-karpathy-skills](https://github.com/multica-ai/andrej-karpathy-skills)),
-the model-routing table and notes on which harness reads what. `CLAUDE.md`
-is the one line `@AGENTS.md`, so Claude Code loads the same file that GitHub
-Copilot, Codex and Gemini CLI read directly. `/task-intake` copies both into
-the task repo, so the principles are always active where you work.
+the model-routing table and which harness reads what. `CLAUDE.md` is the one
+line `@AGENTS.md`, so every harness loads the same file; `/task-intake`
+copies both into the task repo.
 
 ### Documents
 

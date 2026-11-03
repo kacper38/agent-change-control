@@ -65,3 +65,15 @@ def test_write_content_extracted(guard, fixtures):
 def test_unknown_tool_is_other(guard):
     ev = guard.Event({"hook_event_name": "PreToolUse", "tool_name": "Frobnicate", "tool_input": {}})
     assert ev.kind == "other" and ev.harness == "unknown"
+
+
+def test_cli_string_tool_args_are_parsed(guard, fixtures):
+    """Plan step 3.8: a JSON-encoded toolArgs string must not read as "no arguments" (that let every call through)."""
+    raw = json.loads((fixtures / "_shapes/copilot/preToolUse-bash-cli-string-args.json").read_text())
+    assert isinstance(raw["toolArgs"], str)
+    assert guard.Event(raw).command == "ls -la"
+    raw["toolArgs"] = json.dumps({"command": "git push --force origin main"})
+    got = guard.RULES["git-guard"](guard.Event(raw), dict(guard.DEFAULTS))
+    assert got is not None and got[0] == "deny"
+    raw["toolArgs"] = "not json"
+    assert guard.Event(raw).args == {}, "an unparseable string is treated as no arguments, as in testguard"

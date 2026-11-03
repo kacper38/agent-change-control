@@ -26,7 +26,7 @@ import subprocess
 import sys
 from typing import Callable, Optional
 
-VERSION = "0.5.1"
+VERSION = "0.5.2"
 
 # ----------------------------------------------------------------------------
 # Harness normalization
@@ -85,6 +85,11 @@ class Event:
         self.event = EVENT_NAMES.get(str(name).lower(), str(name))
         self.tool = str(raw.get("tool_name") or raw.get("toolName") or "")
         args = raw.get("tool_input") if "tool_input" in raw else raw.get("toolArgs")
+        if isinstance(args, str):  # Copilot CLI may JSON-encode toolArgs (testguard and latest_tag parse it too)
+            try:
+                args = json.loads(args)
+            except ValueError:
+                args = {}
         self.args: dict = args if isinstance(args, dict) else {}
         if self.tool in CLAUDE_TOOLS:
             self.harness = "claude"
@@ -869,7 +874,6 @@ _GH_ISSUE_REPLACEMENT = {
     "unlock": "nothing: ask the owner",
     "develop": "`tracker claim N --branch <branch>`",
 }
-_TEMP_ALLOWED_LABELS = {"agent-loop", "handoff"}  # until step 3.8 moves the private app repo's loop onto the tracker
 _GH_API_MUTATING_FLAGS = {"-f", "-F", "--field", "--raw-field", "--input"}
 _GH_API_VALUE_FLAGS = _GH_API_MUTATING_FLAGS | {"-X", "--method", "-H", "--header", "-q", "--jq", "-t", "--template",
                                                 "--hostname", "-p", "--preview", "--cache"}
@@ -1004,9 +1008,6 @@ def rule_tracker_guard(ev: Event, cfg: dict) -> Optional[Decision]:
             if d:
                 return d
         if head == "gh" and len(seg) >= 3 and seg[1] == "issue" and seg[2] in _GH_ISSUE_REPLACEMENT:
-            label = _flag_value(seg, {"--label", "-l"})
-            if seg[2] == "create" and label and set(label.split(",")) <= _TEMP_ALLOWED_LABELS:
-                continue
             return "deny", TRACKER_MSG.format(what=f"`gh issue {seg[2]}` bypasses the tracker",
                                               use=_GH_ISSUE_REPLACEMENT[seg[2]])
         if head == "gh" and len(seg) >= 3 and seg[1] == "label" and seg[2] in ("create", "edit", "delete", "clone"):

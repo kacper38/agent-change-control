@@ -216,8 +216,8 @@ CASES: dict = {
             "gh api repos/o/r/issues --jq '.[].number'", "curl https://api.github.com/repos/o/r/issues/1",
             "gh pr create --fill", "gh pr merge 3 --rebase", "gh label list",
             "tracker claim 4 --branch step-5", "python3 tools/tracker/tracker.py new --title x",
-            "tracker list --status ready", "gh issue create --label handoff --title 'handoff: x' --body y",
-            "gh issue create --title x --label agent-loop", "gh api -X POST repos/o/r/pulls -f title=x",
+            "tracker list --status ready", "gh issue list --label handoff",
+            "gh issue view 9 --comments", "gh api -X POST repos/o/r/pulls -f title=x",
             "echo 'gh issue close 1'",
         ),
         # Azure DevOps (ADO port step A3): work items are issues, tags are labels
@@ -245,6 +245,9 @@ CASES: dict = {
             "cd repo && az boards work-item update --id 1 --state Done",
             "az --only-show-errors boards work-item update --id 12 --state Done",  # global options first
             "az -o json devops invoke --area wit --resource workitems --route-parameters id=12",
+            # step 3.8: the temporary allowance for `gh issue create --label agent-loop|handoff` is gone
+            "gh issue create --label handoff --title 'handoff: x' --body y",
+            "gh issue create --title x --label agent-loop",
         ),
         *shell(
             "allow",

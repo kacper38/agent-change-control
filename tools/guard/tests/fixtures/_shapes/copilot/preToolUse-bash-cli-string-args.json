@@ -1,0 +1,13 @@
+{
+  "_fixture": {
+    "format": "cli-camelCase-string-args",
+    "harness": "copilot",
+    "source": "synthesized 2026-11-03 for plan step 3.8: toolArgs JSON-encoded as a string, as the Copilot CLI may send it; replace with a capture from the work machine"
+  },
+  "cwd": "/work/repo",
+  "hookEventName": "preToolUse",
+  "sessionId": "0f6c2c9e-0000-4000-8000-000000000003",
+  "timestamp": 1761732000000,
+  "toolArgs": "{\"command\": \"ls -la\"}",
+  "toolName": "bash"
+}

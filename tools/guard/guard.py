@@ -85,11 +85,12 @@ class Event:
         self.event = EVENT_NAMES.get(str(name).lower(), str(name))
         self.tool = str(raw.get("tool_name") or raw.get("toolName") or "")
         args = raw.get("tool_input") if "tool_input" in raw else raw.get("toolArgs")
+        self.unreadable = False  # a string that is not JSON: the rules cannot see the call, so run_hook asks
         if isinstance(args, str):  # Copilot CLI may JSON-encode toolArgs (testguard and latest_tag parse it too)
             try:
                 args = json.loads(args)
-            except ValueError:
-                args = {}
+            except (ValueError, RecursionError):  # a crash here would fail open on a Copilot timeout
+                args, self.unreadable = {}, True
         self.args: dict = args if isinstance(args, dict) else {}
         if self.tool in CLAUDE_TOOLS:
             self.harness = "claude"
@@ -1140,6 +1141,10 @@ def run_hook(target: str, wrapper: Optional[str]) -> int:
     decisions: list[Decision] = []
     fired: dict[str, str] = {}
     skipped: dict[str, str] = {}
+    if target == "pre" and ev.unreadable:
+        decisions.append(("ask", "guard: the tool arguments arrived as a string that is not JSON; no rule could read "
+                                 "this call. Confirm it, and capture the event shape for the fixtures."))
+        fired["unreadable-args"] = "ask"
     for name in names:
         rule = RULES.get(name)
         if rule is None:

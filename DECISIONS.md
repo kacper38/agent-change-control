@@ -180,3 +180,8 @@ monthly figure when cost is a dimension. Newest block last. Compliance angle inl
 ## 2026-11-03 — CI runner image pinned
 
 - The GitHub workflows run on `ubuntu-24.04`, not `ubuntu-latest`, as the Azure pipelines already did; why: on 2026-11-03 `ubuntu-latest` moved to 26.04 and `actions/setup-python` has no 3.9 build for it, so the test matrix could not start and the `ci` gate went red on a docs-only PR (#32, run 41623557052); 3.9 stays the floor because work machines run it; a pinned image also makes the runner a known quantity in the validation evidence; revisit if: the 3.9 floor is dropped (then `ubuntu-latest` again), or GitHub retires the 24.04 image. 0 CHF/month.
+
+## 2026-11-03 — step 3.8: guard 0.5.2, the Copilot CLI shape and the last temporary allowance
+
+- `Event` parses `toolArgs` sent as a JSON string (the Copilot CLI form; `testguard` and `latest_tag` already did), with a shape fixture; why: a string used to read as "no arguments", so every call in that shape passed every rule, a fail-open on one harness shape; an unparseable string still reads as no arguments, on purpose, the same as the PostToolUse hooks; revisit if: a capture from the work machine shows a third shape.
+- The temporary `gh issue create --label agent-loop|handoff` allowance is gone from the tracker-guard (two fixtures move from allow to deny); the private app repo's loop moves onto `tracker claim|block|review` in that repo, recorded there (#13, third criterion, the owner's); revisit if: never.

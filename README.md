@@ -12,8 +12,8 @@ The premise: the engineer decides, plans and verifies; the agent executes.
 Every change must be defensible as validation evidence: plan first, one topic
 per commit, external verification with shown output, decisions recorded.
 
-Status: the GitHub path is in daily use here; the Azure DevOps path is
-verified offline only ([details](#status-and-verification)).
+Status 2026-11-03: the GitHub path is in daily use here; the Azure DevOps
+path is verified offline only ([details](#status-and-verification)).
 
 ## What it is, and is not
 
@@ -106,7 +106,8 @@ stay in `~/.claude/backups/`.
 
 On a work machine with VS Code + GitHub Copilot, follow
 [`docs/USING-AT-WORK.md`](docs/USING-AT-WORK.md): §1 has the hand-copy
-commands for where the installer may not run, §7 covers Azure DevOps, and
+commands for where the installer may not run (agreement, skills and agents
+only, no hooks), §7 covers Azure DevOps, and
 [`docs/ADO-ADMIN.md`](docs/ADO-ADMIN.md) is the project administrator's
 checklist.
 
@@ -181,7 +182,10 @@ variables (`KZ_TRACKER_REPO`, `KZ_TRACKER_AREA`, `KZ_TRACKER_ADO_MODE`,
 - `tools/guard/guard.py` takes its knobs from the committed `.claude/guard.json`
   (`protected_branches`, `boundary`, `scratch_md_mode`, telemetry dir). A
   gitignored `.claude/guard.local.json` or `KZ_RULES_OFF=rule,rule` silences
-  the named rules' asks in own-boundary repos only, logged as `skipped`.
+  the named rules' asks, logged as `skipped`; denies stand, and only a
+  committed `guard.json` at the repo root that says `boundary: own` enables
+  it. Gitignore the local file in a task repo yourself; the installer never
+  edits `.gitignore`.
 - `tools/testguard/check-test-tampering.sh` (the harness kit's guard plus
   pytest rules): deleted or renamed test files, a `def test_` that disappears,
   added skip/focus markers, `[skip ci]` in commits or the PR title. The
@@ -240,6 +244,8 @@ Execution bench:
 | `postgres-engineer` | Non-blocking migrations, EXPLAIN/indexing, restore-tested backups, RLS, pgvector tuning |
 | `code-reviewer` | General code review: correctness, security, maintainability |
 
+Reviewer and planner agents have no Edit or Write tools; a test asserts it.
+
 ### Skills
 
 Task lifecycle:
@@ -275,7 +281,9 @@ Anti-over-engineering (the lazy family):
 - `tools/telemetry/ledger.py hook` (SessionEnd) writes one line per session with
   per-model tokens and cost; `ledger.py cost --days 7` prints the week per
   project and model plus hook prompts per guard rule.
-- Nothing from here is installed at work.
+- Nothing from here is installed at work: no memory, telemetry, tokens or
+  transcripts cross the boundary, and memory push stays off until
+  `KZ_MEMORY_PUSH` names a project.
 
 ### Working agreement
 

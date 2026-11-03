@@ -95,6 +95,25 @@ def test_one_in_progress_per_actor(tracker, fb, tmp_path):
     assert statuses(fb.get_issue(2)) == ["status/ready"]
 
 
+def test_one_in_progress_per_actor_on_a_listing_without_comments(tracker, fb, tmp_path):
+    """#26: GitHub's `issue list` and the ADO batch read carry no comments, so the claim markers were invisible."""
+    import dataclasses
+
+    class Listing(type(fb)):
+        def list_issues(self, labels=None, state="open"):
+            return [dataclasses.replace(i, comments=[]) for i in super().list_issues(labels, state)]
+
+    live = Listing(user="agent")
+    ready_issue(tracker, live)
+    run(tracker, live, NEW)
+    run(tracker, live, ["owner", "ready", "2"], human=True)
+    assert run(tracker, live, ["claim", "1", "--branch", "a"], cwd=str(tmp_path))[0] == 0
+    assert all(not i.comments for i in live.list_issues(["status/in-progress"])), "the listing hides the markers"
+    code, out = run(tracker, live, ["claim", "2", "--branch", "b"], cwd=str(tmp_path))
+    assert code == 2 and "already has #1 in progress" in out
+    assert statuses(live.get_issue(2)) == ["status/ready"]
+
+
 def test_block_needs_a_path_or_field(tracker, fb, tmp_path):
     ready_issue(tracker, fb)
     run(tracker, fb, ["claim", "1", "--branch", "a"], cwd=str(tmp_path))

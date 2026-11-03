@@ -622,9 +622,8 @@ class Tracker:
                           f"a human promotes it with `tracker owner ready {number}`")
         check_transition(status, "in-progress", self.actor)
         me = self.b.whoami()
-        for other in self.b.list_issues([STATUS_PREFIX + "in-progress"]):
-            if not other.comments:  # live listings carry no comments (gh issue list, the ADO batch): fetch the item
-                other = self.b.get_issue(other.number)
+        for listed in self.b.list_issues([STATUS_PREFIX + "in-progress"]):
+            other = self.b.get_issue(listed.number)  # listings carry no or partial comments; few items, one GET each
             claims = [m for m in marks(other, "claim") if m.get("by") == me]
             if claims:
                 raise Refused(f"{me} already has #{other.number} in progress; finish it (`tracker review`) "

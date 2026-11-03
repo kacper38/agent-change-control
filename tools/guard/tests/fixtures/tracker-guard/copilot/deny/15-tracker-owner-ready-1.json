@@ -6,7 +6,7 @@
     "format": "vscode",
     "harness": "copilot",
     "rule": "tracker-guard",
-    "source": "synthesized 2026-10-29 from the GitHub hooks reference and VS Code hooks docs; replace with a capture from VS Code + Copilot (plan step 1.3 on the work machine)"
+    "source": "synthesized by make_fixtures.py from _shapes/copilot/PreToolUse-bash.json (the shape: synthesized 2026-10-29 from the GitHub hooks reference and VS Code hooks docs; replace with a capture from VS Code + Copilot (plan step 1.3 on the work machine))"
   },
   "cwd": "/work/repo",
   "hook_event_name": "PreToolUse",

@@ -5,7 +5,7 @@
     },
     "harness": "claude",
     "rule": "protected-branch",
-    "source": "captured 2026-10-29 from a Claude Code probe session (haiku, claude -p), redacted and path-normalized"
+    "source": "synthesized by make_fixtures.py from _shapes/claude/PreToolUse-Edit.json (the shape: captured 2026-10-29 from a Claude Code probe session (haiku, claude -p), redacted and path-normalized)"
   },
   "cwd": "/work/repo",
   "hook_event_name": "PreToolUse",

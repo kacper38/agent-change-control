@@ -322,7 +322,10 @@ def generate(out: pathlib.Path) -> dict:
                 config = case[3] if len(case) > 3 else None
                 env = json.loads(json.dumps(envelopes[harness][kind]))
                 env["tool_input"] = tool_input(harness, kind, payload)
-                env["_fixture"] = {**env.get("_fixture", {}), "rule": rule, "case": payload}
+                shape = ENVELOPES[harness][kind]
+                env["_fixture"] = {**env.get("_fixture", {}), "rule": rule, "case": payload,
+                                   "source": f"synthesized by make_fixtures.py from _shapes/{harness}/{shape}.json "
+                                             f"(the shape: {env.get('_fixture', {}).get('source', 'unknown')})"}
                 if config:
                     env["_fixture"]["config"] = config
                 counters[decision] = counters.get(decision, 0) + 1

@@ -21,7 +21,7 @@ ABS = "/private/tmp/scratch/"  # custom subagents were seen rewriting the touch 
 DEPTH, BG = "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH", "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS"
 SUCCESS = {"type": "result", "subtype": "success", "is_error": False, "session_id": "s1"}
 NAMES = ["workflow-by-name", "denial-exits-zero", "hook-blocks-workflow-agent", "hook-blocks-nested-subagent",
-         "depth-pin", "spawn-log-workflow-agents", "workflow-background-off"]
+         "depth-pin", "spawn-log-workflow-agents", "workflow-background-off", "ledger-own-cost"]
 
 
 def pre(tool, agent_type=None, command=None, subagent_type=None, blocked=False, env=None):
@@ -128,6 +128,13 @@ CASES = [
      {"run": ev(rows=RAN_ROWS, markers=["ran.marker"], spawns=[{"error": "unparseable row"}])},
      "inconclusive", "spawn log error"),
     ("spawn-4-clean-empty", "spawn-log-workflow-agents", {"run": ev()}, "inconclusive", "nothing to see"),
+    ("ledger-1-unclean", "ledger-own-cost", {"run": ev(exit_code=1)}, "inconclusive", "exit code 1"),
+    ("ledger-2-no-cost-field", "ledger-own-cost", {"run": ev()}, "inconclusive", "no total_cost_usd"),
+    ("ledger-3-no-transcript", "ledger-own-cost", {"run": ev(total_cost_usd=0.01)}, "inconclusive",
+     "transcript was not found"),
+    ("ledger-3-transcript-gone", "ledger-own-cost",
+     {"run": dict(ev(total_cost_usd=0.01), transcript="/nonexistent/s1.jsonl")}, "inconclusive",
+     "transcript was not found"),
 ]
 
 
@@ -357,12 +364,13 @@ def test_success_that_does_nothing_holds_nothing(probe, tmp_path):
     assert data["schema"] == "orchestration-probe/1" and data["cli_version"] == "9.9.9" and data["model"] == "haiku"
     assert data["models"] == ["claude-fake-1"] and data["cost_usd"] == 0.08
     assert list(data["canaries"]) == NAMES
-    assert [c["status"] for c in data["canaries"].values()] == ["inconclusive"] * 7
+    assert [c["status"] for c in data["canaries"].values()] == ["inconclusive"] * 8
     assert data["canaries"]["depth-pin"]["cost_usd"] == 0.02
     assert list(data["canaries"]["workflow-by-name"]) == ["status", "reason", "expect", "backs", "observed",
                                                           "cost_usd"]
     assert text.splitlines()[0] == "inconclusive  workflow-by-name              $0.0100"
-    assert text.splitlines()[-1] == f"probe: CLI 9.9.9, 0 of 7 canaries hold, $0.0800; wrote {record}"
+    assert data["canaries"]["ledger-own-cost"]["cost_usd"] == 0.0, "a reused run is paid for once"
+    assert text.splitlines()[-1] == f"probe: CLI 9.9.9, 0 of 8 canaries hold, $0.0800; wrote {record}"
     assert not record.with_name("verified.json.tmp").exists()
 
 
@@ -493,3 +501,87 @@ def test_committed_record_matches_the_canary_list(probe):
     _dt.date.fromisoformat(data["date"])
     assert list(data["canaries"]) == [c.name for c in probe.CANARIES]
     assert all(c["status"] in ("holds", "fails", "inconclusive") for c in data["canaries"].values())
+
+
+# --- the ledger cost canary --------------------------------------------------------------------------------------
+
+def haiku_line(req, inp=10_000, out=1_000):  # claude-haiku-5-5 at $0.10 / $0.50 per million: $0.0015 a line
+    return json.dumps({"type": "assistant", "requestId": req,
+                       "message": {"model": "claude-haiku-5-5", "usage": {"input_tokens": inp, "output_tokens": out,
+                                                                          "cache_read_input_tokens": 0,
+                                                                          "cache_creation_input_tokens": 0}}})
+
+
+def probe_session(config_dir, session="s1", main_lines=None, workflow_lines=None):
+    """A synthetic probe session under <config_dir>/projects/: main transcript, one workflow agent, a journal."""
+    proj = config_dir / "projects" / "-private-tmp-scratch-workflow-by-name-run"
+    proj.mkdir(parents=True, exist_ok=True)
+    main = proj / f"{session}.jsonl"
+    main.write_text("\n".join(main_lines if main_lines is not None else [haiku_line("m1")]) + "\n")
+    wf = proj / session / "subagents" / "workflows" / "wf_1"
+    wf.mkdir(parents=True, exist_ok=True)
+    if workflow_lines is not False:
+        (wf / "agent-a.jsonl").write_text("\n".join(workflow_lines or [haiku_line("w1")]) + "\n")
+    (wf / "journal.jsonl").write_text(haiku_line("j1", 10 ** 9, 10 ** 9) + "\n")  # no usage counted from it
+    return main
+
+
+@pytest.mark.parametrize("run_usd,status,fragment", [
+    (0.003, "holds", ""),
+    (0.00303, "holds", ""),       # 1 % above the own count
+    (0.00295, "holds", ""),       # the own count is about 1.7 % above the run's figure
+    (0.0031, "fails", "by 3.2%"),
+    (0.0025, "fails", "more than 2%"),
+    (0.0, "inconclusive", "no cost"),
+], ids=["equal", "1-percent", "2-percent", "3-percent", "20-percent", "zero"])
+def test_ledger_judge_compares_the_own_count_with_the_run(probe, tmp_path, run_usd, status, fragment):
+    main = probe_session(tmp_path)
+    got, reason, observed = probe.judge_ledger_cost(probe.Evidence(**dict(ev(total_cost_usd=run_usd),
+                                                                         transcript=str(main))))
+    assert got == status, reason
+    assert (reason == "") if status == "holds" else (fragment in reason)
+    assert observed["own_micro_usd"] == 3000 and observed["workflow_transcripts"] == 1
+    assert observed["agent_transcripts"] == 1 and observed["parse_errors"] == 0
+    assert all(plain(v) for v in observed.values()), observed
+
+
+def test_ledger_judge_needs_a_workflow_agent_a_price_and_clean_transcripts(probe, tmp_path):
+    def judge(main):
+        return probe.judge_ledger_cost(probe.Evidence(**dict(ev(total_cost_usd=0.003), transcript=str(main))))
+
+    assert judge(probe_session(tmp_path / "a", workflow_lines=False))[1].startswith("no workflow-agent transcript")
+    unpriced = json.dumps({"type": "assistant", "requestId": "u1",
+                           "message": {"model": "claude-unknown-9", "usage": {"input_tokens": 5, "output_tokens": 5}}})
+    status, reason, _ = judge(probe_session(tmp_path / "b", main_lines=[haiku_line("m1"), unpriced]))
+    assert status == "inconclusive" and "no price" in reason
+    status, reason, observed = judge(probe_session(tmp_path / "c", main_lines=[haiku_line("m1"), "not json"]))
+    assert status == "inconclusive" and "parse errors" in reason and observed["parse_errors"] == 1
+
+
+def test_ledger_judge_without_the_ledger_is_inconclusive(probe, tmp_path, monkeypatch):
+    monkeypatch.setattr(probe, "LEDGER", str(tmp_path / "missing" / "ledger.py"))
+    status, reason, _ = probe.judge_ledger_cost(probe.Evidence(**dict(ev(total_cost_usd=0.003),
+                                                                     transcript=str(probe_session(tmp_path)))))
+    assert status == "inconclusive" and reason.startswith("the ledger could not be loaded")
+
+
+@pytest.mark.parametrize("session_id", [None, 7, "../x", "a b", "*"])
+def test_find_transcript_takes_only_a_plain_session_id(probe, tmp_path, monkeypatch, session_id):
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path))
+    probe_session(tmp_path, session="x")
+    assert probe.find_transcript(session_id) is None
+
+
+def test_only_the_ledger_canary_runs_its_source_run_and_finds_the_transcript(probe, tmp_path, monkeypatch):
+    config = tmp_path / "config"
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(config))
+    main = probe_session(config, session="run-1")
+    assert probe.find_transcript("run-1") == str(main)
+    result = dict(RESULT, session_id="run-1", total_cost_usd=0.003)
+    code, text, record = run_main(probe, tmp_path, fake_claude(tmp_path, f"print(json.dumps({result!r}))\n"),
+                                  "--only", "ledger-own-cost")
+    assert code == 0 and not record.exists()
+    assert (tmp_path / "work" / "workflow-by-name-run").is_dir()
+    lines = text.splitlines()
+    assert lines[0] == "holds         ledger-own-cost               $0.0030"
+    assert lines[-1].endswith("1 of 1 canaries hold, $0.0030; not written (--only)")

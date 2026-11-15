@@ -5,15 +5,18 @@
                                        [--out PATH] [--workdir DIR]
   python3 tools/orchestration/probe.py hook LOG [--only-allow NAME]     (internal: the hook recorder)
 
-Each canary is one scripted `claude -p` run (depth-pin uses two) in a fresh scratch project under the
-workdir. The verdict (holds / fails / inconclusive) comes only from hook rows, marker files and the run's
-result JSON, never from model prose; missing evidence is inconclusive. A full run writes the record
+Each canary is one scripted `claude -p` run (depth-pin uses two; ledger-own-cost judges the workflow-by-name
+run and pays for none) in a fresh scratch project under the workdir. The verdict (holds / fails /
+inconclusive) comes only from hook rows, marker files, the run's result JSON and its transcripts, never from
+model prose; missing evidence is inconclusive. A full run writes the record
 (default verified.json next to this file); --only never writes it. Nothing is ever deleted.
 Exit codes: 0 every selected canary holds, 1 otherwise, 2 usage or environment error (no usable CLI,
 workdir collision). The hook recorder exits 2 to block a call or when it cannot do its job.
 """
 import argparse
 import datetime as _dt
+import glob
+import importlib.util
 import json
 import os
 import re
@@ -38,6 +41,8 @@ BG_VAR = "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS"
 HERE = os.path.dirname(os.path.realpath(__file__))
 PROBE = os.path.join(HERE, "probe.py")
 GUARD = os.path.join(os.path.dirname(HERE), "guard", "guard.py")
+LEDGER = os.path.join(os.path.dirname(HERE), "telemetry", "ledger.py")
+LEDGER_TOLERANCE = 0.02  # the ledger's own count may differ from the run's total_cost_usd by this share
 SCHEMA = "orchestration-probe/1"
 
 RUN_PROMPT = "Run this Bash command exactly once, exactly as written, then answer with the single word done: " + RAN_CMD
@@ -77,6 +82,7 @@ class Evidence(NamedTuple):
     hook_rows: list            # rows of <scratch>/hook.jsonl
     markers: frozenset         # names of *.marker files in the scratch root
     spawn_rows: list           # rows of <scratch>/telemetry/spawns.jsonl
+    transcript: Optional[str] = None  # the run's main transcript under <config dir>/projects/, None if not found
 
 
 class Run(NamedTuple):
@@ -96,6 +102,7 @@ class Canary(NamedTuple):
     backs: str
     runs: tuple
     judge: Callable[[dict], tuple]  # {run key: Evidence} -> (status, reason, observed)
+    reuses: Optional[str] = None    # judge the evidence of this canary's runs instead of paying for runs of its own
 
 
 # --- the hook recorder ---------------------------------------------------------------------------------------------
@@ -243,7 +250,17 @@ def execute(scratch: str, run: Run, model: str, claude_bin: str) -> Evidence:
     markers = frozenset(n for n in os.listdir(scratch)
                         if n.endswith(".marker") and os.path.isfile(os.path.join(scratch, n)))
     return Evidence(exit_code, result, error, read_rows(os.path.join(scratch, "hook.jsonl")), markers,
-                    read_rows(os.path.join(scratch, "telemetry", "spawns.jsonl")))
+                    read_rows(os.path.join(scratch, "telemetry", "spawns.jsonl")),
+                    find_transcript(result.get("session_id") if result else None))
+
+
+def find_transcript(session_id) -> Optional[str]:
+    """<config dir>/projects/<project>/<session id>.jsonl, where Claude Code wrote the run's main transcript."""
+    if not isinstance(session_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]+", session_id):
+        return None
+    root = os.path.expanduser(os.environ.get("CLAUDE_CONFIG_DIR") or "~/.claude")
+    hits = sorted(glob.glob(os.path.join(root, "projects", "*", session_id + ".jsonl")))
+    return hits[0] if hits else None
 
 
 def read_rows(path: str) -> list:
@@ -431,6 +448,56 @@ def judge_spawn_log(ev: Evidence) -> tuple:
     return "inconclusive", "no workflow agent ran, so the spawn log had nothing to see", observed
 
 
+def load_ledger():
+    """tools/telemetry/ledger.py as a module, loaded from its path like the tests load it."""
+    spec = importlib.util.spec_from_file_location("kit_ledger", LEDGER)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"cannot load {LEDGER}")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def judge_ledger_cost(ev: Evidence) -> tuple:
+    observed = {"transcript": ev.transcript is not None, "agent_transcripts": None, "workflow_transcripts": None,
+                "parse_errors": None, "own_micro_usd": None, "run_micro_usd": None, "diff_bp": None}
+    reason = unclean(ev)
+    if reason:
+        return "inconclusive", reason, observed
+    run = result_field(ev, "total_cost_usd")
+    if isinstance(run, bool) or not isinstance(run, (int, float)):
+        return "inconclusive", "the result has no total_cost_usd", observed
+    observed["run_micro_usd"] = round(run * 1_000_000)
+    if not ev.transcript or not os.path.isfile(ev.transcript):
+        return "inconclusive", "the run's transcript was not found", observed
+    try:
+        ledger = load_ledger()
+    except (OSError, ImportError) as exc:
+        return "inconclusive", f"the ledger could not be loaded: {exc}", observed
+    prices = ledger.load_prices()
+    session = os.path.basename(ev.transcript)[:-len(".jsonl")]
+    read = ledger.read_session(ev.transcript, session, prices)
+    own = ledger.own_cost(ledger.session_models(read, prices))
+    observed.update(agent_transcripts=read["transcripts"], workflow_transcripts=read["workflow_transcripts"],
+                    parse_errors=read["errors"])
+    if read["errors"]:
+        return "inconclusive", "the run's transcripts have parse errors, so the count may be short", observed
+    if read["workflow_transcripts"] == 0:
+        return "inconclusive", "no workflow-agent transcript, so the run does not test that the ledger reads it", \
+            observed
+    if own is None:
+        return "inconclusive", "a model of the run has no price in prices.json", observed
+    observed["own_micro_usd"] = round(own * 1_000_000)
+    if run <= 0:
+        return "inconclusive", "the run reports no cost, so there is nothing to compare", observed
+    diff = abs(own - run) / run
+    observed["diff_bp"] = round(diff * 10_000)
+    if diff <= LEDGER_TOLERANCE:
+        return "holds", "", observed
+    return ("fails", f"the ledger's own count ${own:.6f} differs from the run's total_cost_usd ${run:.6f} by "
+            f"{diff:.1%}, more than {LEDGER_TOLERANCE:.0%}", observed)
+
+
 # --- the canaries --------------------------------------------------------------------------------------------------
 
 # The Skill rule: a saved workflow is also listed as a skill, and the model may route `/name` through the Skill
@@ -482,6 +549,10 @@ CANARIES = (
            "settings env",
            "D4 item 3 with D2, step 2.4", (wf_run(env={BG_VAR: "1"}),),
            lambda e: judge_workflow(e["run"], need_env=(BG_VAR, "1"))),
+    Canary("ledger-own-cost",
+           "the ledger's own count over a probe run's transcripts, workflow agent included, is within 2 % of the "
+           "run's total_cost_usd (judged on the workflow-by-name run, no run of its own)",
+           "step 0.2 (#38)", (), lambda e: judge_ledger_cost(e["run"]), reuses="workflow-by-name"),
 )
 CANARY_BY_NAME = {c.name: c for c in CANARIES}
 
@@ -541,23 +612,32 @@ def main(argv: list, out=None) -> int:
     else:
         workdir = os.path.realpath(tempfile.mkdtemp(prefix="orchestration-probe-"))
         out.write(f"probe: scratch projects in {workdir}\n")  # the evidence stays there for inspection
-    # All run directories are created before the first run, so a collision costs no model spend.
+    # All run directories are created before the first run, so a collision costs no model spend. A canary that
+    # reuses another's runs needs that canary's directories, also when only it was selected.
     scratches = {}
     for canary in selected:
-        for run in canary.runs:
-            path = os.path.join(workdir, f"{canary.name}-{run.key}")
+        source = CANARY_BY_NAME[canary.reuses] if canary.reuses else canary
+        for run in source.runs:
+            if (source.name, run.key) in scratches:
+                continue
+            path = os.path.join(workdir, f"{source.name}-{run.key}")
             try:
                 os.makedirs(path, exist_ok=False)
             except FileExistsError:
                 out.write(f"probe: {path} already exists; nothing is deleted, pick a fresh --workdir\n")
                 return 2
-            scratches[(canary.name, run.key)] = path
+            scratches[(source.name, run.key)] = path
     started = _dt.datetime.now(_dt.timezone.utc)
     entries, models, holding = {}, set(), 0
+    evidence_of: dict = {}
     for canary in selected:
-        evidence = {run.key: execute(scratches[(canary.name, run.key)], run, ns.model, ns.claude_bin)
-                    for run in canary.runs}
-        for ev in evidence.values():
+        source = CANARY_BY_NAME[canary.reuses] if canary.reuses else canary
+        fresh = source.name not in evidence_of
+        if fresh:
+            evidence_of[source.name] = {run.key: execute(scratches[(source.name, run.key)], run, ns.model,
+                                                         ns.claude_bin) for run in source.runs}
+        evidence = evidence_of[source.name]
+        for ev in evidence.values() if fresh else ():
             usage = result_field(ev, "modelUsage")
             models.update(usage if isinstance(usage, dict) else ())
         status, reason, observed = canary.judge(evidence)
@@ -565,6 +645,8 @@ def main(argv: list, out=None) -> int:
             # A denial is often the whole story, and with --only this line is all the operator sees.
             reason += "; denied tools: " + ", ".join(observed["denied_tools"])
         cost = cost_of(list(evidence.values()))
+        if cost is not None and not fresh:
+            cost = 0.0  # reused runs were paid for once, under the canary that ran them
         entries[canary.name] = {"status": status, "reason": reason, "expect": canary.expect, "backs": canary.backs,
                                 "observed": observed, "cost_usd": cost}
         holding += status == "holds"

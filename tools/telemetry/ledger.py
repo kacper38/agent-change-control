@@ -202,6 +202,19 @@ def read_session(transcript: str, session: str, prices: Optional[dict] = None) -
             "workflow_transcripts": workflow_count}
 
 
+def session_models(read: dict, prices: dict) -> dict:
+    """{model: counters + cost_usd} over all transcripts of a session read by read_session()."""
+    models: dict = {}
+    combined: dict = {}
+    merge(combined, read["main"])
+    merge(combined, read["sub"])
+    for model, u in combined.items():
+        if total_tokens({model: u}) == 0:  # "<synthetic>" rows and empty turns carry no usage
+            continue
+        models[model] = {**u, "cost_usd": usage_cost(u, price_for(model, prices))}
+    return models
+
+
 def own_cost(models: dict) -> Optional[float]:
     """The ledger's own count, unrounded: the sum of the per-model costs, None if any model has no price (or none
     has usage), never a partial sum."""
@@ -263,14 +276,7 @@ def build_entry(raw: dict, tdir: str, prices: dict, now: Optional[_dt.datetime] 
     transcript = os.path.expanduser(str(raw.get("transcript_path") or ""))
     read = read_session(transcript, session, prices)
     main_usage, sub_usage, errors = read["main"], read["sub"], read["errors"]
-    models: dict = {}
-    combined: dict = {}
-    merge(combined, main_usage)
-    merge(combined, sub_usage)
-    for model, u in combined.items():
-        if total_tokens({model: u}) == 0:  # "<synthetic>" rows and empty turns carry no usage
-            continue
-        models[model] = {**u, "cost_usd": usage_cost(u, price_for(model, prices))}
+    models = session_models(read, prices)
     main_t, sub_t = total_tokens(main_usage), total_tokens(sub_usage)
     share = round(sub_t / (main_t + sub_t), 3) if (main_t + sub_t) else 0.0
     own = own_cost(models)

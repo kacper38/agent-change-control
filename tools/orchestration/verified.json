@@ -1,12 +1,12 @@
 {
   "schema": "orchestration-probe/1",
   "cli_version": "2.1.323",
-  "date": "2026-11-13",
+  "date": "2026-11-15",
   "model": "haiku",
   "models": [
     "claude-haiku-5-5"
   ],
-  "cost_usd": 0.0352,
+  "cost_usd": 0.0398,
   "canaries": {
     "workflow-by-name": {
       "status": "holds",
@@ -21,7 +21,7 @@
         "marker": true,
         "result_messages": 2
       },
-      "cost_usd": 0.0051
+      "cost_usd": 0.0054
     },
     "denial-exits-zero": {
       "status": "holds",
@@ -37,7 +37,7 @@
         ],
         "workflow_agents_started": 0
       },
-      "cost_usd": 0.0026
+      "cost_usd": 0.0028
     },
     "hook-blocks-workflow-agent": {
       "status": "holds",
@@ -53,7 +53,7 @@
         "spawned_from_parent": null,
         "denied_tools": []
       },
-      "cost_usd": 0.0053
+      "cost_usd": 0.0057
     },
     "hook-blocks-nested-subagent": {
       "status": "holds",
@@ -86,7 +86,7 @@
         "control_env": "3",
         "pinned_env": "2"
       },
-      "cost_usd": 0.008
+      "cost_usd": 0.0087
     },
     "spawn-log-workflow-agents": {
       "status": "holds",
@@ -101,7 +101,7 @@
         "same_session": true,
         "marker": true
       },
-      "cost_usd": 0.0045
+      "cost_usd": 0.0053
     },
     "workflow-background-off": {
       "status": "holds",
@@ -116,7 +116,23 @@
         "marker": true,
         "result_messages": 2
       },
-      "cost_usd": 0.0051
+      "cost_usd": 0.0073
+    },
+    "ledger-own-cost": {
+      "status": "holds",
+      "reason": "",
+      "expect": "the ledger's own count over a probe run's transcripts, workflow agent included, is within 2 % of the run's total_cost_usd (judged on the workflow-by-name run, no run of its own)",
+      "backs": "step 0.2 (#38)",
+      "observed": {
+        "transcript": true,
+        "agent_transcripts": 1,
+        "workflow_transcripts": 1,
+        "parse_errors": 0,
+        "own_micro_usd": 5357,
+        "run_micro_usd": 5357,
+        "diff_bp": 1
+      },
+      "cost_usd": 0.0
     }
   }
 }

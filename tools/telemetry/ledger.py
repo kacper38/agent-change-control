@@ -52,15 +52,42 @@ def price_for(model: str, prices: dict) -> Optional[dict]:
     return best[1] if best else None
 
 
+COUNTERS = ("input", "output", "cache_read", "cache_write", "cache_write_1h", "turns")
+
+
+def new_counters() -> dict:
+    return {k: 0 for k in COUNTERS}
+
+
+def long_prompt_tier(table: Optional[dict]) -> Optional[dict]:
+    """The higher rates of a model priced by prompt length (Haiku 5.5), else None."""
+    tier = table.get("long_prompt") if isinstance(table, dict) else None
+    return tier if isinstance(tier, dict) and isinstance(tier.get("over_tokens"), int) else None
+
+
+def _rates_cost(u: dict, rates: dict) -> float:
+    # cache_write counts every cache write; cache_write_1h is the 1-hour part of it. Rows written before
+    # 2026-11-15 have no cache_write_1h, so all their writes are priced at the 5-minute rate, as they were then.
+    w1h = u.get("cache_write_1h") or 0
+    return (u["input"] * rates["input"] + u["output"] * rates["output"] + u["cache_read"] * rates["cache_read"]
+            + (u["cache_write"] - w1h) * rates["cache_write"] + w1h * rates.get("cache_write_1h", rates["cache_write"]))
+
+
 def usage_cost(u: dict, table: Optional[dict]) -> Optional[float]:
     if not table:
         return None
-    return round((u["input"] * table["input"] + u["output"] * table["output"] + u["cache_read"] * table["cache_read"]
-                  + u["cache_write"] * table["cache_write"]) / 1_000_000, 6)
+    tier, long_u = long_prompt_tier(table), u.get("long")
+    if tier and isinstance(long_u, dict):  # the requests over the threshold pay the higher row, the rest the base
+        base = {k: u.get(k, 0) - long_u.get(k, 0) for k in COUNTERS}
+        return round((_rates_cost(base, table) + _rates_cost(long_u, tier)) / 1_000_000, 6)
+    return round(_rates_cost(u, table) / 1_000_000, 6)
 
 
-def parse_transcript(path: str) -> tuple:
-    """({model: {input, output, cache_read, cache_write, turns}}, parse_errors); one usage per requestId."""
+def parse_transcript(path: str, prices: Optional[dict] = None) -> tuple:
+    """({model: {input, output, cache_read, cache_write, cache_write_1h, turns[, long]}}, parse_errors); one usage
+    per requestId. cache_write_1h is the 1-hour part of cache_write (0 when the usage has no breakdown). For a
+    model whose price row has a long_prompt tier, `long` holds the same counters for the requests whose prompt
+    is over its threshold; the model's own counters include them."""
     per_model: dict = {}
     seen: dict = {}
     errors = 0
@@ -90,21 +117,31 @@ def parse_transcript(path: str) -> tuple:
         try:
             vals = [int(usage.get(k) or 0) for k in
                     ("input_tokens", "output_tokens", "cache_read_input_tokens", "cache_creation_input_tokens")]
+            split = usage.get("cache_creation")
+            w1h = int(split.get("ephemeral_1h_input_tokens") or 0) if isinstance(split, dict) else 0
         except (TypeError, ValueError):  # all or nothing: a half-counted turn is worse than a parse error
             errors += 1
             continue
-        m = per_model.setdefault(model, {"input": 0, "output": 0, "cache_read": 0, "cache_write": 0, "turns": 0})
-        m["input"], m["output"], m["cache_read"], m["cache_write"] = (
-            m["input"] + vals[0], m["output"] + vals[1], m["cache_read"] + vals[2], m["cache_write"] + vals[3])
-        m["turns"] += 1
+        req = dict(zip(COUNTERS, vals + [min(w1h, vals[3]), 1]))  # no split: every write at the 5-minute rate
+        m = per_model.setdefault(model, new_counters())
+        add(m, req)
+        tier = long_prompt_tier(price_for(model, prices)) if prices else None
+        if tier and vals[0] + vals[2] + vals[3] > tier["over_tokens"]:
+            add(m.setdefault("long", new_counters()), req)
     return per_model, errors
+
+
+def add(into: dict, u: dict) -> None:
+    for k in COUNTERS:
+        into[k] = into.get(k, 0) + (u.get(k) or 0)
 
 
 def merge(into: dict, other: dict) -> None:
     for model, u in other.items():
-        m = into.setdefault(model, {"input": 0, "output": 0, "cache_read": 0, "cache_write": 0, "turns": 0})
-        for k in m:
-            m[k] += u[k]
+        m = into.setdefault(model, new_counters())
+        add(m, u)
+        if isinstance(u.get("long"), dict):
+            add(m.setdefault("long", new_counters()), u["long"])
 
 
 def total_tokens(per_model: dict) -> int:
@@ -142,15 +179,15 @@ def agent_transcripts(sub_dir: str) -> list:
     return found
 
 
-def read_session(transcript: str, session: str) -> dict:
+def read_session(transcript: str, session: str, prices: Optional[dict] = None) -> dict:
     """Usage of the main transcript and of every agent transcript of the session, kept apart."""
-    main_usage, errors = parse_transcript(transcript) if transcript else ({}, 1)
+    main_usage, errors = parse_transcript(transcript, prices) if transcript else ({}, 1)
     sub_usage: dict = {}
     sub_count = workflow_count = 0
     sub_dir = os.path.join(os.path.dirname(transcript), session, "subagents") if transcript else ""
     if sub_dir and os.path.isdir(sub_dir):
         for p, is_workflow in agent_transcripts(sub_dir):
-            u, e = parse_transcript(p)
+            u, e = parse_transcript(p, prices)
             errors += e
             sub_count += 1
             workflow_count += is_workflow
@@ -163,7 +200,7 @@ def build_entry(raw: dict, tdir: str, prices: dict, now: Optional[_dt.datetime] 
     now = now or _dt.datetime.now(_dt.timezone.utc)
     session = str(raw.get("session_id") or "")
     transcript = os.path.expanduser(str(raw.get("transcript_path") or ""))
-    read = read_session(transcript, session)
+    read = read_session(transcript, session, prices)
     main_usage, sub_usage, errors = read["main"], read["sub"], read["errors"]
     models: dict = {}
     combined: dict = {}

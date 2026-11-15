@@ -44,6 +44,7 @@ def test_parse_transcript_dedups_and_counts_errors(ledger, tmp_path):
     usage, errors = ledger.parse_transcript(str(main))
     assert errors == 2  # one unparsable line, one non-numeric usage
     assert usage["claude-fable-5-1"] == {"input": 112, "output": 57, "cache_read": 1000, "cache_write": 200,
+                                         "cache_write_1h": 0,  # no 5m/1h breakdown in these lines
                                          "turns": 4}  # the half-numeric turn added nothing, not even its 5 input
     assert usage["<synthetic>"]["turns"] == 1
 
@@ -209,5 +210,95 @@ def test_cost_report(ledger, tdir):
 def test_prices_file_is_well_formed(ledger):
     prices = ledger.load_prices()
     assert "claude-opus-4-5" in prices
+    rates = {"input", "output", "cache_read", "cache_write", "cache_write_1h"}
     for name, table in prices.items():
-        assert table is None or set(table) == {"input", "output", "cache_read", "cache_write"}, name
+        assert table is None or set(table) - {"long_prompt"} == rates, name
+        if table and "long_prompt" in table:
+            assert set(table["long_prompt"]) == rates | {"over_tokens"}, name
+    assert set(prices["claude-haiku-5-5"]) == rates | {"long_prompt"}
+    for model in ("claude-opus-5-5", "claude-sonnet-5", "claude-sonnet-5-5", "claude-haiku-5-5", "claude-fable-5-1",
+                  "claude-fable-5-2", "claude-haiku-4-5-20251001"):  # every model id seen in the last 30 days
+        assert ledger.price_for(model, prices) is not None, model
+
+
+def usage_line(model, inp, out, cr=0, cw=0, split=None, req=None):
+    usage = {"input_tokens": inp, "output_tokens": out, "cache_read_input_tokens": cr,
+             "cache_creation_input_tokens": cw}
+    if split is not None:
+        usage["cache_creation"] = {"ephemeral_5m_input_tokens": split[0], "ephemeral_1h_input_tokens": split[1]}
+    return json.dumps({"type": "assistant", "requestId": req, "message": {"model": model, "usage": usage}})
+
+
+def priced_models(ledger, tmp_path, lines):
+    path = tmp_path / "t.jsonl"
+    path.write_text("\n".join(lines) + "\n")
+    prices = ledger.load_prices()
+    usage, errors = ledger.parse_transcript(str(path), prices)
+    return {m: (u, ledger.usage_cost(u, ledger.price_for(m, prices))) for m, u in usage.items()}, errors
+
+
+def test_a_5m_1h_split_prices_each_part_at_its_rate(ledger, tmp_path):
+    got, errors = priced_models(ledger, tmp_path, [usage_line("claude-opus-5-5", 10, 20, cr=1000, cw=3000,
+                                                              split=(1000, 2000), req="r1")])
+    u, cost = got["claude-opus-5-5"]
+    assert errors == 0 and u["cache_write"] == 3000 and u["cache_write_1h"] == 2000
+    assert cost == round((10 * 4 + 20 * 20 + 1000 * 0.2 + 1000 * 5 + 2000 * 8) / 1e6, 6)
+
+
+def test_a_write_without_a_split_is_priced_at_the_5m_rate(ledger, tmp_path):
+    got, _ = priced_models(ledger, tmp_path, [usage_line("claude-opus-5-5", 0, 0, cw=3000, req="r1")])
+    u, cost = got["claude-opus-5-5"]
+    assert u["cache_write_1h"] == 0 and cost == round(3000 * 5 / 1e6, 6)
+
+
+def test_a_non_integer_split_makes_the_request_a_parse_error(ledger, tmp_path):
+    got, errors = priced_models(ledger, tmp_path, [usage_line("claude-opus-5-5", 5, 5, cw=10, split=(0, "x"),
+                                                              req="r1")])
+    assert errors == 1 and got == {}
+
+
+def test_haiku_5_5_pays_the_higher_row_per_request_over_100k(ledger, tmp_path):
+    under = usage_line("claude-haiku-5-5", 1000, 100, cr=99000, cw=0, req="r1")  # prompt 100,000: not over
+    over = usage_line("claude-haiku-5-5", 1000, 100, cr=99000, cw=1, split=(0, 1), req="r2")  # prompt 100,001
+    got, _ = priced_models(ledger, tmp_path, [under])
+    u, cost = got["claude-haiku-5-5"]
+    assert "long" not in u and cost == round((1000 * 0.1 + 100 * 0.5 + 99000 * 0.01) / 1e6, 6)
+    got, _ = priced_models(ledger, tmp_path, [under, over])
+    u, cost = got["claude-haiku-5-5"]
+    assert u["turns"] == 2 and u["long"]["turns"] == 1 and u["long"]["cache_write_1h"] == 1
+    assert cost == round((1000 * 0.1 + 100 * 0.5 + 99000 * 0.01
+                          + 1000 * 0.5 + 100 * 2.5 + 99000 * 0.05 + 1 * 1.0) / 1e6, 6)
+
+
+def test_sonnet_5_5_has_its_own_row(ledger):
+    prices = ledger.load_prices()
+    assert ledger.price_for("claude-sonnet-5-5-20261101", prices) is prices["claude-sonnet-5-5"]
+    assert ledger.price_for("claude-sonnet-5-20260801", prices) is prices["claude-sonnet-5"]
+    assert prices["claude-sonnet-5-5"]["cache_read"] != prices["claude-sonnet-5"]["cache_read"]
+
+
+def test_build_entry_prices_1h_writes_of_every_transcript(ledger, tmp_path, tdir):
+    proj = tmp_path / "projects" / "-p"
+    wf = proj / "s1" / "subagents" / "workflows" / "wf_1"
+    wf.mkdir(parents=True)
+    (proj / "s1.jsonl").write_text(usage_line("claude-opus-5-5", 0, 0, cw=1000, split=(0, 1000), req="m1") + "\n")
+    (wf / "agent-a.jsonl").write_text(usage_line("claude-opus-5-5", 0, 0, cw=1000, split=(0, 1000), req="w1") + "\n")
+    e = ledger.build_entry({"session_id": "s1", "transcript_path": str(proj / "s1.jsonl")}, str(tdir),
+                           ledger.load_prices())
+    assert e["models"]["claude-opus-5-5"]["cache_write_1h"] == 2000
+    assert e["cost_usd"] == round(2000 * 8 / 1e6, 4)
+
+
+def test_an_old_format_row_in_a_month_file_still_reports(ledger, tdir):
+    tdir.mkdir()
+    old = {"ts": "2026-10-28T10:00:00Z", "session": "old1", "project": "/Users/t/beta", "spawns": [],
+           "subagents": {"transcripts": 0, "tokens": 0, "share": 0.0, "flag": False}, "cost_usd": 1.25,
+           "parse_errors": 0,
+           "models": {"claude-opus-4-5": {"input": 10, "output": 20, "cache_read": 0, "cache_write": 0, "turns": 1,
+                                          "cost_usd": 1.25}}}
+    (tdir / "sessions-2026-10.jsonl").write_text(json.dumps(old) + "\n")
+    out = io.StringIO()
+    assert ledger.cost_report(str(tdir), 7, out, now=dt.datetime(2026, 10, 29, tzinfo=dt.timezone.utc)) == 0
+    assert "beta" in out.getvalue() and "$1.25" in out.getvalue()
+    assert ledger.usage_cost(old["models"]["claude-opus-4-5"], PRICES["claude-opus-4-5"]) == round(
+        (10 * 5 + 20 * 25) / 1e6, 6)

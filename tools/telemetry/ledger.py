@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """ledger — SessionEnd token ledger and cost report (plan step 3.6; Claude Code only).
 
-  ledger.py hook                 SessionEnd: read the transcript (and its subagent transcripts), join the spawn
+  ledger.py hook                 SessionEnd: read the transcript (and its subagent and workflow-agent
+                                 transcripts, any agent-*.jsonl under <session>/subagents/), join the spawn
                                  log, price with prices.json, write one line per session id to
                                  <telemetry>/sessions-YYYY-MM.jsonl (an earlier line for the same session is
                                  replaced: the project and user hooks of one SessionEnd leave one line, and a
@@ -126,20 +127,44 @@ def spawns_for(session: str, tdir: str) -> list:
     return out
 
 
+def agent_transcripts(sub_dir: str) -> list:
+    """[(path, is_workflow_agent)] for every agent-*.jsonl under <session>/subagents/ at any depth, sorted.
+    Subagents sit directly in it; workflow agents in workflows/wf_<id>/, next to journal.jsonl (no usage) and
+    *.meta.json / agent-*.json files, which are not transcripts and are skipped."""
+    found = []
+    for root, dirs, files in os.walk(sub_dir):
+        dirs.sort()
+        rel = os.path.relpath(root, sub_dir)
+        is_workflow = rel.split(os.sep)[0] == "workflows"
+        for name in sorted(files):
+            if name.startswith("agent-") and name.endswith(".jsonl"):
+                found.append((os.path.join(root, name), is_workflow))
+    return found
+
+
+def read_session(transcript: str, session: str) -> dict:
+    """Usage of the main transcript and of every agent transcript of the session, kept apart."""
+    main_usage, errors = parse_transcript(transcript) if transcript else ({}, 1)
+    sub_usage: dict = {}
+    sub_count = workflow_count = 0
+    sub_dir = os.path.join(os.path.dirname(transcript), session, "subagents") if transcript else ""
+    if sub_dir and os.path.isdir(sub_dir):
+        for p, is_workflow in agent_transcripts(sub_dir):
+            u, e = parse_transcript(p)
+            errors += e
+            sub_count += 1
+            workflow_count += is_workflow
+            merge(sub_usage, u)
+    return {"main": main_usage, "sub": sub_usage, "errors": errors, "transcripts": sub_count,
+            "workflow_transcripts": workflow_count}
+
+
 def build_entry(raw: dict, tdir: str, prices: dict, now: Optional[_dt.datetime] = None) -> dict:
     now = now or _dt.datetime.now(_dt.timezone.utc)
     session = str(raw.get("session_id") or "")
     transcript = os.path.expanduser(str(raw.get("transcript_path") or ""))
-    main_usage, errors = parse_transcript(transcript) if transcript else ({}, 1)
-    sub_usage: dict = {}
-    sub_count = 0
-    sub_dir = os.path.join(os.path.dirname(transcript), session, "subagents") if transcript else ""
-    if sub_dir and os.path.isdir(sub_dir):
-        for p in sorted(glob.glob(os.path.join(sub_dir, "*.jsonl"))):
-            u, e = parse_transcript(p)
-            errors += e
-            sub_count += 1
-            merge(sub_usage, u)
+    read = read_session(transcript, session)
+    main_usage, sub_usage, errors = read["main"], read["sub"], read["errors"]
     models: dict = {}
     combined: dict = {}
     merge(combined, main_usage)
@@ -159,7 +184,8 @@ def build_entry(raw: dict, tdir: str, prices: dict, now: Optional[_dt.datetime] 
         "reason": raw.get("reason"),
         "models": models,
         "cost_usd": round(sum(costs), 4) if priced else None,
-        "subagents": {"transcripts": sub_count, "tokens": sub_t, "share": share, "flag": share > SUBAGENT_SHARE_FLAG},
+        "subagents": {"transcripts": read["transcripts"], "workflow_transcripts": read["workflow_transcripts"],
+                      "tokens": sub_t, "share": share, "flag": share > SUBAGENT_SHARE_FLAG},
         "spawns": spawns_for(session, tdir),
         "parse_errors": errors,
     }

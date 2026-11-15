@@ -74,7 +74,25 @@ def test_build_entry_joins_subagents_spawns_and_prices(ledger, tmp_path, tdir):
     assert opus["cost_usd"] == round((2000 * 5 + 4000 * 25 + 6000 * 0.5 + 800 * 6.25) / 1e6, 6)
     assert e["cost_usd"] is None  # one model unpriced → the session total stays honest
     assert e["subagents"]["transcripts"] == 2 and e["subagents"]["flag"] is True
+    assert e["subagents"]["workflow_transcripts"] == 0
     assert e["spawns"] == [{"agent": "python-engineer", "model": "opus"}]
+
+
+def test_build_entry_reads_workflow_agents_and_skips_the_journal(ledger, tmp_path, tdir):
+    main = write_transcript(tmp_path, subagents=1)
+    wf = main.parent / "s1" / "subagents" / "workflows" / "wf_abc"
+    wf.mkdir(parents=True)
+    (wf / "agent-def.jsonl").write_text(line("claude-opus-4-5", 7, 3, req="w1") + "\n")
+    (wf / "journal.jsonl").write_text(line("claude-opus-4-5", 500000, 500000, req="j1") + "\n")  # never counted
+    (wf / "agent-def.meta.json").write_text(json.dumps({"agentType": "workflow-subagent"}) + "\n")
+    (wf / "agent-def.json").write_text("{}\n")
+    raw = {"session_id": "s1", "transcript_path": str(main), "cwd": "/Users/t/x", "reason": "exit"}
+    e = ledger.build_entry(raw, str(tdir), PRICES)
+    opus = e["models"]["claude-opus-4-5"]
+    assert opus["input"] == 1000 + 7 and opus["output"] == 2000 + 3 and opus["turns"] == 2
+    assert e["subagents"]["transcripts"] == 2 and e["subagents"]["workflow_transcripts"] == 1
+    assert e["subagents"]["tokens"] == 1000 + 2000 + 3000 + 400 + 7 + 3
+    assert e["parse_errors"] == 2  # the main transcript's two, nothing from the journal or the meta files
 
 
 def test_hook_appends_monthly_file_and_never_fails(ledger, tmp_path, tdir):

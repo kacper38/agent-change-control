@@ -6,17 +6,22 @@
                                  log, price with prices.json, write one line per session id to
                                  <telemetry>/sessions-YYYY-MM.jsonl (an earlier line for the same session is
                                  replaced: the project and user hooks of one SessionEnd leave one line, and a
-                                 resumed session carries cumulative figures). Always exit 0; problems land in
-                                 the line as parse_errors. Copilot payloads and payloads without
+                                 resumed session carries cumulative figures). The line holds the ledger's own
+                                 count (cost_usd_own), Claude Code's own figure from the transcript's
+                                 cost-state lines (cost_usd_cc), and cost_usd = the figure of cost_basis
+                                 (claude-code or own; cost_check says why). Always exit 0; problems land in
+                                 the line as parse_errors or cost_check. Copilot payloads and payloads without
                                  transcript_path write nothing.
-  ledger.py cost [--days 7]      per project and model: tokens, cost, spawns, subagent share (> 70 % flagged),
-                                 and hook prompts per rule from <telemetry>/decisions.jsonl.
+  ledger.py cost [--days 7]      per project and model: tokens, own-count cost, spawns, subagent share (> 70 %
+                                 flagged), sessions per cost basis and marked sessions, and hook prompts per
+                                 rule from <telemetry>/decisions.jsonl.
 Telemetry dir: KZ_TELEMETRY_DIR or ~/.claude/telemetry.
 """
 import argparse
 import datetime as _dt
 import glob
 import json
+import math
 import os
 import sys
 from typing import Optional
@@ -29,6 +34,7 @@ except ImportError:  # Windows: no lock, the reader still keeps one row per sess
 HERE = os.path.dirname(os.path.abspath(__file__))
 PRICES_PATH = os.path.join(HERE, "prices.json")
 SUBAGENT_SHARE_FLAG = 0.70
+CC_LOW, CC_HIGH = 0.98, 1.5  # Claude Code's figure is the session cost within [own * low, own * high]
 LOCK_FILE = ".ledger.lock"
 
 
@@ -196,6 +202,61 @@ def read_session(transcript: str, session: str, prices: Optional[dict] = None) -
             "workflow_transcripts": workflow_count}
 
 
+def own_cost(models: dict) -> Optional[float]:
+    """The ledger's own count, unrounded: the sum of the per-model costs, None if any model has no price (or none
+    has usage), never a partial sum."""
+    costs = [m["cost_usd"] for m in models.values()]
+    return sum(costs) if costs and all(c is not None for c in costs) else None
+
+
+def read_cost_state(path: str) -> tuple:
+    """Claude Code's own figure from the `cost-state` lines of a main transcript: (usd or None, any counted
+    snapshot has hasUnknownModelCost, lines ignored). Lines with one startTime are cumulative snapshots, so the
+    last one counts; a resumed session may start a new startTime from zero, so the last of each is summed. A line
+    whose totalCostUSD is missing or not a finite number >= 0 is ignored and counted."""
+    last: dict = {}
+    ignored = 0
+    try:
+        fh = open(path, encoding="utf-8", errors="replace")
+    except OSError:
+        return None, False, 0
+    with fh:
+        for line in fh:
+            if '"cost-state"' not in line:
+                continue
+            try:
+                d = json.loads(line)
+            except ValueError:
+                continue  # parse_transcript already counts an unparsable line
+            if not isinstance(d, dict) or d.get("type") != "cost-state":
+                continue
+            usd = d.get("totalCostUSD")
+            if isinstance(usd, bool) or not isinstance(usd, (int, float)) or not math.isfinite(usd) or usd < 0:
+                ignored += 1
+                continue
+            last[json.dumps(d.get("startTime"), sort_keys=True)] = (float(usd), d.get("hasUnknownModelCost") is True)
+    if not last:
+        return None, False, ignored
+    return sum(u for u, _ in last.values()), any(k for _, k in last.values()), ignored
+
+
+def choose_cost(own: Optional[float], cc: Optional[float], cc_unknown: bool) -> tuple:
+    """(session cost, basis, check). Claude Code's figure is the cost when it lies between 98 % of the own count
+    and 1.5 times it: it also sees requests that never reach a transcript. Outside that range (a figure carried
+    over from another session file), with no figure, or with a model Claude Code could not price, the own count
+    is used and the session is marked (check != ok). With no own count to check it against, Claude Code's figure
+    is used and marked `unchecked`."""
+    if cc is None:
+        return own, "own", "missing"
+    if cc_unknown:
+        return own, "own", "unknown-model-cost"
+    if own is None:
+        return cc, "claude-code", "unchecked"
+    if own * CC_LOW <= cc <= own * CC_HIGH:
+        return cc, "claude-code", "ok"
+    return own, "own", "out-of-range"
+
+
 def build_entry(raw: dict, tdir: str, prices: dict, now: Optional[_dt.datetime] = None) -> dict:
     now = now or _dt.datetime.now(_dt.timezone.utc)
     session = str(raw.get("session_id") or "")
@@ -212,19 +273,24 @@ def build_entry(raw: dict, tdir: str, prices: dict, now: Optional[_dt.datetime] 
         models[model] = {**u, "cost_usd": usage_cost(u, price_for(model, prices))}
     main_t, sub_t = total_tokens(main_usage), total_tokens(sub_usage)
     share = round(sub_t / (main_t + sub_t), 3) if (main_t + sub_t) else 0.0
-    costs = [m["cost_usd"] for m in models.values()]
-    priced = bool(costs) and all(c is not None for c in costs)
+    own = own_cost(models)
+    cc, cc_unknown, cc_ignored = read_cost_state(transcript) if transcript else (None, False, 0)
+    cost, basis, check = choose_cost(own, cc, cc_unknown)
     return {
         "ts": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
         "session": session,
         "project": str(raw.get("cwd") or ""),
         "reason": raw.get("reason"),
         "models": models,
-        "cost_usd": round(sum(costs), 4) if priced else None,
+        "cost_usd": None if cost is None else round(cost, 4),
+        "cost_usd_own": None if own is None else round(own, 4),
+        "cost_usd_cc": None if cc is None else round(cc, 4),
+        "cost_basis": basis,
+        "cost_check": check,
         "subagents": {"transcripts": read["transcripts"], "workflow_transcripts": read["workflow_transcripts"],
                       "tokens": sub_t, "share": share, "flag": share > SUBAGENT_SHARE_FLAG},
         "spawns": spawns_for(session, tdir),
-        "parse_errors": errors,
+        "parse_errors": errors + cc_ignored,
     }
 
 
@@ -355,7 +421,14 @@ def cost_report(tdir: str, days: int, out, now: Optional[_dt.datetime] = None) -
     agg: dict = {}
     flagged = []
     spawn_count = 0
+    bases: dict = {}
+    marks: dict = {}
     for row in rows:
+        basis = row.get("cost_basis") or "unrecorded"  # rows written before 2026-11-15 carry no basis
+        bases[basis] = bases.get(basis, 0) + 1
+        check = row.get("cost_check")
+        if check and check != "ok":
+            marks[check] = marks.get(check, 0) + 1
         project = os.path.basename(row.get("project") or "") or "?"
         for model, u in (row.get("models") or {}).items():
             a = agg.setdefault((project, model), {"sessions": 0, "tokens": 0, "output": 0, "cost": 0.0, "priced": True})
@@ -375,6 +448,9 @@ def cost_report(tdir: str, days: int, out, now: Optional[_dt.datetime] = None) -
         cost = f"${a['cost']:.2f}" if a["priced"] else "n/a"
         out.write(f"{project[:32]:<32} {model[:26]:<26} {a['sessions']:>4} "
                   f"{a['tokens']:>12,} {a['output']:>9,} {cost:>9}\n")
+    out.write("sessions by cost basis: " + ", ".join(f"{b} {n}" for b, n in sorted(bases.items()))
+              + f"; marked {sum(marks.values())}"
+              + (" (" + ", ".join(f"{c} {n}" for c, n in sorted(marks.items())) + ")" if marks else "") + "\n")
     out.write(f"spawns: {spawn_count}; sessions with subagent share > {int(SUBAGENT_SHARE_FLAG * 100)} %: "
               + (", ".join(flagged) if flagged else "none") + "\n")
     decisions = load_decisions(tdir, since)

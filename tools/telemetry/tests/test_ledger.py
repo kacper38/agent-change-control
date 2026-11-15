@@ -302,3 +302,107 @@ def test_an_old_format_row_in_a_month_file_still_reports(ledger, tdir):
     assert "beta" in out.getvalue() and "$1.25" in out.getvalue()
     assert ledger.usage_cost(old["models"]["claude-opus-4-5"], PRICES["claude-opus-4-5"]) == round(
         (10 * 5 + 20 * 25) / 1e6, 6)
+
+
+def cost_state(usd, start="2026-11-15T10:00:00.000Z", unknown=False):
+    return json.dumps({"type": "cost-state", "sessionId": "s1", "totalCostUSD": usd, "startTime": start,
+                       "hasUnknownModelCost": unknown, "modelUsage": {}, "totalDuration": 1})
+
+
+def cc_entry(ledger, tmp_path, tdir, states, own_tokens=1_000_000):
+    """A session whose own count is own_tokens output tokens of claude-opus-4-5 ($25 per million) plus states."""
+    proj = tmp_path / "projects" / "-p"
+    proj.mkdir(parents=True, exist_ok=True)
+    main = proj / "s1.jsonl"
+    main.write_text("\n".join([line("claude-opus-4-5", 0, own_tokens, req="r1"), *states]) + "\n")
+    return ledger.build_entry({"session_id": "s1", "transcript_path": str(main)}, str(tdir), PRICES)
+
+
+def test_no_cost_state_line_uses_the_own_count_and_marks_it(ledger, tmp_path, tdir):
+    e = cc_entry(ledger, tmp_path, tdir, [])
+    assert e["cost_usd_own"] == 25.0 and e["cost_usd_cc"] is None
+    assert (e["cost_usd"], e["cost_basis"], e["cost_check"]) == (25.0, "own", "missing")
+
+
+def test_snapshots_with_one_start_time_count_the_last(ledger, tmp_path, tdir):
+    e = cc_entry(ledger, tmp_path, tdir, [cost_state(5.0), cost_state(20.0), cost_state(30.0)])
+    assert e["cost_usd_cc"] == 30.0 and e["cost_usd_own"] == 25.0
+    assert (e["cost_usd"], e["cost_basis"], e["cost_check"]) == (30.0, "claude-code", "ok")
+
+
+def test_two_start_times_are_summed(ledger, tmp_path, tdir):
+    e = cc_entry(ledger, tmp_path, tdir, [cost_state(10.0, "t1"), cost_state(15.0, "t1"),
+                                          cost_state(3.0, "t2"), cost_state(12.0, "t2")])
+    assert e["cost_usd_cc"] == 27.0 and e["cost_basis"] == "claude-code" and e["cost_usd"] == 27.0
+
+
+def test_a_carried_over_figure_far_above_the_own_count_is_not_used(ledger, tmp_path, tdir):
+    e = cc_entry(ledger, tmp_path, tdir, [cost_state(62.68)], own_tokens=48_400)  # own $1.21
+    assert e["cost_usd_own"] == 1.21 and e["cost_usd_cc"] == 62.68
+    assert (e["cost_usd"], e["cost_basis"], e["cost_check"]) == (1.21, "own", "out-of-range")
+
+
+def test_a_figure_1_percent_below_the_own_count_is_used(ledger, tmp_path, tdir):
+    e = cc_entry(ledger, tmp_path, tdir, [cost_state(24.75)])
+    assert (e["cost_usd"], e["cost_basis"], e["cost_check"]) == (24.75, "claude-code", "ok")
+    e = cc_entry(ledger, tmp_path, tdir, [cost_state(24.0)])  # 4 % below: out of range
+    assert (e["cost_usd"], e["cost_basis"], e["cost_check"]) == (25.0, "own", "out-of-range")
+    e = cc_entry(ledger, tmp_path, tdir, [cost_state(37.5)])  # exactly 1.5 times: still in range
+    assert e["cost_basis"] == "claude-code"
+
+
+def test_unknown_model_cost_falls_back_to_the_own_count(ledger, tmp_path, tdir):
+    e = cc_entry(ledger, tmp_path, tdir, [cost_state(30.0, unknown=True)])
+    assert e["cost_usd_cc"] == 30.0
+    assert (e["cost_usd"], e["cost_basis"], e["cost_check"]) == (25.0, "own", "unknown-model-cost")
+
+
+def test_an_unpriced_own_count_leaves_claude_codes_figure_unchecked(ledger, tmp_path, tdir):
+    proj = tmp_path / "projects" / "-p"
+    proj.mkdir(parents=True)
+    main = proj / "s1.jsonl"
+    main.write_text("\n".join([line("claude-opus-4-5", 0, 10, req="r1"), line("claude-fable-5-1", 0, 10, req="r2"),
+                               cost_state(2.0)]) + "\n")
+    e = ledger.build_entry({"session_id": "s1", "transcript_path": str(main)}, str(tdir), PRICES)
+    assert e["cost_usd_own"] is None, "one unpriced model: no partial sum"
+    assert (e["cost_usd"], e["cost_basis"], e["cost_check"]) == (2.0, "claude-code", "unchecked")
+
+
+def test_bad_cost_state_lines_are_ignored_and_counted(ledger, tmp_path, tdir):
+    states = [cost_state(None), cost_state("12"), cost_state(True),
+              json.dumps({"type": "cost-state", "startTime": "t"}), json.dumps({"type": "cost-state"})[:-1],
+              cost_state(26.0)]
+    e = cc_entry(ledger, tmp_path, tdir, states)
+    assert e["cost_usd_cc"] == 26.0 and e["cost_check"] == "ok"
+    assert e["parse_errors"] == 5  # four ignored lines and one that is not JSON
+
+
+def test_hook_never_raises_on_an_odd_cost_state(ledger, tmp_path, tdir):
+    proj = tmp_path / "projects" / "-p"
+    proj.mkdir(parents=True)
+    main = proj / "s1.jsonl"
+    main.write_text(json.dumps({"type": "cost-state", "totalCostUSD": 1.0, "startTime": {"a": [1]}}) + "\n"
+                    + json.dumps({"type": "cost-state", "totalCostUSD": float("inf")}) + "\n")
+    err = io.StringIO()
+    raw = json.dumps({"session_id": "s1", "transcript_path": str(main)})
+    assert ledger.main(["hook"], stdin=io.StringIO(raw), out=io.StringIO(), err=err) == 0
+    assert err.getvalue() == ""
+    month = next(f for f in os.listdir(tdir) if f.startswith("sessions-"))
+    row = json.loads((tdir / month).read_text().splitlines()[0])
+    assert "error" not in row and row["cost_usd_cc"] == 1.0 and row["cost_check"] == "unchecked"
+    assert row["parse_errors"] == 1
+
+
+def test_cost_report_counts_sessions_by_basis_and_marks(ledger, tdir):
+    tdir.mkdir()
+    base = {"ts": "2026-10-28T10:00:00Z", "project": "/Users/t/alpha", "spawns": [], "subagents": {}, "models": {}}
+    rows = [dict(base, session="a", cost_basis="claude-code", cost_check="ok"),
+            dict(base, session="b", cost_basis="own", cost_check="missing"),
+            dict(base, session="c", cost_basis="own", cost_check="out-of-range"),
+            dict(base, session="d", cost_basis="claude-code", cost_check="unchecked"),
+            dict(base, session="e")]  # written before the basis existed
+    (tdir / "sessions-2026-10.jsonl").write_text("\n".join(json.dumps(r) for r in rows) + "\n")
+    out = io.StringIO()
+    ledger.cost_report(str(tdir), 7, out, now=dt.datetime(2026, 10, 29, tzinfo=dt.timezone.utc))
+    assert ("sessions by cost basis: claude-code 2, own 2, unrecorded 1; marked 3 "
+            "(missing 1, out-of-range 1, unchecked 1)") in out.getvalue()

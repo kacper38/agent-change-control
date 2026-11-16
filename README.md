@@ -195,6 +195,14 @@ variables (`KZ_TRACKER_REPO`, `KZ_TRACKER_AREA`, `KZ_TRACKER_ADO_MODE`,
   committed `guard.json` at the repo root that says `boundary: own` enables
   it. Gitignore the local file in a task repo yourself; the installer never
   edits `.gitignore`.
+- The deploy and delete asks (`deploy-ask`, `delete-guard`) judge a command
+  twice since guard 0.6.1: by the text patterns of 0.6.0, and by reading every
+  simple command the shell would run, nested scripts included (`bash -c '…'`,
+  `eval`, `ssh host '…'`, a here-string). A variable, a wrapper or an option
+  in front of the verb no longer hides it (`AWS_PROFILE=prod terraform apply`,
+  `kubectl -n prod delete …`, `sudo -u bob rm …`), and a line the reader
+  cannot read asks. The guard reads text and prompts; it is no sandbox, and
+  `DECISIONS.md` (2026-11-16) lists the forms it does not see.
 - `tools/testguard/check-test-tampering.sh` (the harness kit's guard plus
   pytest rules): deleted or renamed test files, a `def test_` that disappears,
   added skip/focus markers, `[skip ci]` in commits or the PR title. The

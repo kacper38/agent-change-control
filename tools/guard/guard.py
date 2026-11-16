@@ -17,6 +17,7 @@ Usage:
 """
 
 import datetime as _dt
+import functools
 import json
 import os
 import re
@@ -27,7 +28,7 @@ import sys
 from collections.abc import Mapping
 from typing import Callable, Optional
 
-VERSION = "0.6.0"
+VERSION = "0.6.1"
 
 # ----------------------------------------------------------------------------
 # Harness normalization
@@ -310,25 +311,83 @@ DELETE_MSG = (
     "Deletion guard (owner rule: never auto-approve deletions, scripts included): {what}. "
     "Ask the owner explicitly."
 )
+# the token pass (0.6.1): the same tools and verbs as the expressions above, read from the command's tokens
+_RM_CLASS = frozenset("rm rmdir unlink trash shred truncate".split())
+_GIT_DELETE_RE = re.compile(GIT_RE)
+_DOCKER_DELETE_PAIRS = {
+    "system": frozenset({"prune"}), "volume": frozenset({"rm", "prune"}), "image": frozenset({"prune"}),
+    "container": frozenset({"prune"}), "builder": frozenset({"prune"}), "compose": frozenset({"down", "rm"}),
+}
+# tool basename -> (verbs, pairs as first word -> second words); pip3.12-style names count as pip
+_DELETE_TOOLS: dict = {
+    "mise": (frozenset({"uninstall", "prune"}), {}),
+    "npm": (frozenset({"uninstall", "rm", "un", "r", "unlink"}), {}),
+    "pnpm": (frozenset({"remove", "rm", "uninstall"}), {}),
+    "yarn": (frozenset({"remove"}), {}),
+    "brew": (frozenset({"uninstall", "remove", "rm"}), {}),
+    "pip": (frozenset({"uninstall"}), {}),
+    "cargo": (frozenset({"uninstall"}), {}),
+    "docker": (frozenset({"rm", "rmi"}), _DOCKER_DELETE_PAIRS),
+    "docker-compose": (frozenset({"down", "rm"}), {}),
+    "kubectl": (frozenset({"delete"}), {}),
+    "helm": (frozenset({"uninstall", "delete"}), {}),
+    "rclone": (frozenset({"delete", "purge", "sync"}), {}),
+    "prisma": (frozenset(), {"migrate": frozenset({"reset"})}),
+}
 
 
-def rule_delete_guard(ev: Event, cfg: dict) -> Optional[Decision]:
-    if ev.event != "PreToolUse" or ev.kind != "shell" or not ev.command:
-        return None
+def delete_what(command: str) -> Optional[str]:
+    """What a command line would delete, read from the tokens of every simple command it runs, or None."""
+    for toks in nested_commands(command):
+        at_word = command_word_indexes(toks)
+        named = 0
+        for i, t in enumerate(toks):
+            name = os.path.basename(t)
+            if name in _RM_CLASS and i in at_word:
+                return f"`{name}` deletes files"
+            entry = _DELETE_TOOLS.get("pip" if _PIP_RE.match(name) else name)
+            if name != "git" and not entry:
+                continue
+            named += 1
+            if named > _MAX_TOOL_WORDS:  # each call reads the rest of the line: bound the cost, ask instead
+                raise CommandNotRead(_TOO_MANY_TOOLS)
+            if name == "git":
+                sub, rest = _git_subcommand(list(toks[i:]))
+                if sub and _GIT_DELETE_RE.match(" ".join(["git", sub, *rest])):
+                    return f"`git {sub}` discards work"
+                continue
+            hit = subcommand_hit(list(toks[i + 1 :]), *entry)
+            if hit:
+                return f"`{name} {hit}` deletes"
+    return None
+
+
+def _delete_judge(ev: Event) -> Optional[str]:
+    """What the command would delete: the text pass, the scan of a script it names, then the token pass."""
     if DELETE_RE.search(ev.command):
-        return "ask", DELETE_MSG.format(what="command contains a delete/discard pattern")
+        return "command contains a delete/discard pattern"
     for m in SCRIPT_RE.finditer(ev.command):
         script = m.group(3)
         p = script if os.path.isabs(script) else os.path.join(ev.cwd, script)
         try:
             with open(p, encoding="utf-8", errors="replace") as fh:
                 if DELETE_RE.search(fh.read()):
-                    return "ask", DELETE_MSG.format(
-                        what=f"script {script} contains a delete/discard pattern"
-                    )
-        except OSError:
-            continue  # not a readable file: nothing to scan
-    return None
+                    return f"script {script} contains a delete/discard pattern"
+        except (OSError, ValueError):
+            continue  # not a readable file (missing, a directory, a NUL byte in the name): nothing to scan
+    return delete_what(strip_heredocs(ev.command))
+
+
+def rule_delete_guard(ev: Event, cfg: dict) -> Optional[Decision]:
+    if ev.event != "PreToolUse" or ev.kind != "shell" or not ev.command:
+        return None
+    try:
+        what = _delete_judge(ev)
+    except CommandNotRead as exc:  # too deep or too many tools: ask rather than pass it unread
+        what = str(exc)
+    except Exception as exc:  # main() turns a crash into exit 1, which both harnesses let run silently: ask instead
+        what = f"the command could not be read ({type(exc).__name__})"
+    return ("ask", DELETE_MSG.format(what=what)) if what else None
 
 
 
@@ -580,6 +639,42 @@ def rule_git_guard(ev: Event, cfg: dict) -> Optional[Decision]:
 # deploy-ask: anything that changes a live environment needs an explicit yes
 # ----------------------------------------------------------------------------
 
+def _verbs(words: str) -> frozenset:
+    """A word set (what `_w` does further down; the tables here load before it)."""
+    return frozenset(words.split())
+
+
+_TERRAFORM = (_verbs("apply destroy import taint untaint"), {"state": _verbs("rm mv push")},
+              "terraform/tofu changes state")
+_PROXMOX = "Proxmox changes a guest"
+_PULUMI_CDK = "pulumi/cdk deploys"
+# tool basename -> (verbs, pairs as first word -> second words, label); restates the 0.6.0 expressions tool by
+# tool, and counts wherever the tool's name stands as a word (behind sudo, timeout, npx, uv run, ssh host, …)
+_DEPLOY_TABLE: dict = {
+    "terraform": _TERRAFORM,
+    "tofu": _TERRAFORM,
+    "kubectl": (_verbs("apply create delete rollout drain cordon uncordon scale patch replace edit exec"), {},
+                "kubectl changes the cluster"),
+    "helm": (_verbs("install upgrade uninstall delete rollback"), {}, "helm changes a release"),
+    "docker": (_verbs("push"), {"compose": _verbs("push")}, "pushes an image"),
+    "docker-compose": (_verbs("push"), {}, "pushes an image"),
+    "gh": (_verbs(""), {"workflow": _verbs("run"), "release": _verbs("create delete edit upload")},
+           "triggers a workflow or release"),
+    "az": (_verbs(""), {}, "az changes resources"),  # judged by _az_changes
+    # `s3 sync` counts only with --delete (deploy_what)
+    "aws": (_verbs(""), {"cloudformation": _verbs("deploy create-stack update-stack delete-stack execute-change-set"),
+                         "s3": _verbs("rm rb sync")}, "CloudFormation"),
+    "hcloud": (_verbs(""), {"server": _verbs("create delete rebuild poweroff reset shutdown")},
+               "hcloud server lifecycle"),
+    "pvesh": (_verbs("create set delete"), {}, _PROXMOX),
+    "qm": (_verbs("destroy stop shutdown reset"), {}, _PROXMOX),
+    "pulumi": (_verbs("up destroy"), {}, _PULUMI_CDK),
+    "cdk": (_verbs("deploy destroy"), {}, _PULUMI_CDK),
+    "ansible-playbook": (_verbs(""), {}, "ansible-playbook changes hosts"),  # judged by _ansible_runs
+    "flux": (_verbs("uninstall suspend"), {}, "flux changes reconciliation"),
+}
+_DRY_VALUES = frozenset({"client", "server", "true"})  # --dry-run=<these> previews; any other value applies
+# the 0.6.0 text pass, kept as it was (fix brief 1: nothing that asked at 0.6.0 may stop asking)
 _DEPLOY_PATTERNS = [
     (
         r"(terraform|tofu)\s+(apply|destroy|import|taint|untaint|state\s+(rm|mv|push))",
@@ -616,16 +711,102 @@ DEPLOY_MSG = (
 )
 
 
-def rule_deploy_ask(ev: Event, cfg: dict) -> Optional[Decision]:
-    if ev.event != "PreToolUse" or ev.kind != "shell" or not ev.command:
-        return None
-    for part in _SEP_RE.split(strip_heredocs(ev.command)):
+def _deploy_text(command: str) -> Optional[str]:
+    """The 0.6.0 text pass: the label of the first deploy pattern at the start of a text segment, or None."""
+    for part in _SEP_RE.split(command):
         if _DRY_RE.search(part):
             continue
         for rx, label in _DEPLOY_RES:
             if rx.search(" " + part.strip()) or rx.search(part):
-                return "ask", DEPLOY_MSG.format(what=label)
+                return label
     return None
+
+
+def _dry_run(name: str, args: list[str]) -> bool:
+    """This tool call only previews: the last --dry-run is bare or client/server/true, ansible's --check, or az's
+    validate as a subcommand word."""
+    last = None
+    for t in args:
+        if t == "--dry-run" or t.startswith("--dry-run="):
+            last = t  # the last one wins, as in kubectl and helm
+        elif name == "ansible-playbook" and t == "--check":
+            return True
+    if last is not None and (last == "--dry-run" or last.split("=", 1)[1].lower() in _DRY_VALUES):
+        return True
+    if name != "az":
+        return False
+    for t in args:  # only the leading words: `az group delete --name validate` names a resource
+        if t.startswith("-"):
+            return False
+        if t == "validate":
+            return True
+    return False
+
+
+def _az_changes(args: list[str]) -> Optional[str]:
+    """0.6.0's az expressions in token form: pipeline runs, deployments, and delete/create past the first word."""
+    args = drop_redirections(args)
+    words = [t for t in args if not t.startswith("-")]
+    if words[:2] == ["pipelines", "run"] or words[:3] == ["pipelines", "build", "queue"]:
+        return "triggers a pipeline run"
+    if words[:1] == ["deployment"]:
+        return "az changes resources"
+    if words[:3] == ["repos", "pr", "create"]:
+        return None  # opens a PR (pr-prep's job), it changes no environment
+    return "az changes resources" if {"delete", "create"} & set(args[1:]) else None
+
+
+def _ansible_runs(args: list[str], at_command_word: bool) -> bool:
+    """A playbook run: as the command, any non-option word; elsewhere (uv run, npx, …) a .yml/.yaml word."""
+    rest = drop_redirections(args)
+    if at_command_word:
+        return any(not t.startswith("-") for t in rest)
+    return any(t.endswith((".yml", ".yaml")) for t in rest)
+
+
+def _deploy_call(name: str, args: list[str], at_command_word: bool) -> Optional[str]:
+    """The label when one call of a deploy tool changes a live environment, before the dry-run check."""
+    verbs, pairs, label = _DEPLOY_TABLE[name]
+    if name == "az":
+        return _az_changes(args)
+    if name == "ansible-playbook":
+        return label if _ansible_runs(args, at_command_word) else None
+    hit = subcommand_hit(args, verbs, pairs)
+    if not hit or (hit == "s3 sync" and "--delete" not in args):
+        return None
+    return "aws s3 deletes" if name == "aws" and hit.startswith("s3 ") else label
+
+
+def deploy_what(command: str) -> Optional[str]:
+    """The label of the first deploy a command line would run, read from every simple command it runs, or None."""
+    for toks in nested_commands(command):
+        at_word = command_word_indexes(toks)
+        named = 0
+        for i, t in enumerate(toks):
+            name = os.path.basename(t)
+            if name not in _DEPLOY_TABLE:
+                continue
+            named += 1
+            if named > _MAX_TOOL_WORDS:  # each call reads the rest of the line: bound the cost, ask instead
+                raise CommandNotRead(_TOO_MANY_TOOLS)
+            args = list(toks[i + 1 :])
+            what = _deploy_call(name, args, i in at_word)
+            if what and not _dry_run(name, args):
+                return what
+    return None
+
+
+def rule_deploy_ask(ev: Event, cfg: dict) -> Optional[Decision]:
+    if ev.event != "PreToolUse" or ev.kind != "shell" or not ev.command:
+        return None
+    try:
+        text = strip_heredocs(ev.command)
+        what = _deploy_text(text) or deploy_what(text)  # the 0.6.0 verdict OR the token verdict
+    except CommandNotRead as exc:  # too deep or too many tools: ask rather than pass it unread
+        what = str(exc)
+    except Exception as exc:  # main() turns a crash into exit 1, which both harnesses let run silently: ask instead
+        what = f"the command could not be read ({type(exc).__name__})"
+    return ("ask", DEPLOY_MSG.format(what=what)) if what else None
 
 
 # ----------------------------------------------------------------------------
@@ -1523,6 +1704,283 @@ def rule_host_install(ev: Event, cfg: dict) -> Optional[Decision]:
     except Exception as exc:  # main() turns a crash into exit 1, which both harnesses let run silently: ask instead
         what = f"the command could not be read ({type(exc).__name__})"
     return ("ask", HOST_INSTALL_MSG.format(what=what)) if what else None
+
+
+# ----------------------------------------------------------------------------
+# Command reader for deploy-ask and delete-guard (0.6.1): every simple command the shell would run, nested
+# scripts included, as tokens, so a variable, wrapper, option or nesting in front of a verb no longer hides it.
+# Built on the host-install lexer; segments() stays as it is for the git, tracker, secret and egress rules.
+# ----------------------------------------------------------------------------
+
+
+class CommandNotRead(Exception):
+    """The reader stopped (a nest deeper than _HI_MAX_DEPTH, too many tools or command words in one simple
+    command): the rules ask, and the message says why."""
+
+
+_MAX_TOOL_WORDS = 32  # tool and shell names judged per simple command; each reads the rest of it: bounds the cost
+_TOO_MANY_TOOLS = f"one simple command names more than {_MAX_TOOL_WORDS} tools and was not read"
+_MAX_COMMAND_WORDS = 64
+_TOO_MANY_WORDS = (f"one simple command has more than {_MAX_COMMAND_WORDS} places where a command can stand "
+                   "and was not read")
+_REDIRECT_TOKEN_RE = re.compile(r"^\d*[<>]")
+_BARE_REDIRECT_TOKEN_RE = re.compile(r"^\d*(<|>|>>|<<|<<-|<<<|<>)$")
+# the reader's own tables (the host-install ones stay as they are): names whose -c or here-string hands a script
+# to a shell, by basename; `$SHELL` is a word the reader sees unexpanded
+_NC_SHELLS = frozenset("sh bash zsh dash ksh fish ash su script flock $SHELL ${SHELL}".split())
+_NC_DASH_C_RE = re.compile(r"^-[A-Za-z]*c[A-Za-z]*$")  # -c, -lc, -ec, -ce, -qc
+_NC_VALUED = frozenset("-o +o -O +O".split())  # shell options whose next word is their value
+_NC_SHELL_WORDS = frozenset("! { then do else elif if while until".split())
+# wrapper basename -> plain words before the command it runs (timeout's duration, flock's lock file, chroot's new
+# root, ssh's host); `time` is a wrapper here, so `time -p rm` and `/usr/bin/time rm` are read
+_NC_WRAPPERS: dict = {
+    **dict.fromkeys("sudo doas env command exec builtin nohup time nice ionice stdbuf caffeinate arch setsid strace"
+                    " watch xargs parallel coproc".split(), 0),
+    **dict.fromkeys("timeout gtimeout flock chroot ssh script".split(), 1),  # BSD `script file command …`
+}
+# names whose quoted words are command lines for a shell: `ssh host '…'`, `watch '…'`, `parallel '…' ::: a`,
+# `trap '…' EXIT`, `tmux send-keys '…' Enter`
+_NC_SCRIPT_WORDS = frozenset("ssh watch parallel trap tmux".split())
+_NC_FIND_EXEC = frozenset("-exec -execdir -ok -okdir".split())
+_NC_HELP = frozenset("-h -help --help".split())
+_NC_FALLBACK_SPLIT_RE = re.compile(r"\|\||&&|[;|\n()`]")
+
+
+def nested_commands(command: str) -> tuple[tuple[str, ...], ...]:
+    """The tokens of every simple command of the line and of what it nests (`$( … )` in double quotes, `sh -c`,
+    `bash <<<`, `env -S`, `eval`, an ssh or watch script). Memoised: deploy-ask and delete-guard read the same
+    text in one hook run. Raises CommandNotRead past _HI_MAX_DEPTH, and when a simple command is too long to
+    read in bounded time; that outcome is memoised too."""
+    got = _nc_cached(command)
+    if isinstance(got, CommandNotRead):
+        raise CommandNotRead(str(got))
+    return got
+
+
+@functools.lru_cache(maxsize=8)
+def _nc_cached(command: str):
+    """nested_commands' memo: the token tuples, or the CommandNotRead that stopped the read."""
+    out: list[tuple[str, ...]] = []
+    try:
+        _nc_read(command, 0, out, set())
+    except CommandNotRead as exc:  # kept as a value so the second rule does not read the line again
+        return exc
+    return tuple(out)
+
+
+def _nc_read(text: str, depth: int, out: list, seen: set) -> None:
+    """Append the simple commands of one line to out, then read what each nests one level deeper."""
+    if depth > _HI_MAX_DEPTH:
+        if text.strip():
+            raise CommandNotRead(_HI_NOT_READ)
+        return
+    prepared, subs = _hi_prepare(text)
+    cmds = _hi_lex(prepared)
+    if cmds is None:  # an unbalanced quote: raw words between separators, brackets and backticks, ends unquoted
+        parts = [[w for w in (t.strip("'\"\\") for t in tokens(p)) if w] for p in _NC_FALLBACK_SPLIT_RE.split(prepared)]
+    else:
+        parts = [toks for _sep, toks in cmds]
+    nested = list(subs)  # substitutions outside quotes are simple commands of their own in the lexer already
+    for raw in parts:
+        nested.extend(_nc_here_strings(raw))  # taken before the redirections go: `<<<` is one
+        toks = drop_redirections(raw)
+        if not toks:
+            continue
+        out.append(tuple(toks))
+        nested.extend(_nc_scripts(toks))
+    for script in nested:
+        if script not in seen:  # one read per distinct script: a repeated nest costs nothing twice
+            seen.add(script)
+            _nc_read(script, depth + 1, out, seen)
+
+
+def _nc_here_strings(toks: list[str]) -> list[str]:
+    """The here-strings of a simple command that names a shell (`bash <<< 'script'`, `bash <<<'script'`, and
+    without a space in front, `bash<<<'script'`)."""
+    out = []
+    shell = False
+    for k, t in enumerate(toks):
+        head, mark, tail = t.partition("<<<")
+        shell = shell or os.path.basename(head) in _NC_SHELLS
+        if mark:
+            out.extend([tail] if tail else toks[k + 1 : k + 2])
+    return out if shell else []
+
+
+def _nc_scripts(toks: list[str]) -> list[str]:
+    """The scripts one simple command hands to another shell: `sh -c` (and su, script, flock, $SHELL), `env -S`,
+    `eval`, and the quoted words of ssh, watch, parallel, trap and tmux."""
+    names = sum(1 for t in toks if os.path.basename(t) in _NC_SHELLS)
+    if names > _MAX_TOOL_WORDS:  # each name may walk the rest of the command: bound the cost, ask instead
+        raise CommandNotRead(_TOO_MANY_TOOLS)
+    scripts = []
+    words = command_word_indexes(toks)
+    shell = remote = env = False
+    for i, t in enumerate(toks):
+        name = os.path.basename(t)
+        if name in _NC_SHELLS:
+            shell = True  # its script follows the next -c cluster (one walk serves every shell name before it)
+        elif shell and (t == "--command" or _NC_DASH_C_RE.match(t)):
+            shell = False
+            script = _nc_operand(toks, i + 1)
+            if script is not None:
+                scripts.append(script)
+        elif name == "eval" and i in words:
+            start = i + 2 if i + 1 < len(toks) and toks[i + 1] == "--" else i + 1
+            if start < len(toks):
+                scripts.append(" ".join(toks[start:]))
+        elif name in _NC_SCRIPT_WORDS and not remote:  # the first is enough: its later words hold any later one's
+            remote = True
+            scripts.extend(r for r in toks[i + 1 :] if any(c.isspace() for c in r))
+        elif name == "env" and not env:
+            env = True
+            scripts.extend(_nc_split_string(toks, i))
+    return scripts
+
+
+def _nc_operand(toks, j: int) -> Optional[str]:
+    """The first word from toks[j] on that is not an option: the script of `-c`. `--` is skipped, and so is the
+    value of -o/+o/-O/+O (`bash -c -o pipefail 'script'`). A word that holds whitespace is no option, whatever
+    it starts with (`bash -c '-x; rm -rf build'`)."""
+    while j < len(toks):
+        t = toks[j]
+        if t == "--":
+            return toks[j + 1] if j + 1 < len(toks) else None
+        if t in _NC_VALUED:
+            j += 2
+            continue
+        if len(t) < 2 or not t.startswith(("-", "+")) or any(c.isspace() for c in t):
+            return t
+        j += 1
+    return None
+
+
+def _nc_split_string(toks, i: int) -> list[str]:
+    """The string of `env -S '…'`, `env -S'…'`, `env --split-string '…'` or `--split-string=…` after the env at
+    toks[i]."""
+    out = []
+    for k in range(i + 1, len(toks)):
+        t = toks[k]
+        if t in ("-S", "--split-string"):
+            out.extend(toks[k + 1 : k + 2])
+        elif t.startswith("--split-string="):
+            out.append(t[len("--split-string=") :])
+        elif t.startswith("-S"):
+            out.append(t[2:])
+    return out
+
+
+def command_word_indexes(toks) -> set:
+    """The indexes where a command name can stand: the first word after assignments, shell words and
+    `function NAME`, and what a wrapper there runs (`sudo -u bob rm`, `timeout 10 rm`, `ssh host rm`,
+    `find … -exec rm`), followed through wrapper chains. `command -v` is a lookup. Raises CommandNotRead past
+    _MAX_COMMAND_WORDS."""
+    n = len(toks)
+    i = 0
+    while i < n:
+        if _ASSIGN_RE.match(toks[i]) or toks[i] in _NC_SHELL_WORDS:
+            i += 1
+        elif toks[i] == "function":
+            i += 2  # `function NAME { …`
+        else:
+            break
+    if i >= n:
+        return set()
+    found = {i}
+    work = [i]  # a work list, not recursion: a chain of wrappers is as long as the line
+    while work:
+        j = work.pop()
+        name = os.path.basename(toks[j])
+        if name == "find":
+            later = [k + 1 for k in range(j + 1, n - 1) if toks[k] in _NC_FIND_EXEC]
+        elif name == "command" and j + 1 < n and toks[j + 1] in ("-v", "-V"):
+            continue
+        elif name in _NC_WRAPPERS:
+            later = _nc_wrapped(toks, j, _NC_WRAPPERS[name])
+        else:
+            continue
+        for k in later:
+            if k not in found:
+                found.add(k)
+                if len(found) > _MAX_COMMAND_WORDS:  # each candidate may walk the rest: bound the cost, ask
+                    raise CommandNotRead(_TOO_MANY_WORDS)
+                work.append(k)
+    return found
+
+
+def _nc_wrapped(toks, j: int, before: int) -> list[int]:
+    """The indexes where the command run by the wrapper at toks[j] may stand. `before` plain words come first;
+    an option without `=` may take the next plain word as its value (a "maybe"), so a plain word is a candidate
+    when the plain words before it, less the maybes among them, are at most `before`, and at least `before`."""
+    out = []
+    plain = maybes = 0
+    may_be_value = False
+    for k in range(j + 1, len(toks)):
+        t = toks[k]
+        if t == "--":
+            out.extend(range(k + 1, min(k + 2, len(toks))))
+            break
+        if t.startswith("-") and len(t) > 1:
+            may_be_value = "=" not in t
+            continue
+        if _ASSIGN_RE.match(t) or t in _NC_SHELL_WORDS:  # `time { rm …`, `coproc { rm …`: `{` is not the command
+            may_be_value = False
+            continue
+        if plain - maybes <= before <= plain:
+            out.append(k)
+        plain += 1
+        maybes += may_be_value
+        may_be_value = False
+        if plain - maybes > before:
+            break
+    return out
+
+
+def _is_redirection(t: str) -> bool:
+    """A redirection word (`>out`, `2>&1`, `<<<word`); a quoted script such as `'>log rm -rf x'` holds whitespace
+    and is no redirection."""
+    return bool(_REDIRECT_TOKEN_RE.match(t)) and (t.startswith("<<<") or not any(c.isspace() for c in t))
+
+
+def drop_redirections(args: list[str]) -> list[str]:
+    """The arguments without redirections (`>out`, `2>1`, `> out`): a file name after `>` is no subcommand."""
+    out = []
+    skip = False
+    for t in args:
+        if skip:
+            skip = False
+        elif _BARE_REDIRECT_TOKEN_RE.match(t):
+            skip = True  # the target is the next token
+        elif not _is_redirection(t):
+            out.append(t)
+    return out
+
+
+def subcommand_hit(args: list[str], verbs: frozenset, pairs: dict) -> Optional[str]:
+    """The verb or pair ("apply", "compose down") a tool's arguments name as their subcommand, or None.
+
+    The reader cannot know which options take a value, so an option without `=` may be followed by its value:
+    that word is skipped once. Any other word is the real subcommand, and not one of ours."""
+    first = ""  # the first word of a pair: the next word decides
+    may_be_value = False
+    for t in drop_redirections(args):
+        if t == "--" or t in _NC_HELP:  # `terraform -help apply` prints help
+            return None
+        if t.startswith("-") and len(t) > 1:
+            may_be_value = "=" not in t
+            continue
+        if first:
+            if t in pairs[first]:
+                return f"{first} {t}"
+        elif t in verbs:
+            return t
+        elif t in pairs:
+            first, may_be_value = t, False
+            continue
+        if not may_be_value:
+            return None
+        may_be_value = False
+    return None
 
 
 # ----------------------------------------------------------------------------

@@ -19,6 +19,18 @@ def shell(decision, *commands):
     return [(decision, "shell", {"command": c}) for c in commands]
 
 
+# guard 0.6.1: commands that mention a deploy or delete tool without running one (both rules stay silent)
+TOKEN_NOISE = (
+    "kubectl -n prod get pods", "kubectl get rollout web", "kubectl --context prod diff -f x.yaml",
+    "kubectl --context prod apply -f x.yaml --dry-run=client", "terraform -chdir=infra plan", "helm -n prod list",
+    "helm --kube-context prod template web ./chart", "git commit -m \"note: terraform apply ran\"",
+    "grep -rn ansible-playbook docs/", "command -v ansible-playbook >/dev/null 2>&1", "which terraform kubectl helm",
+    "gh repo clone hashicorp/terraform", "docker run --rm alpine ls", "docker compose -f x.yml up -d",
+    "npm --prefix web run build", "git -c core.pager=cat log --oneline", "git --no-pager diff --stat", "timeout 5 ls",
+    "bash -c 'ls -la'", "aws --profile prod s3 ls",
+)
+
+
 # rule -> list of (decision, kind, payload[, config]); payload keys: command | path (+ content)
 CASES: dict = {
     "delete-guard": [
@@ -36,6 +48,30 @@ CASES: dict = {
             "git push origin feature/x", "git branch -a", "cat README.md", "python3 -m pytest -q", "terraform plan",
             "git branch --show-current", "docker ps", "rsync -av src/ dst/", "git checkout feature/x",
             "git commit -m 'remove dead code'", "make test", "git diff --stat",
+        ),
+        # guard 0.6.1: a variable, wrapper, option or nesting in front of the verb no longer hides it
+        *shell(
+            "ask",
+            "sudo -u root rm -rf build", "env -i rm -rf build", "timeout 5 rm -rf build", "nice rm -rf build",
+            "command -p rm -rf build", "\\rm -rf build", "\"rm\" -rf build", "/opt/homebrew/bin/rm -rf build",
+            "if true; then rm -rf build; fi", "for f in a b; do rm \"$f\"; done", "{ rm -rf build; }",
+            "! rm -rf build", "bash -c 'rm -rf build'", "bash -lc \"rm -rf build\"", "eval \"rm -rf build\"",
+            "find . -name x -exec sudo rm {} +", "npm --prefix web uninstall lodash", "pnpm --filter web remove lodash",
+            "yarn --cwd web remove lodash", "docker --context prod rm c1", "docker compose -f x.yml down",
+            "docker-compose down -v", "kubectl -n prod delete pod x", "helm -n prod uninstall r",
+            "pip --no-input uninstall x", "git -c core.pager=cat reset --hard", "git --no-pager clean -fd",
+            "git --no-pager stash drop", "git -c a=b branch -D foo",
+            "FOO=1 rm -rf build", "time rm -rf build", "echo \"$(rm -rf build)\"", "echo \"`rm -rf build`\"",
+            "ssh host \"rm -rf /tmp/x\"", "ls | xargs -n1 rm", "npx --no-install prisma --schema db/main migrate reset",
+            "pip3.12 --no-input uninstall x", "git -c a=b push origin --delete old",
+            "docker --context prod system prune -af",
+        ),
+        *shell("allow", *TOKEN_NOISE),
+        # guard 0.6.1, review fixes: command words are found behind wrappers; searches for a delete word are none
+        *shell("ask", "time -p rm -rf build", "ssh host rm -rf /data", "2>/dev/null rm -rf build"),
+        *shell(
+            "allow", "sudo grep -rn rm /etc/sudoers.d", "find . -name \"*.py\" -exec grep -n unlink {} +",
+            "timeout 10 grep -rn shred .",
         ),
     ],
     "secret-write": [
@@ -146,6 +182,33 @@ CASES: dict = {
             "az repos pr create --title x --source-branch step-1 --target-branch main", "az pipelines runs list",
             "az repos pr list --status active",
         ),
+        # guard 0.6.1: each command is read as tokens; the dry-run exemption belongs to one tool call
+        *shell(
+            "ask",
+            "AWS_PROFILE=prod terraform apply", "terraform -chdir=infra apply", "env TF_VAR_x=1 terraform apply",
+            "command terraform apply", "time terraform apply", "timeout 600 terraform apply",
+            "KUBECONFIG=prod.yaml kubectl apply -f k8s/", "kubectl --context prod apply -f k8s/",
+            "terraform apply plan", "gh workflow run lint", "kubectl apply -f plan", "ansible-playbook site.yml --diff",
+            "kubectl apply -f k8s/ --dry-run=none",
+            "sudo -u deploy terraform apply", "/usr/local/bin/terraform apply", "./terraform apply",
+            "bash -c 'terraform apply'", "bash -lc \"kubectl apply -f k8s/\"", "eval \"helm upgrade web ./chart\"",
+            "echo \"$(terraform apply -auto-approve)\"", "echo \"`pulumi up`\"", "ssh pve \"qm stop 100\"",
+            "ls stacks | xargs -n1 terraform apply", "npx cdk deploy", "uv run --offline ansible-playbook site.yml",
+            "aws-vault exec prod -- terraform apply", "docker-compose push", "aws --profile prod s3 rm s3://b/k",
+            "aws --profile prod s3 sync . s3://b --delete", "helm -n prod uninstall web",
+            "kubectl -n prod delete pod x",
+        ),
+        *shell(
+            "allow", *TOKEN_NOISE,
+            "az deployment group validate -g rg -f main.bicep", "aws s3 sync . s3://b",
+        ),
+        # guard 0.6.1, review fixes: the 0.6.0 text pass is back (so `ansible-playbook --version` asks again, as
+        # at 0.6.0), the reader finds the script of -c itself, and the last --dry-run decides
+        *shell(
+            "ask", "ansible-playbook --version", "bash -c -e 'terraform apply'", "su -c 'cd infra; terraform apply'",
+            "kubectl apply -f x.yaml --dry-run=client --dry-run=none", "az group delete --name validate --yes",
+        ),
+        *shell("allow", "kubectl apply -f x.yaml --dry-run=none --dry-run=client", "terraform -help apply"),
     ],
     "egress-guard": [
         ("ask", "shell", {"command": "agy review plan.md"}, CLIENT),

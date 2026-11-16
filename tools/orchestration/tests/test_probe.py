@@ -435,6 +435,15 @@ def test_workdir_collision_exits_2(probe, tmp_path):
     assert "depth-pin-pinned" in text
 
 
+def test_workdir_collision_on_a_reused_run_exits_2(probe, tmp_path):
+    (tmp_path / "work" / "workflow-by-name-run").mkdir(parents=True)
+    called = tmp_path / "called"
+    code, text, record = run_main(probe, tmp_path, fake_claude(tmp_path, f"open({str(called)!r}, 'w').close()\n"),
+                                  "--only", "ledger-own-cost")
+    assert code == 2 and not record.exists() and not called.exists()
+    assert "workflow-by-name-run" in text
+
+
 def test_relative_workdir_still_gives_the_hooks_absolute_paths(probe, tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     binary = fake_claude(tmp_path, f"print(json.dumps({RESULT!r}))\n")

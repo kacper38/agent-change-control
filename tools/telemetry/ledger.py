@@ -358,8 +358,9 @@ def cmd_hook(stdin, tdir: str, err) -> int:
     except Exception as exc:  # noqa: BLE001 - a ledger must never hold a session end hostage; the line says why
         entry = {"ts": _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
                  "session": str(raw.get("session_id") or ""), "project": str(raw.get("cwd") or ""),
-                 "reason": raw.get("reason"), "models": {}, "cost_usd": None, "subagents": {}, "spawns": [],
-                 "parse_errors": 1, "error": f"{type(exc).__name__}: {exc}"[:200]}
+                 "reason": raw.get("reason"), "models": {}, "cost_usd": None, "cost_usd_own": None,
+                 "cost_usd_cc": None, "cost_basis": "own", "cost_check": "error",  # marked, not a pre-2026-11-15 row
+                 "subagents": {}, "spawns": [], "parse_errors": 1, "error": f"{type(exc).__name__}: {exc}"[:200]}
     try:
         append_entry(entry, tdir)
     except OSError as exc:

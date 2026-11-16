@@ -170,6 +170,12 @@ def test_hook_writes_an_error_line_when_the_builder_raises(ledger, tdir, monkeyp
     month = next(f for f in os.listdir(tdir) if f.startswith("sessions-"))
     row = json.loads((tdir / month).read_text().splitlines()[0])
     assert row["session"] == "s9" and row["parse_errors"] == 1 and row["error"].startswith("KeyError")
+    assert row["cost_check"] == "error" and row["cost_basis"] == "own"
+    assert row["cost_usd_own"] is None and row["cost_usd_cc"] is None
+    out = io.StringIO()
+    ledger.cost_report(str(tdir), 7, out)
+    basis_line = next(ln for ln in out.getvalue().splitlines() if ln.startswith("sessions by cost basis"))
+    assert basis_line == "sessions by cost basis: own 1; marked 1 (error 1)", "a failed run is marked, not legacy"
 
 
 def test_cost_report(ledger, tdir):

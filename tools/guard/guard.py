@@ -295,11 +295,16 @@ TOOL_RE = (
     r"|docker\s+(rm|rmi|system\s+prune|volume\s+(rm|prune)|image\s+prune|container\s+prune"
     r"|builder\s+prune|compose\s+(down|rm))|kubectl\s+delete|helm\s+(uninstall|delete)|dropdb"
     r"|prisma\s+migrate\s+reset|--force-reset|(DROP|drop)\s+(TABLE|DATABASE|SCHEMA|table|database|schema)"
-    r"|(TRUNCATE|truncate)\s|(DELETE|delete)\s+(FROM|from)\s|rclone\s+(delete|purge|sync)|rsync\s.*--delete"
+    # SQL TRUNCATE only where a statement can start (line start, ; quote paren backtick): not prose such as
+    # "may truncate the description" (0.7.0); the coreutils `truncate` command still asks through SHELL_RE
+    r"|(?:^|[;\"'(`])\s*(?:TRUNCATE|truncate)\s"
+    r"|(DELETE|delete)\s+(FROM|from)\s|rclone\s+(delete|purge|sync)|rsync\s.*--delete"
 )
 CODE_RE = (
     r"os\.(remove|unlink|rmdir|removedirs)|shutil\.rmtree|\.unlink\(|\.rmdir\(|send2trash"
-    r"|fs\.(rm|rmSync|unlink|unlinkSync|rmdir|rmdirSync)|fsPromises\.(rm|unlink|rmdir)|rimraf|del\s*\("
+    r"|fs\.(rm|rmSync|unlink|unlinkSync|rmdir|rmdirSync)|fsPromises\.(rm|unlink|rmdir)|rimraf"
+    # Python `del (x)` as a word: not the tail of "model (" or "load_model(x)" (0.7.0)
+    r"|\bdel\s*\("
     r"|remove_dir_all|remove_file|std::fs::remove|File\.(delete|unlink)|FileUtils\.(rm|remove)"
     r"|Remove-Item|Directory\.Delete|(^|\s)del\s+/[sq]|(^|\s)rd\s+/s"
 )

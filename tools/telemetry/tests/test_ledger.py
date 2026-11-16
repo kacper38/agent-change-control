@@ -412,3 +412,60 @@ def test_cost_report_counts_sessions_by_basis_and_marks(ledger, tdir):
     ledger.cost_report(str(tdir), 7, out, now=dt.datetime(2026, 10, 29, tzinfo=dt.timezone.utc))
     assert ("sessions by cost basis: claude-code 2, own 2, unrecorded 1; marked 3 "
             "(missing 1, out-of-range 1, unchecked 1)") in out.getvalue()
+
+
+def marked_line(req, **extra):
+    """An opus-4-5 request whose usage carries extra fields such as speed and inference_geo."""
+    usage = {"input_tokens": 1, "output_tokens": 1, "cache_read_input_tokens": 0, "cache_creation_input_tokens": 0,
+             **extra}
+    return json.dumps({"type": "assistant", "requestId": req, "message": {"model": "claude-opus-4-5", "usage": usage}})
+
+
+def test_requests_outside_the_standard_speed_and_geo_are_marked(ledger, tmp_path, tdir):
+    proj = tmp_path / "projects" / "-p"
+    sub = proj / "s1" / "subagents" / "workflows" / "wf_1"
+    sub.mkdir(parents=True)
+    (proj / "s1.jsonl").write_text("\n".join([
+        marked_line("r1", speed="fast"),
+        marked_line("r1", speed="fast"),  # streamed duplicate: one request
+        marked_line("r2", speed="fast", inference_geo="us"),
+        marked_line("r3", speed="standard", inference_geo="global"),
+        marked_line("r4", speed=None, inference_geo="not_available"),
+        marked_line("r5", speed="", inference_geo=None),
+        marked_line("r6"),
+        marked_line("r7", speed=2),  # not a string: named by its type
+        marked_line("r8", inference_geo="x" * 30),  # cut at 20 characters
+    ]) + "\n")
+    (sub / "agent-a.jsonl").write_text(marked_line("w1", speed="fast") + "\n")
+    e = ledger.build_entry({"session_id": "s1", "transcript_path": str(proj / "s1.jsonl")}, str(tdir), PRICES)
+    assert e["unpriced"] == {"speed:fast": 3, "inference_geo:us": 1, "speed:int": 1, "inference_geo:" + "x" * 20: 1}
+    assert e["cost_usd_own"] == round(9 * 30 / 1e6, 4), "the pricing does not change"
+
+
+def test_a_session_without_marked_requests_writes_the_same_line_as_before(ledger, tmp_path, tdir):
+    proj = tmp_path / "projects" / "-p"
+    proj.mkdir(parents=True)
+    (proj / "s1.jsonl").write_text("\n".join([marked_line("r1", speed="standard", inference_geo="global"),
+                                              marked_line("r2", speed=None, inference_geo="not_available"),
+                                              marked_line("r3")]) + "\n")
+    e = ledger.build_entry({"session_id": "s1", "transcript_path": str(proj / "s1.jsonl")}, str(tdir), PRICES)
+    assert sorted(e) == ["cost_basis", "cost_check", "cost_usd", "cost_usd_cc", "cost_usd_own", "models",
+                         "parse_errors", "project", "reason", "session", "spawns", "subagents", "ts"]
+
+
+def test_cost_report_names_sessions_with_unpriced_requests(ledger, tdir):
+    tdir.mkdir()
+    base = {"ts": "2026-10-28T10:00:00Z", "project": "/p", "spawns": [], "subagents": {}, "models": {},
+            "cost_basis": "own", "cost_check": "missing"}
+    rows = [dict(base, session="a", unpriced={"speed:fast": 3}),
+            dict(base, session="b", unpriced={"speed:fast": 1, "inference_geo:us": 2}),
+            dict(base, session="c")]
+    (tdir / "sessions-2026-10.jsonl").write_text("\n".join(json.dumps(r) for r in rows) + "\n")
+    out = io.StringIO()
+    ledger.cost_report(str(tdir), 7, out, now=dt.datetime(2026, 10, 29, tzinfo=dt.timezone.utc))
+    assert ("sessions with requests the ledger does not price: 2 (inference_geo:us 2, speed:fast 4)"
+            in out.getvalue().splitlines())
+    (tdir / "sessions-2026-10.jsonl").write_text(json.dumps(dict(base, session="c")) + "\n")
+    out = io.StringIO()
+    ledger.cost_report(str(tdir), 7, out, now=dt.datetime(2026, 10, 29, tzinfo=dt.timezone.utc))
+    assert "does not price" not in out.getvalue()

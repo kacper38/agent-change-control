@@ -11,10 +11,13 @@
                                  cost-state lines (cost_usd_cc), and cost_usd = the figure of cost_basis
                                  (claude-code or own; cost_check says why). Always exit 0; problems land in
                                  the line as parse_errors or cost_check. Copilot payloads and payloads without
-                                 transcript_path write nothing.
+                                 transcript_path write nothing. Requests the prices do not cover (usage speed
+                                 other than standard, inference_geo other than global) are counted under
+                                 "unpriced", a key the line has only when there is one.
   ledger.py cost [--days 7]      per project and model: tokens, own-count cost, spawns, subagent share (> 70 %
-                                 flagged), sessions per cost basis and marked sessions, and hook prompts per
-                                 rule from <telemetry>/decisions.jsonl.
+                                 flagged), sessions per cost basis and marked sessions, sessions with unpriced
+                                 requests (their own count is too low), and hook prompts per rule from
+                                 <telemetry>/decisions.jsonl.
 Telemetry dir: KZ_TELEMETRY_DIR or ~/.claude/telemetry.
 """
 import argparse
@@ -89,11 +92,28 @@ def usage_cost(u: dict, table: Optional[dict]) -> Optional[float]:
     return round(_rates_cost(u, table) / 1_000_000, 6)
 
 
-def parse_transcript(path: str, prices: Optional[dict] = None) -> tuple:
+# Usage values the prices cover. Anything else (fast mode at 2x, US-only inference at 1.1x) is marked, not priced.
+STANDARD_USAGE = {"speed": (None, "", "standard"), "inference_geo": (None, "", "global", "not_available")}
+
+
+def unpriced_marks(usage: dict) -> list:
+    """`<field>:<value>` for each usage value outside STANDARD_USAGE: the ledger's price is too low for that request."""
+    marks = []
+    for field, standard in STANDARD_USAGE.items():
+        value = usage.get(field)
+        if value in standard:  # absent reads as None
+            continue
+        name = value if isinstance(value, str) else type(value).__name__
+        marks.append(f"{field}:{name[:20]}")
+    return marks
+
+
+def parse_transcript(path: str, prices: Optional[dict] = None, unpriced: Optional[dict] = None) -> tuple:
     """({model: {input, output, cache_read, cache_write, cache_write_1h, turns[, long]}}, parse_errors); one usage
     per requestId. cache_write_1h is the 1-hour part of cache_write (0 when the usage has no breakdown). For a
     model whose price row has a long_prompt tier, `long` holds the same counters for the requests whose prompt
-    is over its threshold; the model's own counters include them."""
+    is over its threshold; the model's own counters include them. A dict passed as `unpriced` gains the request
+    count per unpriced_marks() name (the return shape stays as it was)."""
     per_model: dict = {}
     seen: dict = {}
     errors = 0
@@ -120,6 +140,9 @@ def parse_transcript(path: str, prices: Optional[dict] = None) -> tuple:
             key = d.get("requestId") or msg.get("id") or d.get("uuid") or ("line", n)  # no id: count the line
             seen[key] = (str(msg.get("model") or "unknown"), usage)
     for model, usage in seen.values():
+        if unpriced is not None:
+            for mark in unpriced_marks(usage):
+                unpriced[mark] = unpriced.get(mark, 0) + 1
         try:
             vals = [int(usage.get(k) or 0) for k in
                     ("input_tokens", "output_tokens", "cache_read_input_tokens", "cache_creation_input_tokens")]
@@ -186,20 +209,22 @@ def agent_transcripts(sub_dir: str) -> list:
 
 
 def read_session(transcript: str, session: str, prices: Optional[dict] = None) -> dict:
-    """Usage of the main transcript and of every agent transcript of the session, kept apart."""
-    main_usage, errors = parse_transcript(transcript, prices) if transcript else ({}, 1)
+    """Usage of the main transcript and of every agent transcript of the session, kept apart; the unpriced
+    request counts over all of them together."""
+    unpriced: dict = {}
+    main_usage, errors = parse_transcript(transcript, prices, unpriced) if transcript else ({}, 1)
     sub_usage: dict = {}
     sub_count = workflow_count = 0
     sub_dir = os.path.join(os.path.dirname(transcript), session, "subagents") if transcript else ""
     if sub_dir and os.path.isdir(sub_dir):
         for p, is_workflow in agent_transcripts(sub_dir):
-            u, e = parse_transcript(p, prices)
+            u, e = parse_transcript(p, prices, unpriced)
             errors += e
             sub_count += 1
             workflow_count += is_workflow
             merge(sub_usage, u)
     return {"main": main_usage, "sub": sub_usage, "errors": errors, "transcripts": sub_count,
-            "workflow_transcripts": workflow_count}
+            "workflow_transcripts": workflow_count, "unpriced": unpriced}
 
 
 def session_models(read: dict, prices: dict) -> dict:
@@ -282,7 +307,7 @@ def build_entry(raw: dict, tdir: str, prices: dict, now: Optional[_dt.datetime] 
     own = own_cost(models)
     cc, cc_unknown, cc_ignored = read_cost_state(transcript) if transcript else (None, False, 0)
     cost, basis, check = choose_cost(own, cc, cc_unknown)
-    return {
+    entry = {
         "ts": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
         "session": session,
         "project": str(raw.get("cwd") or ""),
@@ -298,6 +323,9 @@ def build_entry(raw: dict, tdir: str, prices: dict, now: Optional[_dt.datetime] 
         "spawns": spawns_for(session, tdir),
         "parse_errors": errors + cc_ignored,
     }
+    if read["unpriced"]:  # only then: a session without such a request keeps the line it always had
+        entry["unpriced"] = read["unpriced"]
+    return entry
 
 
 def append_entry(entry: dict, tdir: str) -> str:
@@ -430,12 +458,19 @@ def cost_report(tdir: str, days: int, out, now: Optional[_dt.datetime] = None) -
     spawn_count = 0
     bases: dict = {}
     marks: dict = {}
+    unpriced_sessions = 0
+    unpriced: dict = {}
     for row in rows:
         basis = row.get("cost_basis") or "unrecorded"  # rows written before 2026-11-15 carry no basis
         bases[basis] = bases.get(basis, 0) + 1
         check = row.get("cost_check")
         if check and check != "ok":
             marks[check] = marks.get(check, 0) + 1
+        row_unpriced = row.get("unpriced")
+        if isinstance(row_unpriced, dict) and row_unpriced:
+            unpriced_sessions += 1
+            for mark, n in row_unpriced.items():
+                unpriced[mark] = unpriced.get(mark, 0) + (n if isinstance(n, int) else 0)  # a hand-edited row
         project = os.path.basename(row.get("project") or "") or "?"
         for model, u in (row.get("models") or {}).items():
             a = agg.setdefault((project, model), {"sessions": 0, "tokens": 0, "output": 0, "cost": 0.0, "priced": True})
@@ -458,6 +493,9 @@ def cost_report(tdir: str, days: int, out, now: Optional[_dt.datetime] = None) -
     out.write("sessions by cost basis: " + ", ".join(f"{b} {n}" for b, n in sorted(bases.items()))
               + f"; marked {sum(marks.values())}"
               + (" (" + ", ".join(f"{c} {n}" for c, n in sorted(marks.items())) + ")" if marks else "") + "\n")
+    if unpriced_sessions:  # fast mode or US-only inference: the own count of these sessions is too low
+        out.write(f"sessions with requests the ledger does not price: {unpriced_sessions} ("
+                  + ", ".join(f"{m} {n}" for m, n in sorted(unpriced.items())) + ")\n")
     out.write(f"spawns: {spawn_count}; sessions with subagent share > {int(SUBAGENT_SHARE_FLAG * 100)} %: "
               + (", ".join(flagged) if flagged else "none") + "\n")
     decisions = load_decisions(tdir, since)

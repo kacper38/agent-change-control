@@ -598,6 +598,30 @@ def money(cost: Optional[float]) -> str:
     return "n/a" if cost is None else f"${cost:.4f}"
 
 
+def local_paths(workdir: str) -> list:
+    """[(path, label)] for the workdir, the system temp folder and the home folder, each as given (made absolute)
+    and resolved, longest first: a workdir under the temp folder must become <workdir>, not <tmp>/..."""
+    pairs = {}
+    for label, path in (("~", os.path.expanduser("~")), ("<tmp>", tempfile.gettempdir()), ("<workdir>", workdir)):
+        for form in (os.path.abspath(path), os.path.realpath(path)):
+            if form.rstrip(os.sep):  # a home of "/" would turn every path into "~"
+                pairs[form] = label
+    return sorted(pairs.items(), key=lambda p: len(p[0]), reverse=True)
+
+
+def scrub(value, paths: list):
+    """value with every local path replaced by its label, in every string at any depth: verified.json is public."""
+    if isinstance(value, str):
+        for path, label in paths:
+            value = value.replace(path, label)
+        return value
+    if isinstance(value, dict):
+        return {scrub(k, paths): scrub(v, paths) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [scrub(v, paths) for v in value]
+    return value
+
+
 def main(argv: list, out=None) -> int:
     out = out or sys.stdout
     if argv[:1] == ["hook"]:
@@ -616,10 +640,9 @@ def main(argv: list, out=None) -> int:
     except ProbeError as exc:
         out.write(f"probe: no usable CLI at {ns.claude_bin}: {exc}\n")
         return 2
-    if ns.workdir:
-        workdir = os.path.realpath(ns.workdir)  # hook commands run from the scratch project, so paths are absolute
-    else:
-        workdir = os.path.realpath(tempfile.mkdtemp(prefix="orchestration-probe-"))
+    given_workdir = ns.workdir or tempfile.mkdtemp(prefix="orchestration-probe-")
+    workdir = os.path.realpath(given_workdir)  # hook commands run from the scratch project, so paths are absolute
+    if not ns.workdir:
         out.write(f"probe: scratch projects in {workdir}\n")  # the evidence stays there for inspection
     # All run directories are created before the first run, so a collision costs no model spend. A canary that
     # reuses another's runs needs that canary's directories, also when only it was selected.
@@ -668,6 +691,8 @@ def main(argv: list, out=None) -> int:
     else:
         record = {"schema": SCHEMA, "cli_version": version, "date": started.date().isoformat(), "model": ns.model,
                   "models": sorted(models), "cost_usd": total, "canaries": entries}
+        # Reasons can carry exception text or a stderr excerpt; the terminal above keeps the real paths.
+        record = scrub(record, local_paths(given_workdir))
         try:
             with open(ns.out + ".tmp", "w", encoding="utf-8") as fh:
                 json.dump(record, fh, indent=2)

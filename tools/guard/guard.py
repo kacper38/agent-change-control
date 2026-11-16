@@ -318,13 +318,16 @@ DELETE_MSG = (
     "Deletion guard (owner rule: never auto-approve deletions, scripts included): {what}. "
     "Ask the owner explicitly."
 )
-# the token pass (0.6.1): the same tools and verbs as the expressions above, read from the command's tokens
+# the token pass (0.6.1): the same tools and verbs as the expressions above, read from the command's tokens;
+# 0.7.0 adds verbs the expressions never had (docker pairs, podman, nerdctl, pipx, uv, helm repo|plugin)
 _RM_CLASS = frozenset("rm rmdir unlink trash shred truncate".split())
 _GIT_DELETE_RE = re.compile(GIT_RE)
 _DOCKER_DELETE_PAIRS = {
-    "system": frozenset({"prune"}), "volume": frozenset({"rm", "prune"}), "image": frozenset({"prune"}),
-    "container": frozenset({"prune"}), "builder": frozenset({"prune"}), "compose": frozenset({"down", "rm"}),
+    "system": frozenset({"prune"}), "volume": frozenset({"rm", "prune"}), "image": frozenset({"prune", "rm"}),
+    "container": frozenset({"prune", "rm"}), "builder": frozenset({"prune"}), "compose": frozenset({"down", "rm"}),
+    "network": frozenset({"rm", "prune"}), "buildx": frozenset({"rm", "prune"}), "context": frozenset({"rm"}),
 }
+_DOCKER_DELETE = (frozenset({"rm", "rmi"}), _DOCKER_DELETE_PAIRS)
 # tool basename -> (verbs, pairs as first word -> second words); pip3.12-style names count as pip
 _DELETE_TOOLS: dict = {
     "mise": (frozenset({"uninstall", "prune"}), {}),
@@ -334,13 +337,31 @@ _DELETE_TOOLS: dict = {
     "brew": (frozenset({"uninstall", "remove", "rm"}), {}),
     "pip": (frozenset({"uninstall"}), {}),
     "cargo": (frozenset({"uninstall"}), {}),
-    "docker": (frozenset({"rm", "rmi"}), _DOCKER_DELETE_PAIRS),
+    "docker": _DOCKER_DELETE,
+    "podman": _DOCKER_DELETE,
+    "nerdctl": _DOCKER_DELETE,
     "docker-compose": (frozenset({"down", "rm"}), {}),
     "kubectl": (frozenset({"delete"}), {}),
-    "helm": (frozenset({"uninstall", "delete"}), {}),
+    "helm": (frozenset({"uninstall", "delete"}),
+             {"repo": frozenset({"remove", "rm"}), "plugin": frozenset({"uninstall", "remove", "rm"})}),
     "rclone": (frozenset({"delete", "purge", "sync"}), {}),
     "prisma": (frozenset(), {"migrate": frozenset({"reset"})}),
+    "pipx": (frozenset({"uninstall", "uninstall-all"}), {}),
+    "uv": (frozenset(), {"pip": frozenset({"uninstall"}), "tool": frozenset({"uninstall"})}),
 }
+_SWITCH_DISCARDS = frozenset({"--discard-changes", "-f", "--force"})
+
+
+def _git_discards(sub: str, rest: list[str]) -> bool:
+    """`git checkout` and `git switch` forms that overwrite uncommitted work: checkout with `-- <path>`, `-f` or
+    the operand `.`; switch with --discard-changes or -f."""
+    if sub == "switch":
+        return bool(_SWITCH_DISCARDS & set(rest))
+    if sub != "checkout":
+        return False
+    if "-f" in rest or "--force" in rest or "." in rest:
+        return True
+    return "--" in rest and rest.index("--") + 1 < len(rest)  # `git checkout main --` names no path
 
 
 def delete_what(command: str) -> Optional[str]:
@@ -360,7 +381,7 @@ def delete_what(command: str) -> Optional[str]:
                 raise CommandNotRead(_TOO_MANY_TOOLS)
             if name == "git":
                 sub, rest = _git_subcommand(list(toks[i:]))
-                if sub and _GIT_DELETE_RE.match(" ".join(["git", sub, *rest])):
+                if sub and (_GIT_DELETE_RE.match(" ".join(["git", sub, *rest])) or _git_discards(sub, rest)):
                     return f"`git {sub}` discards work"
                 continue
             hit = subcommand_hit(list(toks[i + 1 :]), *entry)
@@ -711,7 +732,41 @@ _DEPLOY_TABLE: dict = {
     "cdk": (_verbs("deploy destroy"), {}, _PULUMI_CDK),
     "ansible-playbook": (_verbs(""), {}, "ansible-playbook changes hosts"),  # judged by _ansible_runs
     "flux": (_verbs("uninstall suspend"), {}, "flux changes reconciliation"),
+    # 0.7.0: the tools below are new; their rows are all in _DEPLOY_ADDED
+    "podman": (_verbs("push"), {"compose": _verbs("push")}, "pushes an image"),
+    "nerdctl": (_verbs("push"), {"compose": _verbs("push")}, "pushes an image"),
+    "pct": (_verbs(""), {}, _PROXMOX),
+    "argocd": (_verbs(""), {}, "argocd changes an application"),
+    "skopeo": (_verbs(""), {}, "copies or deletes registry images"),
+    "crane": (_verbs(""), {}, "copies or deletes registry images"),
 }
+_PROXMOX_GUEST = ("start stop shutdown reboot reset suspend resume destroy migrate clone rollback create set"
+                  " delsnapshot")
+_DOCKER_ADDED = (_verbs("build"), {"image": _verbs("push"), "manifest": _verbs("push"),
+                                   "buildx": _verbs("build bake")})
+_TERRAFORM_ADDED = (_verbs("force-unlock"), {"workspace": _verbs("delete"), "state": _verbs("replace-provider")})
+# 0.7.0 rows (verbs, pairs), read after the 0.6.1 rows above found nothing. Unlike those, they keep a help probe
+# silent wherever its word stands (`kubectl label --help`); the 0.6.1 rows ask for it as they did.
+_DEPLOY_ADDED: dict = {
+    "docker": _DOCKER_ADDED,
+    "podman": _DOCKER_ADDED,
+    "nerdctl": _DOCKER_ADDED,
+    "terraform": _TERRAFORM_ADDED,
+    "tofu": _TERRAFORM_ADDED,
+    "kubectl": (_verbs("label annotate set run taint expose autoscale"), {}),
+    "gh": (_verbs(""), {"run": _verbs("rerun cancel delete"), "workflow": _verbs("enable disable")}),
+    "argocd": (_verbs(""), {"app": _verbs("sync delete rollback set create patch")}),
+    "flux": (_verbs("reconcile resume delete create bootstrap"), {}),
+    "qm": (_verbs(_PROXMOX_GUEST), {}),
+    "pct": (_verbs(_PROXMOX_GUEST + " restore"), {}),
+    "skopeo": (_verbs("copy delete sync"), {}),
+    "crane": (_verbs("push copy delete tag"), {}),
+}
+_PUSH_ONLY = frozenset({"build", "buildx build", "buildx bake"})  # these count only with --push
+# aws: an operation under any service that starts so, and these pairs (_aws_hit)
+_AWS_DESTROY = ("delete-", "terminate-")
+_AWS_UPDATES = {"ecs": _verbs("update-service"),
+                "lambda": _verbs("update-function-code update-function-configuration")}
 _DRY_VALUES = frozenset({"client", "server", "true"})  # --dry-run=<these> previews; any other value applies
 # the 0.6.0 text pass, kept as it was (fix brief 1: nothing that asked at 0.6.0 may stop asking)
 _DEPLOY_PATTERNS = [
@@ -792,7 +847,13 @@ def _az_changes(args: list[str]) -> Optional[str]:
         return "az changes resources"
     if words[:3] == ["repos", "pr", "create"]:
         return None  # opens a PR (pr-prep's job), it changes no environment
-    return "az changes resources" if {"delete", "create"} & set(args[1:]) else None
+    if {"delete", "create"} & set(args[1:]):
+        return "az changes resources"
+    if words[:3] == ["repos", "pr", "update"]:
+        return None  # changes a pull request, no environment (tracker-guard still reads it)
+    if {"deploy", "update", "up"} & set(args[1:]) and not _NC_HELP & set(args):  # 0.7.0 words
+        return "az changes resources"
+    return None
 
 
 def _ansible_runs(args: list[str], at_command_word: bool) -> bool:
@@ -811,9 +872,56 @@ def _deploy_call(name: str, args: list[str], at_command_word: bool) -> Optional[
     if name == "ansible-playbook":
         return label if _ansible_runs(args, at_command_word) else None
     hit = subcommand_hit(args, verbs, pairs)
-    if not hit or (hit == "s3 sync" and "--delete" not in args):
+    if not hit:
+        return _deploy_added(name, args, label)
+    if hit == "s3 sync" and "--delete" not in args:
         return None
     return "aws s3 deletes" if name == "aws" and hit.startswith("s3 ") else label
+
+
+def _deploy_added(name: str, args: list[str], label: str) -> Optional[str]:
+    """The label when the 0.7.0 rows find a change; a help probe anywhere in the call is none."""
+    if name == "aws":
+        hit = _aws_hit(args)
+        label = ("aws deletes or terminates resources" if hit and hit.split()[1].startswith(_AWS_DESTROY)
+                 else "aws updates a service or function")
+    elif name in _DEPLOY_ADDED:
+        hit = subcommand_hit(args, *_DEPLOY_ADDED[name])
+    else:
+        return None
+    if not hit or _NC_HELP & set(args):
+        return None
+    if hit in _PUSH_ONLY and not any(t == "--push" or (t.startswith("--push=") and t[7:].lower() != "false")
+                                     for t in args):
+        return None  # a local build; with --push it publishes the image
+    return label
+
+
+def _aws_hit(args: list[str]) -> Optional[str]:
+    """The words `service operation` when an aws call deletes, terminates or updates (_AWS_DESTROY,
+    _AWS_UPDATES), or None.
+    subcommand_hit's rule for options: a plain word after an option without `=` may be its value, so the word
+    taken for the service may be one, and then the next plain word is the service."""
+    service = ""
+    service_may_be_value = may_be_value = False
+    for t in drop_redirections(args):
+        if t == "--" or t in _NC_HELP:
+            return None
+        if t.startswith("-") and len(t) > 1:
+            may_be_value = "=" not in t
+            continue
+        if not service:
+            service, service_may_be_value, may_be_value = t, may_be_value, False
+            continue
+        if t.startswith(_AWS_DESTROY) or t in _AWS_UPDATES.get(service, ()):
+            return f"{service} {t}"
+        if service_may_be_value:  # the service word was an option's value: this word is the service
+            service, service_may_be_value, may_be_value = t, may_be_value, False
+            continue
+        if not may_be_value:
+            return None
+        may_be_value = False
+    return None
 
 
 def deploy_what(command: str) -> Optional[str]:

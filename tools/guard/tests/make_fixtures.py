@@ -73,6 +73,15 @@ CASES: dict = {
             "allow", "sudo grep -rn rm /etc/sudoers.d", "find . -name \"*.py\" -exec grep -n unlink {} +",
             "timeout 10 grep -rn shred .",
         ),
+        # guard 0.7.0: verbs the tables never had (the seven delete rows of the 2026-11-15 review)
+        *shell(
+            "ask", "docker image rm x", "docker container rm x", "docker network rm x", "git checkout main -- path",
+            "git switch --discard-changes main", "pipx uninstall x", "helm repo remove x",
+        ),
+        *shell(
+            "allow", "docker image ls", "git checkout main --", "git switch -c feat/x", "helm repo update",
+            "uv tool list", "pipx list",
+        ),
     ],
     "secret-write": [
         ("deny", "write", {"path": ".env", "content": "TOKEN=abc"}),
@@ -209,6 +218,22 @@ CASES: dict = {
             "kubectl apply -f x.yaml --dry-run=client --dry-run=none", "az group delete --name validate --yes",
         ),
         *shell("allow", "kubectl apply -f x.yaml --dry-run=none --dry-run=client", "terraform -help apply"),
+        # guard 0.7.0: verbs the tables never had (the 24 deploy rows of the 2026-11-15 review)
+        *shell(
+            "ask", "docker image push x", "docker buildx build --push .", "kubectl label pod x a=b",
+            "kubectl annotate pod x a=b", "kubectl set image deploy/web web=x", "kubectl run x --image y",
+            "kubectl taint nodes n k=v:NoSchedule", "terraform workspace delete x", "terraform force-unlock 123",
+            "aws s3api delete-object --bucket b --key k", "aws ecs update-service --cluster c --service s",
+            "aws lambda update-function-code --function-name f", "gh run rerun 1", "gh workflow disable ci.yml",
+            "argocd app sync web", "flux reconcile kustomization web", "qm start 100", "qm migrate 100 node2",
+            "pct destroy 101", "skopeo copy a b", "crane push a b", "podman push x", "az webapp deploy --name x",
+            "az containerapp update --name x",
+        ),
+        *shell(
+            "allow", "docker buildx build .", "kubectl label --help", "terraform force-unlock -help",
+            "aws s3api list-objects --bucket b", "gh run view 1", "argocd app diff web",
+            "az repos pr update --id 1 --description x",
+        ),
     ],
     "egress-guard": [
         ("ask", "shell", {"command": "agy review plan.md"}, CLIENT),

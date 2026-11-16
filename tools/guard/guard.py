@@ -530,38 +530,52 @@ _WRITERS_LAST = {"cp", "mv", "install", "scp", "rsync", "ln"}
 _WRITERS_ALL = {"tee", "truncate", "touch", "chmod", "chown"}
 
 
+def _secret_seg(seg: list[str], cwd: str, writes: list[str], reads: list[str]) -> None:
+    """Add the secret files one simple command writes and reads to the two lists."""
+    head = os.path.basename(seg[0])
+    paths = [t for t in seg[1:] if not t.startswith("-") and t != "--"]
+    targets: list[str] = []
+    if head in _WRITERS_LAST and paths:
+        targets = paths[-1:]
+    elif head in _WRITERS_ALL:
+        targets = paths
+    elif head == "sed" and any(t.startswith("-i") for t in seg):
+        targets = paths
+    elif head == "git" and len(seg) > 1 and seg[1] in ("add", "stage"):
+        targets = paths[1:] if paths and paths[0] in ("add", "stage") else paths
+    for t in targets:
+        if secret_class(_expand(t, cwd)) == "secret":
+            writes.append(t)
+    for t in paths:
+        if t not in targets and secret_class(_expand(t, cwd)) == "secret":
+            reads.append(t)
+
+
+def _secret_verdict(writes: list[str], reads: list[str]) -> Optional[Decision]:
+    if writes:
+        return "deny", SECRET_WRITE_MSG.format(path=", ".join(dict.fromkeys(writes)))
+    if reads:
+        return "ask", SECRET_READ_MSG.format(path=", ".join(dict.fromkeys(reads)))
+    return None
+
+
 def rule_secret_shell(ev: Event, cfg: dict) -> Optional[Decision]:
     if ev.event != "PreToolUse" or ev.kind != "shell" or not ev.command:
         return None
-    writes, reads = [], []
+    writes: list[str] = []
+    reads: list[str] = []
     command = strip_heredocs(ev.command)
     for target in _REDIRECT_RE.findall(command):
         target = target.strip("\"'`,;)")
         if secret_class(_expand(target, ev.cwd)) == "secret":
             writes.append(target)
     for seg in segments(command):
-        head = os.path.basename(seg[0])
-        paths = [t for t in seg[1:] if not t.startswith("-") and t != "--"]
-        targets: list[str] = []
-        if head in _WRITERS_LAST and paths:
-            targets = paths[-1:]
-        elif head in _WRITERS_ALL:
-            targets = paths
-        elif head == "sed" and any(t.startswith("-i") for t in seg):
-            targets = paths
-        elif head == "git" and len(seg) > 1 and seg[1] in ("add", "stage"):
-            targets = paths[1:] if paths and paths[0] in ("add", "stage") else paths
-        for t in targets:
-            if secret_class(_expand(t, ev.cwd)) == "secret":
-                writes.append(t)
-        for t in paths:
-            if t not in targets and secret_class(_expand(t, ev.cwd)) == "secret":
-                reads.append(t)
+        _secret_seg(seg, ev.cwd, writes, reads)
     if writes:
-        return "deny", SECRET_WRITE_MSG.format(path=", ".join(dict.fromkeys(writes)))
-    if reads:
-        return "ask", SECRET_READ_MSG.format(path=", ".join(dict.fromkeys(reads)))
-    return None
+        return _secret_verdict(writes, reads)
+    # the reader pass adds to the same lists, so one message names every file of both passes
+    failed = reader_pass(command, lambda seg: _secret_seg(seg, ev.cwd, writes, reads), "secret-shell")
+    return combine([d for d in (_secret_verdict(writes, reads), failed) if d])
 
 
 # ----------------------------------------------------------------------------
@@ -604,51 +618,60 @@ def current_branch(cwd: str) -> Optional[str]:
     return None
 
 
+def _git_guard_seg(seg: list[str], cwd: str, protected: set) -> Optional[Decision]:
+    """The git-guard verdict on one simple command: a hook bypass, a forced push, a push to a protected branch."""
+    sub, rest = _git_subcommand(seg)
+    if sub is None:
+        return None
+    if "--no-verify" in rest or (sub == "commit" and "-n" in rest):
+        return "deny", GIT_MSG.format(what=f"`git {sub} --no-verify` skips the commit gate")
+    if sub != "push":
+        return None
+    if any(t in _FORCE_FLAGS or t.startswith("--force-with-lease=") for t in rest):
+        return "deny", GIT_MSG.format(what="force push")
+    if "--all" in rest or "--mirror" in rest:
+        return "deny", GIT_MSG.format(what="`git push --all/--mirror` can rewrite a protected branch")
+    positional: list[str] = []
+    skip = False
+    for t in rest:
+        if skip:
+            skip = False
+            continue
+        if t in _PUSH_OPT_WITH_VALUE:
+            skip = True
+            continue
+        if t.startswith("-"):
+            continue
+        positional.append(t)
+    refspecs = positional[1:]
+    if not refspecs:
+        branch = current_branch(cwd)
+        if branch in protected:
+            return "deny", GIT_MSG.format(what=f"push to protected branch '{branch}'")
+        return None
+    for r in refspecs:
+        if r.startswith("+"):
+            return "deny", GIT_MSG.format(what=f"force refspec {r}")
+        dest = r.split(":", 1)[1] if ":" in r else r
+        if dest.startswith("refs/heads/"):
+            dest = dest[len("refs/heads/") :]
+        if dest == "HEAD":
+            dest = current_branch(cwd) or dest
+        if dest in protected:
+            return "deny", GIT_MSG.format(what=f"push to protected branch '{dest}'")
+    return None
+
+
 def rule_git_guard(ev: Event, cfg: dict) -> Optional[Decision]:
     if ev.event != "PreToolUse" or ev.kind != "shell" or not ev.command:
         return None
     protected = protected_branches(cfg)
-    for seg in segments(strip_heredocs(ev.command)):
-        sub, rest = _git_subcommand(seg)
-        if sub is None:
-            continue
-        if "--no-verify" in rest or (sub == "commit" and "-n" in rest):
-            return "deny", GIT_MSG.format(what=f"`git {sub} --no-verify` skips the commit gate")
-        if sub != "push":
-            continue
-        if any(t in _FORCE_FLAGS or t.startswith("--force-with-lease=") for t in rest):
-            return "deny", GIT_MSG.format(what="force push")
-        if "--all" in rest or "--mirror" in rest:
-            return "deny", GIT_MSG.format(what="`git push --all/--mirror` can rewrite a protected branch")
-        positional: list[str] = []
-        skip = False
-        for t in rest:
-            if skip:
-                skip = False
-                continue
-            if t in _PUSH_OPT_WITH_VALUE:
-                skip = True
-                continue
-            if t.startswith("-"):
-                continue
-            positional.append(t)
-        refspecs = positional[1:]
-        if not refspecs:
-            branch = current_branch(ev.cwd)
-            if branch in protected:
-                return "deny", GIT_MSG.format(what=f"push to protected branch '{branch}'")
-            continue
-        for r in refspecs:
-            if r.startswith("+"):
-                return "deny", GIT_MSG.format(what=f"force refspec {r}")
-            dest = r.split(":", 1)[1] if ":" in r else r
-            if dest.startswith("refs/heads/"):
-                dest = dest[len("refs/heads/") :]
-            if dest == "HEAD":
-                dest = current_branch(ev.cwd) or dest
-            if dest in protected:
-                return "deny", GIT_MSG.format(what=f"push to protected branch '{dest}'")
-    return None
+    command = strip_heredocs(ev.command)
+    for seg in segments(command):
+        d = _git_guard_seg(seg, ev.cwd, protected)
+        if d:
+            return d
+    return reader_pass(command, lambda seg: _git_guard_seg(seg, ev.cwd, protected), "git-guard")
 
 
 # ----------------------------------------------------------------------------
@@ -940,14 +963,26 @@ def rule_protected_branch(ev: Event, cfg: dict) -> Optional[Decision]:
             return "deny", PROTECTED_MSG.format(what=f"edit of {rel}", branch=branch, root=root)
         return None
     if ev.kind == "shell" and ev.command:
-        for seg in segments(strip_heredocs(ev.command)):
-            sub, _rest = _git_subcommand(seg)
-            if sub != "commit":
-                continue
-            where = _git_c_dir(seg, ev.cwd)
-            branch = current_branch(where)
-            if branch in protected:
-                return "deny", PROTECTED_MSG.format(what="`git commit`", branch=branch, root=where)
+        command = strip_heredocs(ev.command)
+        for seg in segments(command):
+            d = _commit_on_protected(seg, ev.cwd, protected)
+            if d:
+                return d
+        # the local reading: a commit behind ssh or inside a container happens in another checkout
+        return reader_pass(command, lambda seg: _commit_on_protected(seg, ev.cwd, protected), "protected-branch",
+                           local=True)
+    return None
+
+
+def _commit_on_protected(seg: list[str], cwd: str, protected: set) -> Optional[Decision]:
+    """Deny when one simple command is a `git commit` in a checkout whose branch is protected."""
+    sub, _rest = _git_subcommand(seg)
+    if sub != "commit":
+        return None
+    where = _git_c_dir(seg, cwd)
+    branch = current_branch(where)
+    if branch in protected:
+        return "deny", PROTECTED_MSG.format(what="`git commit`", branch=branch, root=where)
     return None
 
 
@@ -1209,41 +1244,49 @@ def rule_tracker_guard(ev: Event, cfg: dict) -> Optional[Decision]:
         return "deny", TRACKER_MSG.format(what="`bypassRules` skips the work item rules",
                                           use="the tracker verbs; process rules are never bypassed")
     for seg in segments(command):
-        head = os.path.basename(seg[0])
-        if head == "az":
-            d = _az_tracker_guard(seg)
-            if d:
-                return d
-        if head == "gh" and len(seg) >= 3 and seg[1] == "issue" and seg[2] in _GH_ISSUE_REPLACEMENT:
-            return "deny", TRACKER_MSG.format(what=f"`gh issue {seg[2]}` bypasses the tracker",
-                                              use=_GH_ISSUE_REPLACEMENT[seg[2]])
-        if head == "gh" and len(seg) >= 3 and seg[1] == "label" and seg[2] in ("create", "edit", "delete", "clone"):
-            return "deny", TRACKER_MSG.format(what=f"`gh label {seg[2]}` bypasses the tracker",
-                                              use="`tracker owner labels-sync` (a human runs it)")
-        if head == "gh" and len(seg) >= 3 and seg[1] == "api":
-            path, skip = "", False
-            for t in seg[2:]:
-                if skip:
-                    skip = False
-                elif t in _GH_API_VALUE_FLAGS:
-                    skip = True
-                elif not t.startswith("-"):
-                    path = t
-                    break
-            method = (_flag_value(seg, {"-X", "--method"}) or "GET").upper()
-            mutating = method != "GET" or any(t in _GH_API_MUTATING_FLAGS for t in seg)
-            if _ISSUE_API_RE.search(path) and mutating:
-                return "deny", TRACKER_MSG.format(what=f"`gh api {method} {path}` writes issues or labels",
-                                                  use="the tracker verbs")
-        if head in ("curl", "wget", "http", "https", "xh"):
-            url = next((t for t in seg[1:] if ("api.github.com/repos/" in t and _ISSUE_API_RE.search(t))
-                        or _ADO_WIT_RE.search(t)), "")
-            if url and _http_writes(seg, head, url):
-                return "deny", TRACKER_MSG.format(what=f"`{head}` writes to {url}", use="the tracker verbs")
-        words = seg[1:] if head in ("python", "python3") else seg
-        if words and os.path.basename(words[0]) in ("tracker", "tracker.py") and "owner" in words[1:2]:
-            use = "`tracker new|claim|block|review|note`; ask the owner to promote or close"
-            return "deny", TRACKER_MSG.format(what="`tracker owner` is the human's verb", use=use)
+        d = _tracker_seg(seg)
+        if d:
+            return d
+    return reader_pass(command, _tracker_seg, "tracker-guard")
+
+
+def _tracker_seg(seg: list[str]) -> Optional[Decision]:
+    """The tracker-guard verdict on one simple command: a write to issues, labels or work items past the tracker."""
+    head = os.path.basename(seg[0])
+    if head == "az":
+        d = _az_tracker_guard(seg)
+        if d:
+            return d
+    if head == "gh" and len(seg) >= 3 and seg[1] == "issue" and seg[2] in _GH_ISSUE_REPLACEMENT:
+        return "deny", TRACKER_MSG.format(what=f"`gh issue {seg[2]}` bypasses the tracker",
+                                          use=_GH_ISSUE_REPLACEMENT[seg[2]])
+    if head == "gh" and len(seg) >= 3 and seg[1] == "label" and seg[2] in ("create", "edit", "delete", "clone"):
+        return "deny", TRACKER_MSG.format(what=f"`gh label {seg[2]}` bypasses the tracker",
+                                          use="`tracker owner labels-sync` (a human runs it)")
+    if head == "gh" and len(seg) >= 3 and seg[1] == "api":
+        path, skip = "", False
+        for t in seg[2:]:
+            if skip:
+                skip = False
+            elif t in _GH_API_VALUE_FLAGS:
+                skip = True
+            elif not t.startswith("-"):
+                path = t
+                break
+        method = (_flag_value(seg, {"-X", "--method"}) or "GET").upper()
+        mutating = method != "GET" or any(t in _GH_API_MUTATING_FLAGS for t in seg)
+        if _ISSUE_API_RE.search(path) and mutating:
+            return "deny", TRACKER_MSG.format(what=f"`gh api {method} {path}` writes issues or labels",
+                                              use="the tracker verbs")
+    if head in ("curl", "wget", "http", "https", "xh"):
+        url = next((t for t in seg[1:] if ("api.github.com/repos/" in t and _ISSUE_API_RE.search(t))
+                    or _ADO_WIT_RE.search(t)), "")
+        if url and _http_writes(seg, head, url):
+            return "deny", TRACKER_MSG.format(what=f"`{head}` writes to {url}", use="the tracker verbs")
+    words = seg[1:] if head in ("python", "python3") else seg
+    if words and os.path.basename(words[0]) in ("tracker", "tracker.py") and "owner" in words[1:2]:
+        use = "`tracker new|claim|block|review|note`; ask the owner to promote or close"
+        return "deny", TRACKER_MSG.format(what="`tracker owner` is the human's verb", use=use)
     return None
 
 
@@ -1715,11 +1758,20 @@ def host_install_silent(cfg: dict) -> bool:
 def rule_host_install(ev: Event, cfg: dict) -> Optional[Decision]:
     if ev.event != "PreToolUse" or ev.kind != "shell" or not ev.command:
         return None
+    command = strip_heredocs(ev.command)
     try:
-        what = host_install_what(strip_heredocs(ev.command))
+        what = host_install_what(command)
     except Exception as exc:  # main() turns a crash into exit 1, which both harnesses let run silently: ask instead
         what = f"the command could not be read ({type(exc).__name__})"
-    return ("ask", HOST_INSTALL_MSG.format(what=what)) if what else None
+    if what:
+        return "ask", HOST_INSTALL_MSG.format(what=what)
+
+    def judge(seg: list[str]) -> Optional[Decision]:
+        found = _hi_judge(seg, 0)
+        return ("ask", HOST_INSTALL_MSG.format(what=found)) if found else None
+
+    # the local reading: what this machine runs; a container or remote tool ends the simple command
+    return reader_pass(command, judge, "host-install", local=True)
 
 
 # ----------------------------------------------------------------------------
@@ -1762,29 +1814,33 @@ _NC_HELP = frozenset("-h -help --help".split())
 _NC_FALLBACK_SPLIT_RE = re.compile(r"\|\||&&|[;|\n()`]")
 
 
-def nested_commands(command: str) -> tuple[tuple[str, ...], ...]:
+def nested_commands(command: str, local: bool = False) -> tuple[tuple[str, ...], ...]:
     """The tokens of every simple command of the line and of what it nests (`$( … )` in double quotes, `sh -c`,
-    `bash <<<`, `env -S`, `eval`, an ssh or watch script). Memoised: deploy-ask and delete-guard read the same
-    text in one hook run. Raises CommandNotRead past _HI_MAX_DEPTH, and when a simple command is too long to
-    read in bounded time; that outcome is memoised too."""
-    got = _nc_cached(command)
+    `bash <<<`, `env -S`, `eval`, an ssh or watch script). Memoised: seven rules read the same text in one hook
+    run. Raises CommandNotRead past _HI_MAX_DEPTH, and when a simple command is too long to read in bounded
+    time; that outcome is memoised too.
+
+    `local` is the local reading (host-install, protected-branch: what this machine runs): a simple command ends
+    at the first command word that names a container or remote tool (_HI_REMOTE), and nothing after it is read,
+    neither as a command nor as a script. `$( … )` in double quotes still counts: the local shell runs it."""
+    got = _nc_cached(command, local)
     if isinstance(got, CommandNotRead):
         raise CommandNotRead(str(got))
     return got
 
 
-@functools.lru_cache(maxsize=8)
-def _nc_cached(command: str):
+@functools.lru_cache(maxsize=16)
+def _nc_cached(command: str, local: bool = False):
     """nested_commands' memo: the token tuples, or the CommandNotRead that stopped the read."""
     out: list[tuple[str, ...]] = []
     try:
-        _nc_read(command, 0, out, set())
+        _nc_read(command, 0, out, set(), local)
     except CommandNotRead as exc:  # kept as a value so the second rule does not read the line again
         return exc
     return tuple(out)
 
 
-def _nc_read(text: str, depth: int, out: list, seen: set) -> None:
+def _nc_read(text: str, depth: int, out: list, seen: set, local: bool = False) -> None:
     """Append the simple commands of one line to out, then read what each nests one level deeper."""
     if depth > _HI_MAX_DEPTH:
         if text.strip():
@@ -1798,8 +1854,14 @@ def _nc_read(text: str, depth: int, out: list, seen: set) -> None:
         parts = [toks for _sep, toks in cmds]
     nested = list(subs)  # substitutions outside quotes are simple commands of their own in the lexer already
     for raw in parts:
-        nested.extend(_nc_here_strings(raw))  # taken before the redirections go: `<<<` is one
-        toks = drop_redirections(raw)
+        kept = _nc_kept(raw)
+        toks = [raw[k] for k in kept]
+        if local:
+            cut = _nc_remote_word(toks)
+            if cut is not None:  # the words from the container or remote tool on run elsewhere
+                raw = raw[: kept[cut]]
+                toks = toks[:cut]
+        nested.extend(_nc_here_strings(raw))  # taken from the words before the redirections go: `<<<` is one
         if not toks:
             continue
         out.append(tuple(toks))
@@ -1807,7 +1869,37 @@ def _nc_read(text: str, depth: int, out: list, seen: set) -> None:
     for script in nested:
         if script not in seen:  # one read per distinct script: a repeated nest costs nothing twice
             seen.add(script)
-            _nc_read(script, depth + 1, out, seen)
+            _nc_read(script, depth + 1, out, seen, local)
+
+
+def _nc_remote_word(toks: list[str]) -> Optional[int]:
+    """The first command word of a simple command that names a container or remote tool, or None."""
+    return min((i for i in command_word_indexes(toks) if os.path.basename(toks[i]) in _HI_REMOTE), default=None)
+
+
+READER_MSG = "{rule}: {what}. Confirm the command; the guard could not check it."
+
+
+def reader_pass(text: str, judge: Callable[[list[str]], Optional[Decision]], rule: str,
+                local: bool = False) -> Optional[Decision]:
+    """The token pass of a rule that first reads segments(): judge the words from every command word of every
+    simple command the line runs. The first deny wins; asks are combined. Never raises: a line the reader could
+    not read, or a crash, asks with the reason (a rule's own deny from its first pass is returned before this)."""
+    try:
+        asks = []
+        for toks in nested_commands(text, local):
+            for i in sorted(command_word_indexes(toks)):
+                d = judge(list(toks[i:]))
+                if d and d[0] == "deny":
+                    return d
+                if d:
+                    asks.append(d)
+        return combine(asks)
+    except CommandNotRead as exc:  # too deep or too many words: ask rather than pass it unread
+        what = str(exc)
+    except Exception as exc:  # main() turns a crash into exit 1, which both harnesses let run silently: ask instead
+        what = f"the command could not be read ({type(exc).__name__})"
+    return "ask", READER_MSG.format(rule=rule, what=what)
 
 
 def _nc_here_strings(toks: list[str]) -> list[str]:
@@ -1886,11 +1978,28 @@ def _nc_split_string(toks, i: int) -> list[str]:
     return out
 
 
-def command_word_indexes(toks) -> set:
+def command_word_indexes(toks) -> frozenset:
     """The indexes where a command name can stand: the first word after assignments, shell words and
     `function NAME`, and what a wrapper there runs (`sudo -u bob rm`, `timeout 10 rm`, `ssh host rm`,
     `find … -exec rm`), followed through wrapper chains. `command -v` is a lookup. Raises CommandNotRead past
-    _MAX_COMMAND_WORDS."""
+    _MAX_COMMAND_WORDS. Memoised per token tuple: seven rules ask for the same simple commands."""
+    got = _cwi_cached(tuple(toks))
+    if isinstance(got, CommandNotRead):
+        raise CommandNotRead(str(got))
+    return got
+
+
+@functools.lru_cache(maxsize=256)
+def _cwi_cached(toks: tuple):
+    """command_word_indexes' memo: the indexes, or the CommandNotRead that stopped the walk."""
+    try:
+        return frozenset(_command_word_indexes(toks))
+    except CommandNotRead as exc:  # kept as a value so the next rule does not walk the words again
+        return exc
+
+
+def _command_word_indexes(toks: tuple) -> set:
+    """command_word_indexes without the memo."""
     n = len(toks)
     i = 0
     while i < n:
@@ -1960,15 +2069,20 @@ def _is_redirection(t: str) -> bool:
 
 def drop_redirections(args: list[str]) -> list[str]:
     """The arguments without redirections (`>out`, `2>1`, `> out`): a file name after `>` is no subcommand."""
+    return [args[k] for k in _nc_kept(args)]
+
+
+def _nc_kept(args: list[str]) -> list[int]:
+    """The indexes of the words that are no redirection and no redirection's target."""
     out = []
     skip = False
-    for t in args:
+    for k, t in enumerate(args):
         if skip:
             skip = False
         elif _BARE_REDIRECT_TOKEN_RE.match(t):
             skip = True  # the target is the next token
         elif not _is_redirection(t):
-            out.append(t)
+            out.append(k)
     return out
 
 

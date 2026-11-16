@@ -22,6 +22,7 @@ import json
 import os
 import re
 import shlex
+import signal
 import socket
 import subprocess
 import sys
@@ -413,17 +414,26 @@ def tokens(text: str) -> list[str]:
 
 
 def segments(command: str) -> list[list[str]]:
-    """Token lists for each simple command of a compound line, wrappers and assignments stripped."""
+    """Token lists for each simple command of a compound line, wrappers and assignments stripped.
+
+    Fresh lists from a memo: five rules read the same line in one hook run, and none can change the cache."""
+    return [list(seg) for seg in _segments_cached(command)]
+
+
+@functools.lru_cache(maxsize=8)
+def _segments_cached(command: str) -> tuple[tuple[str, ...], ...]:
+    """segments' memo; one index walks past wrappers and options, so a long line costs one pass."""
     out = []
     for part in _SEP_RE.split(command):
         toks = tokens(part)
-        while toks and (_ASSIGN_RE.match(toks[0]) or toks[0] in _WRAPPERS):
-            toks = toks[1:]
-            while toks and toks[0].startswith("-") and toks[0] != "--":
-                toks = toks[1:]
-        if toks:
-            out.append(toks)
-    return out
+        i = 0
+        while i < len(toks) and (_ASSIGN_RE.match(toks[i]) or toks[i] in _WRAPPERS):
+            i += 1
+            while i < len(toks) and toks[i].startswith("-") and toks[i] != "--":
+                i += 1
+        if i < len(toks):
+            out.append(tuple(toks[i:]))
+    return tuple(out)
 
 
 def _expand(tok: str, cwd: str) -> str:
@@ -2073,10 +2083,49 @@ def _read_event() -> dict:
     return obj
 
 
+# Both wirings cut the pre hook at 5 s, and a cut hook fails open (the call runs unjudged): answer before that.
+# No environment variable sets it, since whoever starts a session could switch the timer off; tests set this.
+HOOK_BUDGET_S = 3.5
+BUDGET_MSG = (
+    "guard: this call could not be judged within the hook's {budget} s budget (the command is {size} characters "
+    "long); rules that did not judge it: {rules}. Confirm it yourself."
+)
+
+
+class BudgetExceeded(BaseException):
+    """Raised by the SIGALRM handler; a BaseException, so a rule's `except Exception` cannot swallow it."""
+
+
+def _on_budget(signum, frame) -> None:
+    """SIGALRM handler: stop the running rule (a handler that raises also stops a running `re` match)."""
+    raise BudgetExceeded()
+
+
+def _arm_budget() -> Optional[tuple]:
+    """Start the wall-clock budget; return (previous handler,), or None where nothing was armed."""
+    if not (hasattr(signal, "setitimer") and hasattr(signal, "SIGALRM")):
+        return None  # Windows: no interval timer, the hook runs as before 0.7.0
+    try:
+        previous = signal.signal(signal.SIGALRM, _on_budget)
+    except ValueError:  # not the main thread (an embedding caller): run without a budget rather than fail
+        return None
+    signal.setitimer(signal.ITIMER_REAL, HOOK_BUDGET_S)
+    return (previous,)
+
+
+def _disarm_budget(armed: Optional[tuple]) -> None:
+    """Stop the timer, then put the previous handler back; harmless when called twice."""
+    if armed is None:
+        return
+    signal.setitimer(signal.ITIMER_REAL, 0)
+    previous = armed[0]
+    signal.signal(signal.SIGALRM, signal.SIG_DFL if previous is None else previous)  # None: set outside Python
+
+
 def run_hook(target: str, wrapper: Optional[str]) -> int:
     raw = _read_event()
     cfg = load_config(str(raw.get("cwd") or os.getcwd()))
-    if target == "capture":
+    if target == "capture":  # never blocks, so it runs without the budget
         return capture(raw, cfg)
     ev = Event(raw)
     # One Copilot path only: VS Code reads both .claude/settings.json and
@@ -2095,16 +2144,28 @@ def run_hook(target: str, wrapper: Optional[str]) -> int:
         decisions.append(("ask", "guard: the tool arguments arrived as a string that is not JSON; no rule could read "
                                  "this call. Confirm it, and capture the event shape for the fixtures."))
         fired["unreadable-args"] = "ask"
-    for name in names:
-        rule = RULES.get(name)
-        if rule is None:
-            raise ValueError(f"unknown rule: {name}")
-        d = rule(ev, cfg)
-        if d and name in off and d[0] == "ask":  # the rule still runs, so the log shows how often it was silenced
-            skipped[name] = "skipped"
-        elif d:
-            decisions.append(d)
-            fired[name] = d[0]
+    judged = 0  # rules whose verdict is recorded; the rest are named in the budget ask
+    armed = _arm_budget()
+    try:
+        for name in names:
+            rule = RULES.get(name)
+            if rule is None:
+                raise ValueError(f"unknown rule: {name}")
+            d = rule(ev, cfg)
+            if d and name in off and d[0] == "ask":  # the rule still runs, so the log shows how often it was silenced
+                skipped[name] = "skipped"
+            elif d:
+                decisions.append(d)
+                fired[name] = d[0]
+            judged += 1  # counted after the verdict is kept: an alarm in between names the rule, never drops it
+        _disarm_budget(armed)  # inside the try: an alarm that fires before the timer is off is still caught
+    except BudgetExceeded:  # the finished rules' verdicts stand; a deny among them still wins in combine()
+        _disarm_budget(armed)
+        decisions.append(("ask", BUDGET_MSG.format(budget=HOOK_BUDGET_S, size=len(ev.command or ""),
+                                                   rules=", ".join(names[judged:]))))
+        fired["budget"] = "ask"
+    finally:
+        _disarm_budget(armed)
     final = combine(decisions)
     if final:
         log_decision(final, fired, ev, cfg)

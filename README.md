@@ -159,8 +159,11 @@ On the server and in CI:
   REST API only; the first live run (step A0 on a scratch organisation, then
   the pilot A9) settles the response shapes, the branch ACL token and whether
   the session-start digest fits its time budget.
-- Tests: `uv run --no-project --with pytest python -m pytest -o addopts= -q`
-  (add `--python /usr/bin/python3` for 3.9); lint: `uvx ruff check .`.
+- Tests: `uv run --offline --no-project --with pytest python -m pytest -o addopts= -q`
+  (add `--python /usr/bin/python3` for 3.9); lint: `uvx --offline ruff check .`.
+  `--offline` keeps both on the local cache, which is what `AGENTS.md` asks of
+  an agent; on a new machine the owner fills the cache once by running them
+  without it.
 
 ## Reference
 

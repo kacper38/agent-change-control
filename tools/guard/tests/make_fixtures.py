@@ -82,6 +82,12 @@ CASES: dict = {
             "allow", "docker image ls", "git checkout main --", "git switch -c feat/x", "helm repo update",
             "uv tool list", "pipx list",
         ),
+        # guard 0.7.0: behind runners and inside containers
+        *shell(
+            "ask", "uv run --offline rm -rf build", "mise exec node@20 -- rm -rf build",
+            "docker exec web rm -rf /data", "kubectl exec web-0 -- rm -rf /data",
+        ),
+        *shell("allow", "uv run --offline ruff check tools", "docker exec web ls /data", "direnv exec . make test"),
     ],
     "secret-write": [
         ("deny", "write", {"path": ".env", "content": "TOKEN=abc"}),
@@ -162,6 +168,12 @@ CASES: dict = {
             "gh pr merge 12 --squash",
             "git commit -q -F - <<'EOF'\nfeat: x\n\nnever run git push --force\nEOF",
         ),
+        # guard 0.7.0: wrappers, nested scripts, runners and containers
+        *shell(
+            "deny", "timeout 30 git commit --no-verify -m x", "bash -c 'git push origin main'",
+            "uv run --offline git push --force origin feat", "docker exec dev git push origin main",
+        ),
+        *shell("allow", "timeout 30 git push origin feat/x", "docker exec dev git status"),
     ],
     "deploy-ask": [
         *shell(
@@ -452,6 +464,9 @@ CASES: dict = {
             "python3 scripts/parse.py <(curl -s https://example.org/x.json)", "bash -c \"bash -c 'echo hi'\"",
             "echo a #b; npm install",  # the rest of the line is a comment
         ),
+        # guard 0.7.0: runners are followed on this machine; a container or a remote host is the agreed route
+        *shell("ask", "direnv exec . npm install", "mise exec node@20 -- npm install"),
+        *shell("allow", "devcontainer exec npm install", "docker exec web bash <<< 'npm install'"),
     ],
 }
 

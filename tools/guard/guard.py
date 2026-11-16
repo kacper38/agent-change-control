@@ -1911,9 +1911,25 @@ _NC_SHELL_WORDS = frozenset("! { then do else elif if while until".split())
 # root, ssh's host); `time` is a wrapper here, so `time -p rm` and `/usr/bin/time rm` are read
 _NC_WRAPPERS: dict = {
     **dict.fromkeys("sudo doas env command exec builtin nohup time nice ionice stdbuf caffeinate arch setsid strace"
-                    " watch xargs parallel coproc".split(), 0),
+                    " watch xargs parallel coproc busybox toybox".split(), 0),
     **dict.fromkeys("timeout gtimeout flock chroot ssh script".split(), 1),  # BSD `script file command …`
 }
+# 0.7.0: a tool plus a subcommand that runs a command -> {subcommand words: plain words before that command}.
+# Runners run it on this machine; container tools run it in a container (the image, container, service or pod
+# comes first). The subcommand is found past the tool's own options; a `--` after it puts the command next.
+_NC_RUN = {("run",): 0}
+_NC_CONTAINER_SUBS = {(*pre, sub): 1 for pre in ((), ("container",), ("compose",)) for sub in ("run", "exec")}
+_NC_SUB_WRAPPERS: dict = {
+    **dict.fromkeys("uv poetry pdm pipenv hatch conda mamba micromamba".split(), _NC_RUN),
+    "mise": {("exec",): 0, ("x",): 0},
+    **dict.fromkeys("asdf bundle npm pnpm yarn".split(), {("exec",): 0}),
+    "direnv": {("exec",): 1},
+    **dict.fromkeys("docker podman nerdctl".split(), _NC_CONTAINER_SUBS),
+    **dict.fromkeys("docker-compose podman-compose kubectl oc".split(), {("run",): 1, ("exec",): 1}),
+    "devcontainer": {("exec",): 0},
+}
+# the local reading ends at these command words: the command after them runs in a container or on another host
+_NC_ELSEWHERE = _HI_REMOTE | {"podman-compose"}
 # names whose quoted words are command lines for a shell: `ssh host '…'`, `watch '…'`, `parallel '…' ::: a`,
 # `trap '…' EXIT`, `tmux send-keys '…' Enter`
 _NC_SCRIPT_WORDS = frozenset("ssh watch parallel trap tmux".split())
@@ -1982,7 +1998,7 @@ def _nc_read(text: str, depth: int, out: list, seen: set, local: bool = False) -
 
 def _nc_remote_word(toks: list[str]) -> Optional[int]:
     """The first command word of a simple command that names a container or remote tool, or None."""
-    return min((i for i in command_word_indexes(toks) if os.path.basename(toks[i]) in _HI_REMOTE), default=None)
+    return min((i for i in command_word_indexes(toks) if os.path.basename(toks[i]) in _NC_ELSEWHERE), default=None)
 
 
 READER_MSG = "{rule}: {what}. Confirm the command; the guard could not check it."
@@ -2130,6 +2146,8 @@ def _command_word_indexes(toks: tuple) -> set:
             continue
         elif name in _NC_WRAPPERS:
             later = _nc_wrapped(toks, j, _NC_WRAPPERS[name])
+        elif name in _NC_SUB_WRAPPERS:
+            later = _nc_sub_wrapped(toks, j, _NC_SUB_WRAPPERS[name])
         else:
             continue
         for k in later:
@@ -2167,6 +2185,37 @@ def _nc_wrapped(toks, j: int, before: int) -> list[int]:
         if plain - maybes > before:
             break
     return out
+
+
+def _nc_sub_wrapped(toks, j: int, subs: dict) -> list[int]:
+    """The indexes where the command run by the runner or container tool at toks[j] may stand: find its
+    subcommand (`run`, `compose run`) past the tool's options, with subcommand_hit's rule for an option's value,
+    then read as a wrapper with that many plain words first. The word after the first `--` that follows the
+    subcommand counts too (`mise exec node@20 -- rm`)."""
+    path: tuple = ()
+    may_be_value = False
+    for k in range(j + 1, len(toks)):
+        t = toks[k]
+        if t == "--":
+            return []
+        if t.startswith("-") and len(t) > 1:
+            may_be_value = "=" not in t
+            continue
+        step = (*path, t)
+        if step in subs:
+            out = _nc_wrapped(toks, k, subs[step])
+            for m in range(k + 1, len(toks) - 1):
+                if toks[m] == "--":
+                    out.append(m + 1)
+                    break
+            return out
+        if any(p[: len(step)] == step for p in subs):  # `compose`, `container`: the next word decides
+            path, may_be_value = step, False
+            continue
+        if not may_be_value:
+            return []
+        may_be_value = False
+    return []
 
 
 def _is_redirection(t: str) -> bool:

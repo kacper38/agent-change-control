@@ -3,9 +3,6 @@
     "case": {
       "command": "apt-get install -y jq"
     },
-    "config": {
-      "host_install": "ask"
-    },
     "format": "vscode",
     "harness": "copilot",
     "rule": "host-install",

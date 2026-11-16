@@ -3,9 +3,6 @@
     "case": {
       "command": "test -d node_modules || npm ci"
     },
-    "config": {
-      "host_install": "ask"
-    },
     "format": "vscode",
     "harness": "copilot",
     "rule": "host-install",

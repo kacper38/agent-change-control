@@ -1083,14 +1083,16 @@ _HI_STOP = _w("run run-script exec x test t start stop restart help")
 _HI_NONE = frozenset()
 # tool -> (install words, fetch-and-run words, exemption flags of the fetch-and-run words)
 _HI_TABLE: dict = {
-    "npm": (_w("install i add ci clean-install install-test it install-ci-test cit update up upgrade create"),
+    "npm": (_w("install i add ci clean-install install-test it install-ci-test cit update up upgrade create"
+               " ic install-clean dedupe ddp rebuild rb link ln"),
             _w("exec x"), _w("--no-install --no --offline")),
     "pnpm": (_w("install i add update up upgrade dlx create"), _HI_NONE, _HI_NONE),
     "yarn": (_w("install add up upgrade upgrade-interactive dlx create"), _HI_NONE, _HI_NONE),
-    "bun": (_w("install i add update create"), _w("x"), _w("--no-install")),
-    "pip": (_w("install download"), _HI_NONE, _HI_NONE),
+    "bun": (_w("install i add update create upgrade"), _w("x"), _w("--no-install")),
+    "pip": (_w("install download wheel"), _HI_NONE, _HI_NONE),
     "pipx": (_w("install install-all inject upgrade upgrade-all reinstall reinstall-all run"), _HI_NONE, _HI_NONE),
-    "uv": (_w("add sync install upgrade update"), _w("run"), _w("--offline --no-sync")),
+    # --no-sync skips the project sync but not --with requirements: only --offline exempts `uv run`
+    "uv": (_w("add sync install upgrade update"), _w("run"), _w("--offline")),
     "poetry": (_w("install add update sync"), _HI_NONE, _HI_NONE),
     "pdm": (_w("install add update sync"), _HI_NONE, _HI_NONE),
     "pipenv": (_w("install sync update"), _HI_NONE, _HI_NONE),
@@ -1104,7 +1106,7 @@ _HI_TABLE: dict = {
     "yum": (_w("install upgrade update groupinstall"), _HI_NONE, _HI_NONE),
     "apk": (_w("add upgrade"), _HI_NONE, _HI_NONE),
     "snap": (_w("install refresh"), _HI_NONE, _HI_NONE),
-    "cargo": (_w("install binstall"), _HI_NONE, _HI_NONE),
+    "cargo": (_w("install binstall add"), _HI_NONE, _HI_NONE),
     "go": (_w("install get"), _HI_NONE, _HI_NONE),
     "gem": (_w("install update"), _HI_NONE, _HI_NONE),
     "bundle": (_w("install update add"), _HI_NONE, _HI_NONE),
@@ -1116,37 +1118,124 @@ _HI_TABLE: dict = {
     "volta": (_w("install"), _HI_NONE, _HI_NONE),
     "pyenv": (_w("install"), _HI_NONE, _HI_NONE),
     "rustup": (_w("install update"), _HI_NONE, _HI_NONE),
+    "corepack": (_w("prepare install use up"), _HI_NONE, _HI_NONE),
+    "pre-commit": (_w("install install-hooks autoupdate"), _HI_NONE, _HI_NONE),
 }
+# two consecutive non-option tokens anywhere after the tool name; az and gh are judged by these pairs only
+_HI_PAIRS: dict = {
+    "npm": {("audit", "fix")},
+    "rustup": {("component", "add"), ("target", "add")},
+    "go": {("mod", "download")},
+    "az": {("extension", "add"), ("extension", "update"), ("bicep", "install"), ("bicep", "upgrade")},
+    "gh": {("extension", "install"), ("extension", "upgrade")},
+}
+_HI_PAIRS_ONLY = _w("az gh")
+_HI_BARE = _w("yarn bundle bundler")  # a bare call installs
 # heads that fetch and run by themselves -> their exemption flags (pnpx: never exempt)
 _HI_SELF_FETCH: dict = {"npx": _w("--no-install --no --offline"), "pnpx": _HI_NONE, "bunx": _w("--no-install"),
                         "uvx": _w("--offline")}
+_HI_PROBES = _w("--version -v -V --help -h")
+_HI_HELP = _w("--help -h")
 _HI_SHELLS = _w("sh bash zsh dash ksh")
-_HI_INTERPRETERS = _HI_SHELLS | _w("python python3 node ruby perl")
 _HI_DOWNLOADERS = _w("curl wget")
 _HI_SHELL_WORDS = _w("! { then do else elif if while until time")
-_HI_WRAPPERS = _w("sudo env command exec nohup doas builtin timeout gtimeout nice ionice caffeinate arch stdbuf xargs")
+_HI_WRAPPERS = _w("sudo env command exec nohup doas builtin timeout gtimeout nice ionice caffeinate arch stdbuf xargs"
+                  " find watch")
+# a wrapper that reaches one of these first hands over to a container or another machine: not judged (decision 7)
+_HI_REMOTE = _w("docker docker-compose podman nerdctl kubectl oc ssh devcontainer")
 _HI_PUNCT = ";&|()`\n"
-_HI_MAX_DEPTH = 3
+_HI_WORD_START = " \t\n;&|()`"  # a `#` after one of these (or at the start) begins a comment
+_HI_MAX_DEPTH = 5
+_HI_NOT_READ = f"the command nests deeper than {_HI_MAX_DEPTH} levels and was not read"
 _PIP_RE = re.compile(r"^pip(\d+(\.\d+)?)?$")
 _PYTHON_RE = re.compile(r"^python(\d+(\.\d+)?)?$")
 _DOWNLOAD_SUB_RE = re.compile(r"^\s*(\$\(|`)\s*(curl|wget)(\s|$)")
+# an unbalanced quote: coarse checks for a downloaded script (the shell would probably reject the line anyway)
+_HI_COARSE = (
+    # the gap is bounded: unbounded, a 50 kB line of `curl` words took 0.5 s here, and a slow hook fails open
+    (re.compile(r"\b(curl|wget)\b[^|;&\n]{0,2000}\|(?!\|)[\s&]*(?:\S*/)?(?:sudo\s+)?(?:\S*/)?(sh|bash|zsh|dash|ksh)\b"),
+     "`{0} | {1}` runs a downloaded script"),
+    (re.compile(r"<\(\s*(curl|wget)\b"), "`<({0} …)` runs a downloaded script"),
+    (re.compile(r"(?:\s-\w*c|\beval)\s+[\"']?(?:\$\(|`)\s*(curl|wget)\b"), "`$({0} …)` runs a downloaded script"),
+)
 
 
 def _hi_key(name: str) -> Optional[str]:
     """The table entry a command basename belongs to (pip3.12 -> pip), or None."""
     if _PIP_RE.match(name):
         return "pip"
-    return name if name in _HI_TABLE or name in _HI_SELF_FETCH else None
+    return name if name in _HI_TABLE or name in _HI_SELF_FETCH or name in _HI_PAIRS_ONLY else None
 
 
 def _hi_startable(name: str) -> bool:
     return name in _HI_SHELLS or bool(_PYTHON_RE.match(name)) or _hi_key(name) is not None
 
 
-def simple_commands(text: str) -> list[tuple[str, list[str]]]:
-    """Quote-aware split into (preceding separator, tokens) per simple command; a quoted string stays one token.
-    An unbalanced quote falls back to segments() (separators unknown); this never raises."""
-    text = text.replace("\\\n", " ")
+def _hi_sub_end(text: str, i: int) -> int:
+    """Index of the character that closes the substitution opened at text[i] (`$(` or a backtick), or len(text)."""
+    tick = text[i] == "`"
+    depth, j = 1, i + (1 if tick else 2)
+    while j < len(text):
+        c = text[j]
+        if c == "\\":
+            j += 2
+            continue
+        if tick and c == "`":
+            return j
+        if not tick and c in "()":
+            depth += 1 if c == "(" else -1
+            if depth == 0:
+                return j
+        j += 1
+    return len(text)
+
+
+def _hi_prepare(text: str) -> tuple[str, list[str]]:
+    """One quote-aware pass before the lexer. Drops backslash-newline and comments, takes the `&` out of a
+    redirection (2>&1, >&2, &>) so it does not split the command, and collects the body of every $( … ) and
+    backtick substitution written inside double quotes: the host shell runs it."""
+    out: list[str] = []
+    subs: list[str] = []
+    quote = ""
+    i, n = 0, len(text)
+    while i < n:
+        c = text[i]
+        if c == "\\" and quote != "'":
+            if text[i + 1 : i + 2] != "\n":  # backslash-newline is removed, as the shell does
+                out.append(text[i : i + 2])
+            i += 2
+            continue
+        if quote == "'":
+            quote = "" if c == "'" else quote
+        elif quote == '"':
+            if c == '"':
+                quote = ""
+            elif c == "`" or (c == "$" and text[i + 1 : i + 2] == "(" and text[i + 2 : i + 3] != "("):
+                end = _hi_sub_end(text, i)
+                subs.append(text[i + (1 if c == "`" else 2) : end])
+                out.append(text[i : end + 1])
+                i = end + 1
+                continue
+        elif c in "'\"":
+            quote = c
+        elif c == "#" and (not out or (len(out[-1]) == 1 and out[-1] in _HI_WORD_START)):  # not after `\ `
+            j = text.find("\n", i)  # a comment runs to, not including, the end of its line
+            i = n if j < 0 else j
+            continue
+        elif c in "<>" and text[i + 1 : i + 2] == "&":  # 2>&1, >&2, <&3, 2>&-
+            out.append(c)
+            i += 2
+            continue
+        elif c == "&" and text[i + 1 : i + 2] == ">":  # &>, &>>
+            i += 1
+            continue
+        out.append(c)
+        i += 1
+    return "".join(out), subs
+
+
+def _hi_lex(text: str) -> Optional[list[tuple[str, list[str]]]]:
+    """Quote-aware split into (preceding separator run, tokens) per simple command; None on an unbalanced quote."""
     lex = shlex.shlex(text, posix=True, punctuation_chars=_HI_PUNCT)
     lex.whitespace = " \t\r"
     lex.whitespace_split = True
@@ -1159,28 +1248,43 @@ def simple_commands(text: str) -> list[tuple[str, list[str]]]:
             if tok and all(c in _HI_PUNCT for c in tok):
                 if cur:
                     out.append((sep, cur))
-                cur, sep = [], tok
+                    cur, sep = [], tok
+                else:
+                    sep += tok  # `| <newline>`, `) |`: one run, so a pipe stays a pipe
             else:
                 cur.append(tok)
     except ValueError:  # unbalanced quote or trailing escape
-        return [("", seg) for seg in segments(text)]
+        return None
     if cur:
         out.append((sep, cur))
     return out
 
 
+def simple_commands(text: str) -> list[tuple[str, list[str]]]:
+    """Quote-aware split into (preceding separator, tokens) per simple command; a quoted string stays one token.
+    An unbalanced quote falls back to segments() (separators unknown); this never raises."""
+    cmds = _hi_lex(text)
+    return [("", seg) for seg in segments(text)] if cmds is None else cmds
+
+
 def _hi_real(toks: list[str]) -> list[str]:
-    """Drop assignments and shell words; a wrapper hands over to the first later shell, Python or table tool."""
+    """Drop assignments and shell words; a wrapper hands over to the first later shell, Python, table tool or
+    downloader, and to nothing when a container or remote head comes first."""
     i = 0
     while i < len(toks) and (_ASSIGN_RE.match(toks[i]) or toks[i] in _HI_SHELL_WORDS):
         i += 1
     toks = toks[i:]
-    if toks and os.path.basename(toks[0]) in _HI_WRAPPERS:
-        for j in range(1, len(toks)):
-            if _hi_startable(os.path.basename(toks[j])):
-                return toks[j:]
-        return []
-    return toks
+    if not toks or os.path.basename(toks[0]) not in _HI_WRAPPERS:
+        return toks
+    if os.path.basename(toks[0]) == "command" and toks[1:2] in (["-v"], ["-V"]):
+        return []  # a lookup
+    for j in range(1, len(toks)):
+        name = os.path.basename(toks[j])
+        if name in _HI_REMOTE:
+            return []  # the container or remote route, also behind a wrapper (decision 7)
+        if _hi_startable(name) or name in _HI_DOWNLOADERS:
+            return toks[j:]
+    return []
 
 
 def _hi_dash_c(args: list[str]) -> Optional[str]:
@@ -1214,10 +1318,120 @@ def _hi_script(script: str, head: str, depth: int) -> Optional[str]:
     return host_install_what(script, depth + 1)
 
 
+def _hi_shell_reads_stdin(args: list[str]) -> bool:
+    """A shell reads its program from stdin: no -c script, and no operand unless -s is given."""
+    if _hi_dash_c(args) is not None:
+        return False
+    s_flag, skip, options = False, False, True
+    for t in args:
+        if skip:
+            skip = False
+        elif options and t in ("-o", "+o"):
+            skip = True
+        elif options and t == "--":
+            options = False
+        elif options and t.startswith(("-", "+")):
+            s_flag = s_flag or (not t.startswith("--") and "s" in t[1:])
+        else:
+            return s_flag  # an operand is a script file, unless -s reads the program from stdin
+    return True
+
+
+def _hi_code_option(name: str, t: str) -> bool:
+    """An interpreter option that carries the program itself (or names a module to run)."""
+    if _PYTHON_RE.match(name):
+        return t.startswith(("-c", "-m"))
+    if name == "node":
+        return t in ("-e", "-p", "--eval", "--print") or t.startswith(("--eval=", "--print="))
+    return not t.startswith("--") and t.endswith("e")  # perl, ruby: a short-option cluster that ends in e
+
+
+def _hi_reads_stdin(name: str, args: list[str]) -> bool:
+    """True when `name args` would run a program read from standard input (`sh`, `bash -s`, `python3 -`)."""
+    if name in _HI_SHELLS:
+        return _hi_shell_reads_stdin(args)
+    if not (_PYTHON_RE.match(name) or name in ("node", "ruby", "perl")):
+        return False
+    skip = False
+    for t in args:
+        if skip:
+            skip = False
+        elif t == "-":
+            return True
+        elif not t.startswith("-") or _hi_code_option(name, t):
+            return False  # a script file or a program of its own
+        else:
+            skip = bool(_PYTHON_RE.match(name)) and t in ("-W", "-X")  # these take a value
+    return True
+
+
+def _hi_python(args: list[str], depth: int) -> Optional[str]:
+    """`python -m <tool>` is judged as `<tool>` (also -mpip, after -W/-X and their value)."""
+    skip = False
+    for i, t in enumerate(args):
+        if skip:
+            skip = False
+        elif t.startswith("-m"):
+            return _hi_judge(([t[2:]] if t[2:] else []) + args[i + 1 :], depth + 1)
+        elif t in ("-W", "-X"):
+            skip = True
+        elif not t.startswith("-") or t.startswith("-c") or t == "-":
+            return None  # a script, inline code or stdin: not judged
+    return None
+
+
+def _hi_pair(head: str, key: str, args: list[str]) -> Optional[str]:
+    pairs = _HI_PAIRS.get(key, ())
+    for a, b in zip(args, args[1:]):
+        if a == "--":
+            break
+        if (a, b) in pairs:
+            return f"`{head} {a} {b}` installs packages"
+    return None
+
+
+def _hi_options_only(toks: list[str]) -> bool:
+    return all(t.startswith("-") for t in toks)
+
+
+def _hi_walk(head: str, key: str, args: list[str], depth: int) -> Optional[str]:
+    """Walk a table tool's tokens left to right (decision 10)."""
+    install, fetch, exempt = _HI_TABLE[key]
+    for i, t in enumerate(args):
+        if t == "--":
+            return None
+        if t.startswith("-"):
+            continue
+        later = args[i + 1 :]
+        if (t in install or t in fetch) and later and _hi_options_only(later) and _HI_HELP & set(later):
+            return None  # `pip install --help`: a help probe
+        if t in install:
+            return f"`{head} {t}` installs packages"
+        if key == "npm" and t == "init" and later[:1] and not later[0].startswith("-"):
+            return f"`{head} init` fetches and runs a package"
+        if key == "go" and t == "run":
+            operands = [x for x in later if not x.startswith("-")]
+            if operands and "@" in operands[0]:
+                return f"`{head} run` fetches and runs a package"
+        if t in fetch:
+            if not exempt & set(args):
+                if key == "uv":
+                    return f"`{head} {t}` without --offline may install"
+                return f"`{head} {t}` fetches and runs a package"
+            return _hi_search(later, depth)
+        if t in _HI_STOP:
+            return _hi_search(later, depth)
+    if key in _HI_BARE:
+        rest = [t for k, t in enumerate(args) if not (t == "--cwd" or (k and args[k - 1] == "--cwd"))]
+        if _hi_options_only(rest) and not _HI_PROBES & set(rest):
+            return f"`{head}` installs packages"
+    return None
+
+
 def _hi_judge(toks: list[str], depth: int) -> Optional[str]:
     """What one simple command would install or fetch-and-run on the host, or None."""
     if depth > _HI_MAX_DEPTH:
-        return None
+        return _HI_NOT_READ if toks else None
     toks = _hi_real(toks)
     if not toks:
         return None
@@ -1228,70 +1442,86 @@ def _hi_judge(toks: list[str], depth: int) -> Optional[str]:
     if head == "eval":
         return _hi_script(" ".join(args), head, depth) if args else None
     if _PYTHON_RE.match(head):
-        for i, t in enumerate(args):
-            if t == "-m":
-                return _hi_judge(args[i + 1 :], depth + 1)
-            if not t.startswith("-") or t == "-c":
-                return None  # a script, inline code or stdin: not judged
-        return None
+        return _hi_python(args, depth)
     key = _hi_key(head)
     if key is None:
         return None  # not a tool of the table: never inspected past its head (the container route)
     if key in _HI_SELF_FETCH:
+        if _hi_options_only(args) and _HI_PROBES & set(args):
+            return None  # `npx --version`: a version or help probe
         if _HI_SELF_FETCH[key] & set(args):
             return _hi_search(args, depth)
         return f"`{head}` fetches and runs a package"
-    install, fetch, exempt = _HI_TABLE[key]
-    for i, t in enumerate(args):
-        if t == "--":
-            return None
-        if t.startswith("-"):
-            continue
-        if t in install:
-            return f"`{head} {t}` installs packages"
-        if t in fetch:
-            if not exempt & set(args):
-                if key == "uv":
-                    return f"`{head} {t}` without --offline may install"
-                return f"`{head} {t}` fetches and runs a package"
-            return _hi_search(args[i + 1 :], depth)
-        if t in _HI_STOP:
-            return _hi_search(args[i + 1 :], depth)
-    if key == "yarn" and all(t.startswith("-") for t in args) and not {"--version", "-v", "--help", "-h"} & set(args):
-        return f"`{head}` installs packages"
-    return None
+    pair = _hi_pair(head, key, args)
+    if pair or key in _HI_PAIRS_ONLY:
+        return pair  # az, gh: the pairs only, nothing else of the command is read
+    return _hi_walk(head, key, args, depth)
 
 
-def host_install_what(command: str, depth: int = 0) -> Optional[str]:
-    """Name what a command line would install or fetch-and-run on the host, or None. Never raises."""
-    if depth > _HI_MAX_DEPTH:
-        return None
-    cmds = simple_commands(command)
+def _hi_commands(cmds: list[tuple[str, list[str]]], depth: int) -> Optional[str]:
+    """Judge each simple command, then the downloaded-script forms that span commands (decision 9)."""
+    downloader = ""  # a curl or wget earlier in the current pipeline
     for k, (sep, toks) in enumerate(cmds):
         what = _hi_judge(toks, depth)
         if what:
             return what
         real = _hi_real(toks)
         name = os.path.basename(real[0]) if real else ""
-        if sep in ("|", "|&") and k and name in _HI_INTERPRETERS:  # curl … | sh
-            left = _hi_real(cmds[k - 1][1])
-            if left and os.path.basename(left[0]) in _HI_DOWNLOADERS:
-                return f"`{os.path.basename(left[0])} | {name}` runs a downloaded script"
-        reader = name in _HI_SHELLS or name in ("source", ".")
-        if reader and toks[-1] == "<" and k + 1 < len(cmds) and cmds[k + 1][0].startswith("("):  # bash <(curl …)
-            nxt = _hi_real(cmds[k + 1][1])
-            if nxt and os.path.basename(nxt[0]) in _HI_DOWNLOADERS:
-                return f"`{name} <({os.path.basename(nxt[0])} …)` runs a downloaded script"
+        if sep.count("|") != 1:
+            downloader = ""  # any other separator (`||` included) starts a new pipeline
+        elif downloader and _hi_reads_stdin(name, real[1:]):  # curl … | tee f | sh
+            return f"`{downloader} | {name}` runs a downloaded script"
+        if name in _HI_DOWNLOADERS:
+            downloader = name
+        nxt = cmds[k + 1] if k + 1 < len(cmds) else ("", [])
+        fed = _hi_real(nxt[1])
+        fed_name = os.path.basename(fed[0]) if fed else ""
+        if fed_name not in _HI_DOWNLOADERS:
+            continue
+        before = real[1:-1][:-1] if real[-2:-1] == ["<"] else real[1:-1]  # bash < <(curl …): stdin is the file
+        if real[-1:] == ["<"] and nxt[0].startswith("(") and (
+                name in ("source", ".") or _hi_reads_stdin(name, before)):  # bash <(curl …)
+            return f"`{name} <({fed_name} …)` runs a downloaded script"
+        if name == "eval" and ((real[1:] == ["$"] and nxt[0].startswith("("))
+                               or (len(real) == 1 and nxt[0].startswith("`"))):  # eval $(curl …), eval `curl …`
+            return f"`eval $({fed_name} …)` runs a downloaded script"
     return None
+
+
+def host_install_what(command: str, depth: int = 0) -> Optional[str]:
+    """Name what a command line would install or fetch-and-run on the host, or None. A nest deeper than the
+    limit is named, not read."""
+    if depth > _HI_MAX_DEPTH:
+        return _HI_NOT_READ if command.strip() else None
+    text, subs = _hi_prepare(command)
+    for sub in subs:  # $( … ) inside double quotes: the host shell runs it
+        what = host_install_what(sub, depth + 1)
+        if what:
+            return what
+    cmds = _hi_lex(text)
+    if cmds is None:  # an unbalanced quote: split without separators, and fail closed for a downloaded script
+        for rx, msg in _HI_COARSE:
+            m = rx.search(text)
+            if m:
+                return msg.format(*m.groups())
+        cmds = [("", seg) for seg in segments(text)]
+    return _hi_commands(cmds, depth)
+
+
+def host_install_silent(cfg: dict) -> bool:
+    """The knob silences host-install: `off`, or `auto` where the guard runs in a disposable environment. Any other
+    value is False (fail closed). run_hook still runs the rule and logs the silenced ask as `skipped`."""
+    mode = cfg.get("host_install", DEFAULTS["host_install"])
+    return mode == "off" or (mode == "auto" and disposable_environment())
 
 
 def rule_host_install(ev: Event, cfg: dict) -> Optional[Decision]:
     if ev.event != "PreToolUse" or ev.kind != "shell" or not ev.command:
         return None
-    mode = cfg.get("host_install", DEFAULTS["host_install"])
-    if mode == "off" or (mode == "auto" and disposable_environment()):
-        return None  # any other value asks: fail closed
-    what = host_install_what(strip_heredocs(ev.command))
+    try:
+        what = host_install_what(strip_heredocs(ev.command))
+    except Exception as exc:  # main() turns a crash into exit 1, which both harnesses let run silently: ask instead
+        what = f"the command could not be read ({type(exc).__name__})"
     return ("ask", HOST_INSTALL_MSG.format(what=what)) if what else None
 
 
@@ -1393,6 +1623,8 @@ def run_hook(target: str, wrapper: Optional[str]) -> int:
     names = PRE_RULES if target == "pre" else [target]
     # rules_off silences a rule's asks in an own repo; its denies stand, and any other boundary keeps everything
     off = set(cfg["rules_off"]) if cfg.get("boundary") == "own" else set()
+    if host_install_silent(cfg):  # its knob silences host-install under every boundary; logged as skipped below
+        off.add("host-install")
     decisions: list[Decision] = []
     fired: dict[str, str] = {}
     skipped: dict[str, str] = {}
@@ -1421,7 +1653,8 @@ def run_hook(target: str, wrapper: Optional[str]) -> int:
 def log_decision(decision: Decision, fired: dict[str, str], ev: Event, cfg: dict) -> None:
     """One line per ask/deny in <telemetry>/decisions.jsonl, so `ledger.py cost` can show prompt fatigue per rule.
     `rules` maps each rule that spoke to its own verdict; `verdict` is the combined one. A rule that would have
-    spoken but is in `rules_off` is logged as `skipped` (its own line), so a month-long override stays visible.
+    spoken but is in `rules_off`, or host-install silenced by its knob (`off`, or `auto` in a disposable
+    environment), is logged as `skipped` (its own line), so a month-long override stays visible.
     No command text or paths: the rule names and the tool are enough to tune thresholds."""
     entry = {
         "ts": _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),

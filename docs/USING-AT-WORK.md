@@ -61,6 +61,7 @@ Then adapt, in the work repo:
 | 3.1 | `commit-msg` hook | `git config core.hooksPath .githooks` per clone; if the org forbids AI attribution, disable the trailer knob and record it |
 | 3.2 | egress screen | in front of anything that leaves the machine; the client marker list comes from the work repo |
 | 3.3 | review instructions | commit `.github/instructions/review.instructions.md`; Copilot code review on the PR follows it; the human approval stays the control |
+| 2026-11 | guard rule `host-install` with the knob `host_install` | comes with `tools/guard`; test on the laptop: `npm install` → ask, `docker run … npm ci` → no ask; the asks are silenced, and logged as `skipped`, where the hook runs in a container, a dev container, a Codespace or on a build agent (`TF_BUILD`, `GITHUB_ACTIONS`), so pipelines and the cloud agent can still install; check once that the cloud agent's session has `GITHUB_ACTIONS` set, because without it every install there is denied; in a dev container on the laptop VS Code forwards the SSH agent and the Git credential helper, so set `host_install` to `ask` in `.claude/guard.json` if installs there should still prompt |
 | 3.9 | work pilot | the formal step: run the checks above, write the pilot's DECISIONS lines, demo to the team |
 
 ## 3. Org-level pieces (propose, do not do alone)

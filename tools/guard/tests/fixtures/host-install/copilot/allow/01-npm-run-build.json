@@ -3,9 +3,6 @@
     "case": {
       "command": "npm run build"
     },
-    "config": {
-      "host_install": "ask"
-    },
     "format": "vscode",
     "harness": "copilot",
     "rule": "host-install",

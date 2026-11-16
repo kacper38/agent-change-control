@@ -184,9 +184,12 @@ variables (`KZ_TRACKER_REPO`, `KZ_TRACKER_AREA`, `KZ_TRACKER_ADO_MODE`,
 ### Guards
 
 - `tools/guard/guard.py` takes its knobs from the committed `.claude/guard.json`
-  (`protected_branches`, `boundary`, `scratch_md_mode`, `host_install`
-  (`auto`, the default, is silent only in a container or CI; `ask`; `off`;
-  `KZ_HOST_INSTALL` overrides), telemetry dir). A
+  (`protected_branches`, `boundary`, `scratch_md_mode`, `host_install`,
+  telemetry dir). `host_install` is `auto` (the default), `ask` or `off`, and
+  `KZ_HOST_INSTALL` overrides it: `auto` silences the install asks where the
+  hook itself runs in a container, a dev container, a Codespace, a Claude Code
+  cloud session or on a GitHub Actions or Azure Pipelines agent, and every ask
+  it silences is logged as `skipped`. A
   gitignored `.claude/guard.local.json` or `KZ_RULES_OFF=rule,rule` silences
   the named rules' asks, logged as `skipped`; denies stand, and only a
   committed `guard.json` at the repo root that says `boundary: own` enables

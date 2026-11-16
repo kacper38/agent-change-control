@@ -3,5 +3,6 @@
   "telemetry_dir": "~/.claude/telemetry",
   "protected_branches": ["main"],
   "boundary": "own",
-  "scratch_md_mode": "ask"
+  "scratch_md_mode": "ask",
+  "host_install": "auto"
 }

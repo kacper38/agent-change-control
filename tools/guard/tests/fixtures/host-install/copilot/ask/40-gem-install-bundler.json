@@ -3,9 +3,6 @@
     "case": {
       "command": "gem install bundler"
     },
-    "config": {
-      "host_install": "ask"
-    },
     "format": "vscode",
     "harness": "copilot",
     "rule": "host-install",

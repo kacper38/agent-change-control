@@ -3,9 +3,6 @@
     "case": {
       "command": ".venv/bin/pip install pytest"
     },
-    "config": {
-      "host_install": "ask"
-    },
     "format": "vscode",
     "harness": "copilot",
     "rule": "host-install",

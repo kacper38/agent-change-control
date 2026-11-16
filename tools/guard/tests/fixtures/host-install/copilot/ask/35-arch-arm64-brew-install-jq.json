@@ -3,9 +3,6 @@
     "case": {
       "command": "arch -arm64 brew install jq"
     },
-    "config": {
-      "host_install": "ask"
-    },
     "format": "vscode",
     "harness": "copilot",
     "rule": "host-install",

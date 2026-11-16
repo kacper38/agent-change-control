@@ -3,9 +3,6 @@
     "case": {
       "command": "uv run --offline --no-project --with pytest --python 3.13 python -m pytest -q"
     },
-    "config": {
-      "host_install": "ask"
-    },
     "format": "vscode",
     "harness": "copilot",
     "rule": "host-install",

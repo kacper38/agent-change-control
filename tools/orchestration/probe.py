@@ -498,7 +498,7 @@ def judge_ledger_cost(ev: Evidence) -> tuple:
         return "inconclusive", "the run reports no cost, so there is nothing to compare", observed
     diff = abs(own - run) / run
     observed["diff_bp"] = round(diff * 10_000)
-    if diff <= LEDGER_TOLERANCE:
+    if abs(own - run) <= LEDGER_TOLERANCE * run * (1 + 1e-9):  # the epsilon lets exactly 2 % hold despite float error
         return "holds", "", observed
     return ("fails", f"the ledger's own count ${own:.6f} differs from the run's total_cost_usd ${run:.6f} by "
             f"{diff:.1%}, more than {LEDGER_TOLERANCE:.0%}", observed)

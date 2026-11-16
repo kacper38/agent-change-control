@@ -535,7 +535,12 @@ def probe_session(config_dir, session="s1", main_lines=None, workflow_lines=None
     (0.0031, "fails", "by 3.2%"),
     (0.0025, "fails", "more than 2%"),
     (0.0, "inconclusive", "no cost"),
-], ids=["equal", "1-percent", "2-percent", "3-percent", "20-percent", "zero"])
+    (0.003 / 1.02, "holds", ""),  # the own count exactly 2 % above the run's figure
+    (0.003 / 0.98, "holds", ""),  # the own count exactly 2 % below the run's figure
+    (0.003 / 1.021, "fails", "by 2.1%"),
+    (0.003 / 0.979, "fails", "by 2.1%"),
+], ids=["equal", "1-percent", "2-percent", "3-percent", "20-percent", "zero", "exactly-2-percent-above",
+        "exactly-2-percent-below", "2.1-percent-above", "2.1-percent-below"])
 def test_ledger_judge_compares_the_own_count_with_the_run(probe, tmp_path, run_usd, status, fragment):
     main = probe_session(tmp_path)
     got, reason, observed = probe.judge_ledger_cost(probe.Evidence(**dict(ev(total_cost_usd=run_usd),

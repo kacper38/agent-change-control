@@ -565,6 +565,36 @@ def test_ledger_judge_without_the_ledger_is_inconclusive(probe, tmp_path, monkey
     assert status == "inconclusive" and reason.startswith("the ledger could not be loaded")
 
 
+@pytest.mark.parametrize("run_usd", [float("nan"), float("inf"), float("-inf")], ids=["nan", "inf", "minus-inf"])
+def test_ledger_judge_with_a_non_finite_cost_is_inconclusive(probe, tmp_path, run_usd):
+    status, reason, observed = probe.judge_ledger_cost(probe.Evidence(**dict(ev(total_cost_usd=run_usd),
+                                                                             transcript=str(probe_session(tmp_path)))))
+    assert status == "inconclusive" and "no total_cost_usd" in reason
+    assert observed["run_micro_usd"] is None
+
+
+def test_ledger_judge_with_a_broken_ledger_file_is_inconclusive(probe, tmp_path, monkeypatch):
+    broken_ledger = tmp_path / "ledger.py"
+    broken_ledger.write_text("def broken(:\n")
+    monkeypatch.setattr(probe, "LEDGER", str(broken_ledger))
+    status, reason, _ = probe.judge_ledger_cost(probe.Evidence(**dict(ev(total_cost_usd=0.003),
+                                                                     transcript=str(probe_session(tmp_path)))))
+    assert status == "inconclusive" and reason.startswith("the ledger could not be loaded")
+    assert "SyntaxError" in reason
+
+
+def test_ledger_judge_whose_count_raises_is_inconclusive(probe, tmp_path, monkeypatch):
+    def read_session(*_args):
+        raise KeyError("cache_write_1h")
+
+    stub = type("StubLedger", (), {"load_prices": staticmethod(lambda: {}),
+                                   "read_session": staticmethod(read_session)})
+    monkeypatch.setattr(probe, "load_ledger", lambda: stub)
+    status, reason, _ = probe.judge_ledger_cost(probe.Evidence(**dict(ev(total_cost_usd=0.003),
+                                                                     transcript=str(probe_session(tmp_path)))))
+    assert status == "inconclusive" and "KeyError" in reason
+
+
 @pytest.mark.parametrize("session_id", [None, 7, "../x", "a b", "*"])
 def test_find_transcript_takes_only_a_plain_session_id(probe, tmp_path, monkeypatch, session_id):
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path))

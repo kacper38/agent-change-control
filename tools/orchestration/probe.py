@@ -18,6 +18,7 @@ import datetime as _dt
 import glob
 import importlib.util
 import json
+import math
 import os
 import re
 import shlex
@@ -465,21 +466,24 @@ def judge_ledger_cost(ev: Evidence) -> tuple:
     if reason:
         return "inconclusive", reason, observed
     run = result_field(ev, "total_cost_usd")
-    if isinstance(run, bool) or not isinstance(run, (int, float)):
-        return "inconclusive", "the result has no total_cost_usd", observed
+    if isinstance(run, bool) or not isinstance(run, (int, float)) or not math.isfinite(run):
+        return "inconclusive", "the result has no total_cost_usd, or it is not a finite number", observed
     observed["run_micro_usd"] = round(run * 1_000_000)
     if not ev.transcript or not os.path.isfile(ev.transcript):
         return "inconclusive", "the run's transcript was not found", observed
+    stage = "be loaded"
     try:
         ledger = load_ledger()
-    except (OSError, ImportError) as exc:
-        return "inconclusive", f"the ledger could not be loaded: {exc}", observed
-    prices = ledger.load_prices()
-    session = os.path.basename(ev.transcript)[:-len(".jsonl")]
-    read = ledger.read_session(ev.transcript, session, prices)
-    own = ledger.own_cost(ledger.session_models(read, prices))
-    observed.update(agent_transcripts=read["transcripts"], workflow_transcripts=read["workflow_transcripts"],
-                    parse_errors=read["errors"])
+        stage = "count the run"
+        prices = ledger.load_prices()
+        session = os.path.basename(ev.transcript)[:-len(".jsonl")]
+        read = ledger.read_session(ev.transcript, session, prices)
+        own = ledger.own_cost(ledger.session_models(read, prices))
+        observed.update(agent_transcripts=read["transcripts"], workflow_transcripts=read["workflow_transcripts"],
+                        parse_errors=read["errors"])
+    except Exception as exc:  # broad on purpose: this is the boundary to another module, whose import or count
+        # may fail in any way, and a canary that cannot judge is inconclusive; a raise here would lose the record
+        return "inconclusive", f"the ledger could not {stage}: {type(exc).__name__}: {exc}", observed
     if read["errors"]:
         return "inconclusive", "the run's transcripts have parse errors, so the count may be short", observed
     if read["workflow_transcripts"] == 0:

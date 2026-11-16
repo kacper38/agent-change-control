@@ -15,7 +15,9 @@
                                  other than standard, inference_geo other than global) are counted under
                                  "unpriced", a key the line has only when there is one.
   ledger.py cost [--days 7]      per project and model: tokens, own-count cost, spawns, subagent share (> 70 %
-                                 flagged), sessions per cost basis and marked sessions, sessions with unpriced
+                                 flagged), the total of the session costs (cost_usd of the lines with a
+                                 cost_basis; the rest counted as left out), sessions per cost basis and
+                                 marked sessions, sessions with unpriced
                                  requests (their own count is too low), and hook prompts per rule from
                                  <telemetry>/decisions.jsonl.
 Telemetry dir: KZ_TELEMETRY_DIR or ~/.claude/telemetry.
@@ -460,9 +462,18 @@ def cost_report(tdir: str, days: int, out, now: Optional[_dt.datetime] = None) -
     marks: dict = {}
     unpriced_sessions = 0
     unpriced: dict = {}
+    total = {"cost": 0.0, "counted": 0, "unrecorded": 0, "no cost": 0}
     for row in rows:
         basis = row.get("cost_basis") or "unrecorded"  # rows written before 2026-11-15 carry no basis
         bases[basis] = bases.get(basis, 0) + 1
+        cost_usd = row.get("cost_usd")
+        if not row.get("cost_basis"):
+            total["unrecorded"] += 1
+        elif isinstance(cost_usd, bool) or not isinstance(cost_usd, (int, float)) or not math.isfinite(cost_usd):
+            total["no cost"] += 1
+        else:
+            total["cost"] += cost_usd
+            total["counted"] += 1
         check = row.get("cost_check")
         if check and check != "ok":
             marks[check] = marks.get(check, 0) + 1
@@ -490,6 +501,10 @@ def cost_report(tdir: str, days: int, out, now: Optional[_dt.datetime] = None) -
         cost = f"${a['cost']:.2f}" if a["priced"] else "n/a"
         out.write(f"{project[:32]:<32} {model[:26]:<26} {a['sessions']:>4} "
                   f"{a['tokens']:>12,} {a['output']:>9,} {cost:>9}\n")
+    left_out = total["unrecorded"] + total["no cost"]
+    out.write(f"total session cost: ${total['cost']:,.2f} over {total['counted']} sessions"
+              + (f"; left out: {left_out} (unrecorded {total['unrecorded']}, no cost {total['no cost']})"
+                 if left_out else "") + "\n")
     out.write("sessions by cost basis: " + ", ".join(f"{b} {n}" for b, n in sorted(bases.items()))
               + f"; marked {sum(marks.values())}"
               + (" (" + ", ".join(f"{c} {n}" for c, n in sorted(marks.items())) + ")" if marks else "") + "\n")

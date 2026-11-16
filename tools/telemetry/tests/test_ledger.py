@@ -469,3 +469,37 @@ def test_cost_report_names_sessions_with_unpriced_requests(ledger, tdir):
     out = io.StringIO()
     ledger.cost_report(str(tdir), 7, out, now=dt.datetime(2026, 10, 29, tzinfo=dt.timezone.utc))
     assert "does not price" not in out.getvalue()
+
+
+def report_lines(ledger, tdir, rows):
+    tdir.mkdir(exist_ok=True)
+    (tdir / "sessions-2026-10.jsonl").write_text("\n".join(json.dumps(r) for r in rows) + "\n")
+    out = io.StringIO()
+    ledger.cost_report(str(tdir), 7, out, now=dt.datetime(2026, 10, 29, tzinfo=dt.timezone.utc))
+    return out.getvalue().splitlines()
+
+
+def test_cost_report_totals_the_session_costs_and_names_what_it_left_out(ledger, tdir):
+    base = {"ts": "2026-10-28T10:00:00Z", "project": "/p", "spawns": [], "subagents": {},
+            "models": {"claude-opus-4-5": {"input": 1, "output": 1, "cache_read": 0, "cache_write": 0, "turns": 1,
+                                           "cost_usd": 0.1}}}
+    rows = [dict(base, session="a", cost_basis="claude-code", cost_usd=1000.005),
+            dict(base, session="b", cost_basis="own", cost_usd=234.555),
+            dict(base, session="c", cost_basis="own", cost_usd=None),
+            dict(base, session="d", cost_basis="own", cost_usd="12"),
+            dict(base, session="e", cost_basis="own", cost_usd=True),
+            dict(base, session="f", cost_usd=None)]  # written before 2026-11-15: no basis
+    lines = report_lines(ledger, tdir, rows)
+    table_end = next(i for i, ln in enumerate(lines) if ln.startswith("sessions by cost basis"))
+    assert lines[table_end - 1] == ("total session cost: $1,234.56 over 2 sessions; left out: 4 "
+                                    "(unrecorded 1, no cost 3)"), "right after the table"
+    assert lines[table_end - 2].startswith("p "), "the table rows stay where they were"
+
+
+def test_cost_report_total_without_anything_left_out(ledger, tdir):
+    base = {"ts": "2026-10-28T10:00:00Z", "project": "/p", "spawns": [], "subagents": {}, "models": {}}
+    lines = report_lines(ledger, tdir, [dict(base, session="a", cost_basis="own", cost_usd=2.5),
+                                        dict(base, session="b", cost_basis="own", cost_usd=0)])
+    assert "total session cost: $2.50 over 2 sessions" in lines
+    lines = report_lines(ledger, tdir, [dict(base, session="a", cost_basis="own", cost_usd=float("nan"))])
+    assert "total session cost: $0.00 over 0 sessions; left out: 1 (unrecorded 0, no cost 1)" in lines

@@ -290,7 +290,10 @@ Anti-over-engineering (the lazy family):
 - `tools/telemetry/ledger.py hook` (SessionEnd) writes one line per session with
   per-model tokens and cost; `ledger.py cost --days 7` prints the week per
   project and model, the total of the session costs with the number of lines
-  it left out, and hook prompts per guard rule.
+  it left out, and hook prompts per guard rule. `ledger.py recount` (a dry
+  run; `--write` applies it) is a one-off for lines written before the cost
+  basis existed: it rebuilds each from its transcript and keeps the old
+  figures in the line, or labels it when the transcript is gone.
 - Nothing from here is installed at work: no memory, telemetry, tokens or
   transcripts cross the boundary, and memory push stays off until
   `KZ_MEMORY_PUSH` names a project.

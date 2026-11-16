@@ -20,6 +20,15 @@
                                  marked sessions, sessions with unpriced
                                  requests (their own count is too low), and hook prompts per rule from
                                  <telemetry>/decisions.jsonl.
+  ledger.py recount [--write]    one-off for lines written before 2026-11-15 (no cost_basis, no recount key):
+                                 rebuild each from its transcript under <CLAUDE_CONFIG_DIR or ~/.claude>/
+                                 projects/*/<session>.jsonl, keeping its ts, or label it transcript: missing;
+                                 the old figures go under "recount". A transcript with no model or fewer
+                                 tokens than the old line is not a recount: the line stays and is labelled
+                                 transcript: incomplete. Byte-identical lines of one session in a month file
+                                 are one candidate and become one line (recount.lines says how many);
+                                 differing lines of one session are an error. A dry run unless --write; a
+                                 line that fails stays as it was and the run exits 1.
 Telemetry dir: KZ_TELEMETRY_DIR or ~/.claude/telemetry.
 """
 import argparse
@@ -28,6 +37,7 @@ import glob
 import json
 import math
 import os
+import re
 import sys
 from typing import Optional
 
@@ -521,6 +531,129 @@ def cost_report(tdir: str, days: int, out, now: Optional[_dt.datetime] = None) -
     return 0
 
 
+TS_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
+
+
+def find_transcript(session) -> Optional[str]:
+    """<CLAUDE_CONFIG_DIR or ~/.claude>/projects/*/<session id>.jsonl; None unless the id is plain and exactly one
+    project folder holds it (the idea of probe.find_transcript: two hits are not evidence of which one counts)."""
+    if not isinstance(session, str) or not re.fullmatch(r"[A-Za-z0-9_-]+", session):
+        return None
+    root = os.path.expanduser(os.environ.get("CLAUDE_CONFIG_DIR") or "~/.claude")
+    hits = glob.glob(os.path.join(root, "projects", "*", session + ".jsonl"))
+    return hits[0] if len(hits) == 1 else None
+
+
+def _usd(value) -> str:
+    finite = isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+    return f"${value:,.2f}" if finite else "null"
+
+
+RECOUNT_WAS = ("cost_usd", "models", "parse_errors", "spawns", "subagents")  # what a rebuild replaces
+
+
+def old_tokens(models) -> int:
+    """The token total of an old line's models, so a rebuild never shrinks it; 0 when missing or malformed."""
+    try:
+        return total_tokens(models) if isinstance(models, dict) else 0
+    except (AttributeError, KeyError, TypeError):  # a hand-edited or cut line: there is no figure to protect
+        return 0
+
+
+def recount_row(row: dict, path: str, same: list, tdir: str, prices: dict, at: str) -> tuple:
+    """(new line, output note, "recounted", "missing" or "incomplete") for one line without a cost_basis; `same`
+    holds the raw bytes of every line with its session id in this file. Raises on anything that would make the
+    replacement through append_entry unsafe, so the caller leaves the line as it is."""
+    when = _dt.datetime.strptime(row.get("ts"), TS_FORMAT).replace(tzinfo=_dt.timezone.utc)
+    name = os.path.basename(path)
+    if name != f"sessions-{row['ts'][:7]}.jsonl":  # append_entry writes to the month file of the ts
+        raise ValueError(f"the ts {row['ts']} does not belong in {name}")
+    session = row.get("session")
+    if not isinstance(session, str) or not session:  # append_entry finds the line to replace by its session id
+        raise ValueError("no session id, so the line cannot be replaced")
+    if len(set(same)) > 1:  # append_entry would drop them all and write one: only safe when they are one line
+        raise ValueError(f"{len(same)} differing lines with this session id in {name}")
+    stamp: dict = {"at": at}
+    suffix = ""
+    if len(same) > 1:  # identical copies (a hook that ran twice): append_entry replaces them all by the new line
+        stamp["lines"] = len(same)
+        suffix = f" ({len(same)} identical lines become one)"
+    transcript = find_transcript(session)
+    if transcript is None:
+        return dict(row, recount=dict(stamp, transcript="missing")), "no transcript" + suffix, "missing"
+    with open(transcript, "rb"):  # build_entry would count an unreadable transcript as a parse error and go on
+        pass
+    new = build_entry({"session_id": session, "transcript_path": transcript, "cwd": row.get("project"),
+                       "reason": row.get("reason")}, tdir, prices, now=when)
+    was_tokens, now_tokens = old_tokens(row.get("models")), total_tokens(new["models"])
+    if not new["models"] or now_tokens < was_tokens:  # the transcript lost data: keep the old counters
+        note = f"incomplete transcript (old {was_tokens} tokens, transcript {now_tokens})" + suffix
+        return dict(row, recount=dict(stamp, transcript="incomplete")), note, "incomplete"
+    new["recount"] = dict(stamp, was={k: row[k] for k in RECOUNT_WAS if k in row})
+    note = f"{_usd(row.get('cost_usd'))} -> {_usd(new['cost_usd'])} ({new['cost_basis']}, {new['cost_check']})"
+    return new, note + suffix, "recounted"
+
+
+def recount(tdir: str, write: bool, out, now: Optional[_dt.datetime] = None) -> int:
+    """Rebuild the lines written before 2026-11-15 (no cost_basis) from their transcripts, or label them
+    `transcript: missing`; a dry run unless `write`. Exit 1 if any line failed (it stays as it was), else 0."""
+    at = (now or _dt.datetime.now(_dt.timezone.utc)).strftime(TS_FORMAT)
+    prices = load_prices()
+    counts = {"recounted": 0, "missing": 0, "incomplete": 0, "errors": 0, "unparsable": 0}
+    total = 0.0
+    for path in sorted(glob.glob(os.path.join(tdir, "sessions-*.jsonl"))):
+        with open(path, "rb") as fh:
+            raw_lines = fh.read().splitlines()
+        rows = []
+        for raw in raw_lines:
+            if not raw.strip():
+                continue
+            try:
+                row = json.loads(raw.decode("utf-8", errors="replace"))
+            except ValueError:
+                row = None
+            if not isinstance(row, dict):  # kept as it is: append_entry never touches a line it cannot read
+                counts["unparsable"] += 1
+                continue
+            rows.append((raw, row))
+        lines_of_id: dict = {}  # session id -> raw bytes of each of its lines in this file
+        for raw, row in rows:
+            if isinstance(row.get("session"), str):  # any other id is refused by recount_row
+                lines_of_id.setdefault(row["session"], []).append(raw)
+        done: set = set()
+        for raw, row in rows:
+            if row.get("cost_basis") or "recount" in row:
+                continue
+            session = row.get("session")
+            same = lines_of_id.get(session, [raw]) if isinstance(session, str) else [raw]
+            if isinstance(session, str) and len(set(same)) == 1:  # identical copies are one candidate: skip the rest
+                if session in done:
+                    continue
+                done.add(session)
+            label = (f"{row.get('ts')} {str(session or '')[:8]} "
+                     f"{os.path.basename(str(row.get('project') or '')) or '?'}")
+            try:
+                new, note, kind = recount_row(row, path, same, tdir, prices, at)
+                if write:
+                    append_entry(new, tdir)
+            except Exception as exc:  # noqa: BLE001 - one bad line must not stop the others; it is named and left as is
+                counts["errors"] += 1
+                out.write(f"{label} error: {type(exc).__name__}: {str(exc)[:200]}\n")
+                continue
+            counts[kind] += 1
+            if kind == "recounted" and _usd(new["cost_usd"]) != "null":
+                total += new["cost_usd"]
+            out.write(f"{label} {note}\n")
+    if not write:
+        tail = "dry run, nothing written (--write applies it)"
+    else:
+        tail = "written" if counts["recounted"] + counts["missing"] + counts["incomplete"] else "nothing to write"
+    out.write(f"recount: {counts['recounted']} recounted ({_usd(total)}), {counts['missing']} without a transcript, "
+              f"{counts['incomplete']} with an incomplete transcript, "
+              f"{counts['errors']} errors, {counts['unparsable']} unparsable lines kept; {tail}\n")
+    return 1 if counts["errors"] else 0
+
+
 def main(argv: list, stdin=None, out=None, err=None) -> int:
     stdin, out, err = stdin or sys.stdin, out or sys.stdout, err or sys.stderr
     ap = argparse.ArgumentParser(prog="ledger", add_help=False)
@@ -528,6 +661,8 @@ def main(argv: list, stdin=None, out=None, err=None) -> int:
     sub.add_parser("hook")
     s = sub.add_parser("cost")
     s.add_argument("--days", type=int, default=7)
+    r = sub.add_parser("recount")
+    r.add_argument("--write", action="store_true")
     if not argv or argv[0] in ("help", "-h", "--help"):
         out.write(__doc__.strip() + "\n")
         return 0
@@ -539,6 +674,8 @@ def main(argv: list, stdin=None, out=None, err=None) -> int:
         return cmd_hook(stdin, telemetry_dir(), err)
     if ns.verb == "cost":
         return cost_report(telemetry_dir(), ns.days, out)
+    if ns.verb == "recount":
+        return recount(telemetry_dir(), ns.write, out)
     out.write(__doc__.strip() + "\n")
     return 1
 

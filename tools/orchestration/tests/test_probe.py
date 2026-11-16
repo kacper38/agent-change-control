@@ -135,6 +135,8 @@ CASES = [
     ("ledger-3-transcript-gone", "ledger-own-cost",
      {"run": dict(ev(total_cost_usd=0.01), transcript="/nonexistent/s1.jsonl")}, "inconclusive",
      "transcript was not found"),
+    ("ledger-3-transcript-ambiguous", "ledger-own-cost", {"run": ev(total_cost_usd=0.01)}, "inconclusive",
+     "more than one file carries its session id"),
 ]
 
 
@@ -600,6 +602,15 @@ def test_find_transcript_takes_only_a_plain_session_id(probe, tmp_path, monkeypa
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path))
     probe_session(tmp_path, session="x")
     assert probe.find_transcript(session_id) is None
+
+
+def test_find_transcript_refuses_a_session_id_in_two_project_folders(probe, tmp_path, monkeypatch):
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path))
+    probe_session(tmp_path, session="dup")
+    other = tmp_path / "projects" / "-another-project"
+    other.mkdir(parents=True)
+    (other / "dup.jsonl").write_text(haiku_line("o1") + "\n")
+    assert probe.find_transcript("dup") is None
 
 
 def test_only_the_ledger_canary_runs_its_source_run_and_finds_the_transcript(probe, tmp_path, monkeypatch):

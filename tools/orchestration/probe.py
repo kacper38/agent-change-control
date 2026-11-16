@@ -256,12 +256,13 @@ def execute(scratch: str, run: Run, model: str, claude_bin: str) -> Evidence:
 
 
 def find_transcript(session_id) -> Optional[str]:
-    """<config dir>/projects/<project>/<session id>.jsonl, where Claude Code wrote the run's main transcript."""
+    """<config dir>/projects/<project>/<session id>.jsonl, where Claude Code wrote the run's main transcript; None
+    unless exactly one project folder holds it (two hits, e.g. a resumed or copied session, are not evidence)."""
     if not isinstance(session_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]+", session_id):
         return None
     root = os.path.expanduser(os.environ.get("CLAUDE_CONFIG_DIR") or "~/.claude")
-    hits = sorted(glob.glob(os.path.join(root, "projects", "*", session_id + ".jsonl")))
-    return hits[0] if hits else None
+    hits = glob.glob(os.path.join(root, "projects", "*", session_id + ".jsonl"))
+    return hits[0] if len(hits) == 1 else None
 
 
 def read_rows(path: str) -> list:
@@ -470,7 +471,8 @@ def judge_ledger_cost(ev: Evidence) -> tuple:
         return "inconclusive", "the result has no total_cost_usd, or it is not a finite number", observed
     observed["run_micro_usd"] = round(run * 1_000_000)
     if not ev.transcript or not os.path.isfile(ev.transcript):
-        return "inconclusive", "the run's transcript was not found", observed
+        return "inconclusive", "the run's transcript was not found, or more than one file carries its session id", \
+            observed
     stage = "be loaded"
     try:
         ledger = load_ledger()

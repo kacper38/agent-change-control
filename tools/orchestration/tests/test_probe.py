@@ -611,6 +611,20 @@ def test_ledger_judge_whose_count_raises_is_inconclusive(probe, tmp_path, monkey
     assert status == "inconclusive" and "KeyError" in reason
 
 
+@pytest.mark.parametrize("own", [float("nan"), float("inf")], ids=["nan", "inf"])
+def test_ledger_judge_with_a_non_finite_own_count_is_inconclusive(probe, tmp_path, monkeypatch, own):
+    read = {"errors": 0, "transcripts": 1, "workflow_transcripts": 1}
+    stub = type("StubLedger", (), {"load_prices": staticmethod(lambda: {}),
+                                   "read_session": staticmethod(lambda *_args: read),
+                                   "session_models": staticmethod(lambda *_args: {}),
+                                   "own_cost": staticmethod(lambda _models: own)})
+    monkeypatch.setattr(probe, "load_ledger", lambda: stub)
+    status, reason, observed = probe.judge_ledger_cost(probe.Evidence(**dict(ev(total_cost_usd=0.003),
+                                                                             transcript=str(probe_session(tmp_path)))))
+    assert status == "inconclusive" and "not a finite number" in reason
+    assert observed["own_micro_usd"] is None and observed["diff_bp"] is None
+
+
 @pytest.mark.parametrize("session_id", [None, 7, "../x", "a b", "*"])
 def test_find_transcript_takes_only_a_plain_session_id(probe, tmp_path, monkeypatch, session_id):
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path))

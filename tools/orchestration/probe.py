@@ -493,6 +493,9 @@ def judge_ledger_cost(ev: Evidence) -> tuple:
             observed
     if own is None:
         return "inconclusive", "a model of the run has no price in prices.json", observed
+    if not math.isfinite(own):  # a NaN or Infinity rate in prices.json: json.load accepts both
+        return "inconclusive", "the ledger's own count is not a finite number, so there is nothing to compare", \
+            observed
     observed["own_micro_usd"] = round(own * 1_000_000)
     if run <= 0:
         return "inconclusive", "the run reports no cost, so there is nothing to compare", observed

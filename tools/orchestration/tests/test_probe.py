@@ -135,8 +135,9 @@ CASES = [
     ("ledger-3-transcript-gone", "ledger-own-cost",
      {"run": dict(ev(total_cost_usd=0.01), transcript="/nonexistent/s1.jsonl")}, "inconclusive",
      "transcript was not found"),
-    ("ledger-3-transcript-ambiguous", "ledger-own-cost", {"run": ev(total_cost_usd=0.01)}, "inconclusive",
-     "more than one file carries its session id"),
+    # the lookup itself is tested in test_find_transcript_refuses_a_session_id_in_two_project_folders
+    ("ledger-3-no-transcript-reason-names-both-causes", "ledger-own-cost", {"run": ev(total_cost_usd=0.01)},
+     "inconclusive", "more than one file carries its session id"),
 ]
 
 

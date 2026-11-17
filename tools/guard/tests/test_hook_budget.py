@@ -20,6 +20,9 @@ import pytest
 
 ROOT = pathlib.Path(__file__).resolve().parents[3]
 HAS_FORK = hasattr(os, "fork")
+# the budget needs a child process: without fork (Windows) the rules run in the hook process as before 0.7.0 (a named
+# limit), and a test of the budget has nothing to test there. A skip shows that in the test record; a pass would not.
+needs_fork = pytest.mark.skipif(not HAS_FORK, reason="no os.fork on this platform: the hook has no time budget here")
 
 # rows of the approved slow-shapes list (name, prefix, unit, suffix, size): prefix + unit * (size // len(unit)) + suffix
 SLOW_SHAPES = [
@@ -81,10 +84,9 @@ def _reason(out):
     return got["permissionDecision"], got["permissionDecisionReason"]
 
 
+@needs_fork
 def test_one_long_search_turns_into_a_budget_ask(guard, monkeypatch, capsys, tmp_path):
     """The regression: on Python 3.9 the SIGALRM timer of 346af3e answered only when the search returned."""
-    if not HAS_FORK:  # Windows: no fork, the rules run in the hook process without a budget (a named limit)
-        return
     monkeypatch.setattr(guard, "HOOK_BUDGET_S", 0.5)
     monkeypatch.setitem(guard.RULES, "deploy-ask", _one_long_search)
     t0 = time.monotonic()
@@ -95,9 +97,8 @@ def test_one_long_search_turns_into_a_budget_ask(guard, monkeypatch, capsys, tmp
     assert verdict == "ask" and "could not be judged within" in reason and "deploy-ask" in reason
 
 
+@needs_fork
 def test_a_slow_rule_turns_into_a_budget_ask(guard, monkeypatch, capsys, tmp_path):
-    if not HAS_FORK:  # Windows: no fork, the rules run in the hook process without a budget (a named limit)
-        return
     monkeypatch.setattr(guard, "HOOK_BUDGET_S", 0.2)
     monkeypatch.setitem(guard.RULES, "deploy-ask", _sleeper)
     t0 = time.monotonic()
@@ -112,9 +113,8 @@ def test_a_slow_rule_turns_into_a_budget_ask(guard, monkeypatch, capsys, tmp_pat
     assert [line["rules"] for line in lines] == [{"budget": "ask"}]
 
 
+@needs_fork
 def test_a_rule_that_never_returns_asks_at_the_budget(guard, monkeypatch, capsys, tmp_path):
-    if not HAS_FORK:  # Windows: no fork, the rules run in the hook process without a budget (a named limit)
-        return
     monkeypatch.setattr(guard, "HOOK_BUDGET_S", 0.3)
     monkeypatch.setitem(guard.RULES, "git-guard", _endless)
     t0 = time.monotonic()
@@ -126,9 +126,8 @@ def test_a_rule_that_never_returns_asks_at_the_budget(guard, monkeypatch, capsys
     assert "delete-guard" not in reason
 
 
+@needs_fork
 def test_a_deny_before_the_budget_stays_a_deny(guard, monkeypatch, capsys, tmp_path):
-    if not HAS_FORK:  # Windows: no fork, the rules run in the hook process without a budget (a named limit)
-        return
     monkeypatch.setattr(guard, "HOOK_BUDGET_S", 0.2)
     monkeypatch.setitem(guard.RULES, "delete-guard", lambda ev, cfg: ("deny", "fake deny"))
     monkeypatch.setitem(guard.RULES, "git-guard", _sleeper)
@@ -153,9 +152,8 @@ def test_a_rule_that_raises_ends_the_hook_with_exit_1(guard, monkeypatch, capsys
     assert _decisions(tmp_path) == []
 
 
+@needs_fork
 def test_a_rule_that_kills_its_process_asks(guard, monkeypatch, capsys, tmp_path):
-    if not HAS_FORK:  # Windows: no fork; a rule that kills the hook process cannot be answered for
-        return
     monkeypatch.setitem(guard.RULES, "delete-guard", lambda ev, cfg: ("ask", "fake ask"))
     monkeypatch.setitem(guard.RULES, "deploy-ask", _suicide)
     t0 = time.monotonic()
@@ -175,9 +173,8 @@ def test_a_long_reason_arrives_whole(guard, monkeypatch, capsys, tmp_path):
     assert code == 0 and _reason(out) == ("ask", long)
 
 
+@needs_fork
 def test_rules_off_with_a_slow_later_rule_still_logs_the_skip(guard, monkeypatch, capsys, tmp_path):
-    if not HAS_FORK:  # Windows: no fork, the rules run in the hook process without a budget (a named limit)
-        return
     (tmp_path / ".git").mkdir()
     (tmp_path / ".claude").mkdir()
     (tmp_path / ".claude" / "guard.json").write_text(json.dumps({"boundary": "own", "rules_off": ["delete-guard"]}))
@@ -213,9 +210,8 @@ def test_without_a_fork_the_rules_run_in_process(guard, monkeypatch, capsys, tmp
     assert marker.read_text() == str(os.getpid())
 
 
+@needs_fork
 def test_a_fast_hook_leaves_no_child_and_prints_only_the_response(guard, monkeypatch, capsys, tmp_path):
-    if not HAS_FORK:  # Windows: no fork, so no child either
-        return
     pids = []
     real_fork = os.fork
 
@@ -261,10 +257,9 @@ def _hook(guard_path, command, tmp_path):
     return r, time.monotonic() - t0
 
 
+@needs_fork
 @pytest.mark.parametrize("name,prefix,unit,suffix,size", SLOW_SHAPES, ids=[s[0] for s in SLOW_SHAPES])
 def test_a_slow_shape_asks_before_the_harness_cuts_the_hook(guard_path, tmp_path, name, prefix, unit, suffix, size):
-    if not HAS_FORK:  # Windows: no fork, the shape still runs past the harness timeout (a named limit)
-        return
     r, seconds = _hook(guard_path, _shape(prefix, unit, suffix, size), tmp_path)
     assert seconds < 4.5, f"{name}: {seconds:.2f} s"
     assert r.returncode == 0, r.stderr

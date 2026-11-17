@@ -135,6 +135,14 @@ REVIEW_CASES = [
     ("command", "ask", "printf 'begin\\n  truncate users\\n' | mycli"),
     ("command", "ask", "echo -e \"begin;\\n\\ttruncate users;\" | pgcli"),
     ("script", "ask", "sql = \"begin\\ntruncate users\""),
+    # asked for by the review of those two commits: the written \r is skipped like \t, and a word that ends in
+    # `truncate` asks only where 0.6.1 asked, with white space behind the word somewhere in the command
+    ("command", "ask", "printf 'begin;\\r\\n\\ttruncate users;\\r\\n' | pgcli"),
+    ("command", "ask", "column --table-truncate 2 data.txt"),
+    ("command", "ask", "logs --no-truncate | tail -5"),
+    ("command", "silent", "logs --no-truncate"),
+    ("command", "silent", "echo truncate"),
+    ("command", "silent", "git grep -n truncate"),
 ]
 ALL_CASES = CASES + REVIEW_CASES
 

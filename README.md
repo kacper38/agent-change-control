@@ -218,7 +218,9 @@ variables (`KZ_TRACKER_REPO`, `KZ_TRACKER_AREA`, `KZ_TRACKER_ADO_MODE`,
   tool call. `guard.py hook post`, wired under PostToolUse and
   PostToolUseFailure in `.claude/settings.json`, adds a `ran` line when a call
   that was asked about went ahead. No hook fires when a prompt is declined, so
-  an ask without a `ran` line was declined, is still open, or was interrupted.
+  an ask without a `ran` line was declined, is still open, or was interrupted;
+  or its call ran after the ask had left the last 128 kB of the log, which is
+  all the post hook reads. A missing `ran` line alone is no proof of a decline.
   A repository that had its settings file before 0.7.0 keeps it on install:
   add the two `hook post` entries by hand
   ([`docs/USING-AT-WORK.md`](docs/USING-AT-WORK.md) §2). Copilot sends no call

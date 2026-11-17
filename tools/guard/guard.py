@@ -13,6 +13,7 @@ Usage:
   guard.py hook pre [--wrapper claude|github]   run every PreToolUse rule
   guard.py hook <rule> [--wrapper ...]          run one rule (tests, debugging, SubagentStart -> fan-out)
   guard.py hook capture [--wrapper ...]         record redacted raw input, never blocks
+  guard.py hook post [--wrapper claude]         after a call (PostToolUse[Failure]): log that an asked call ran
   guard.py rules | help | version
 """
 
@@ -21,14 +22,17 @@ import functools
 import json
 import os
 import re
+import select
 import shlex
+import signal
 import socket
 import subprocess
 import sys
+import time
 from collections.abc import Mapping
 from typing import Callable, Optional
 
-VERSION = "0.6.1"
+VERSION = "0.7.0"
 
 # ----------------------------------------------------------------------------
 # Harness normalization
@@ -295,15 +299,34 @@ TOOL_RE = (
     r"|docker\s+(rm|rmi|system\s+prune|volume\s+(rm|prune)|image\s+prune|container\s+prune"
     r"|builder\s+prune|compose\s+(down|rm))|kubectl\s+delete|helm\s+(uninstall|delete)|dropdb"
     r"|prisma\s+migrate\s+reset|--force-reset|(DROP|drop)\s+(TABLE|DATABASE|SCHEMA|table|database|schema)"
-    r"|(TRUNCATE|truncate)\s|(DELETE|delete)\s+(FROM|from)\s|rclone\s+(delete|purge|sync)|rsync\s.*--delete"
+    # SQL TRUNCATE: the upper-case keyword wherever it stands, as before 0.7.0; the lower-case word only where a
+    # statement can start (line start, also written \n in a string, ; quote paren backtick) or in front of
+    # `table`, so that prose such as "may truncate the description" does not ask (0.7.0). For a command line
+    # _delete_judge adds the word outside quotes and the lines that name a SQL client; the coreutils `truncate`
+    # command asks through SHELL_RE
+    r"|TRUNCATE\s|(?:^|[;\"'(`]|\\n)(?:\s|\\[ntr])*truncate\s|truncate\s+table\s"
+    r"|(DELETE|delete)\s+(FROM|from)\s|rclone\s+(delete|purge|sync)|rsync\s.*--delete"
 )
 CODE_RE = (
     r"os\.(remove|unlink|rmdir|removedirs)|shutil\.rmtree|\.unlink\(|\.rmdir\(|send2trash"
-    r"|fs\.(rm|rmSync|unlink|unlinkSync|rmdir|rmdirSync)|fsPromises\.(rm|unlink|rmdir)|rimraf|del\s*\("
+    r"|fs\.(rm|rmSync|unlink|unlinkSync|rmdir|rmdirSync)|fsPromises\.(rm|unlink|rmdir)|rimraf"
+    # `del (x)` and `cache_del(k)`, not the tail of a word: "model (" and "load_model(x)" stay silent (0.7.0)
+    r"|(?<![A-Za-z0-9])del\s*\("
     r"|remove_dir_all|remove_file|std::fs::remove|File\.(delete|unlink)|FileUtils\.(rm|remove)"
     r"|Remove-Item|Directory\.Delete|(^|\s)del\s+/[sq]|(^|\s)rd\s+/s"
 )
 DELETE_RE = re.compile("|".join([SHELL_RE, FIND_RE, GIT_RE, TOOL_RE, CODE_RE]), re.MULTILINE)
+# on a command line that names one of these clients, the lower-case word is SQL wherever it stands
+# (`echo truncate audit | psql`); the list holds the clients whose TRUNCATE needs no TABLE keyword. The name counts
+# as a word of its own, whatever stands next to it (`"… | psql"`, `psql;`, `\psql`, `psql.exe`), not inside
+# another word (`mysqldump`, `pymysql`, `.psqlrc`)
+_SQL_TRUNCATE_RE = re.compile(r"truncate\s")
+_SQL_CLIENT_RE = re.compile(
+    r"(?<![A-Za-z0-9_])(?:psql|mysql|mariadb|cqlsh|snowsql|duckdb|cockroach|hbase|clickhouse)(?![A-Za-z0-9_])"
+)
+# the lower-case word as a word of its own in a simple command (`truncate`, `gtruncate`, `-truncate`): a quoted
+# string with the word in it is one token with white space, and does not match
+_OPEN_WORD_RE = re.compile(r"^\S*truncate$")
 SCRIPT_RE = re.compile(
     r"(python3?|node|bun|deno|bash|sh|zsh|tsx|ts-node|ruby|perl|php)\s+(-\S+\s+)*(\S+\.(py|js|mjs|cjs|ts|sh|zsh|bash|rb|pl|php))"
 )
@@ -311,13 +334,16 @@ DELETE_MSG = (
     "Deletion guard (owner rule: never auto-approve deletions, scripts included): {what}. "
     "Ask the owner explicitly."
 )
-# the token pass (0.6.1): the same tools and verbs as the expressions above, read from the command's tokens
+# the token pass (0.6.1): the same tools and verbs as the expressions above, read from the command's tokens;
+# 0.7.0 adds verbs the expressions never had (docker pairs, podman, nerdctl, pipx, uv, helm repo|plugin)
 _RM_CLASS = frozenset("rm rmdir unlink trash shred truncate".split())
 _GIT_DELETE_RE = re.compile(GIT_RE)
 _DOCKER_DELETE_PAIRS = {
-    "system": frozenset({"prune"}), "volume": frozenset({"rm", "prune"}), "image": frozenset({"prune"}),
-    "container": frozenset({"prune"}), "builder": frozenset({"prune"}), "compose": frozenset({"down", "rm"}),
+    "system": frozenset({"prune"}), "volume": frozenset({"rm", "prune"}), "image": frozenset({"prune", "rm"}),
+    "container": frozenset({"prune", "rm"}), "builder": frozenset({"prune"}), "compose": frozenset({"down", "rm"}),
+    "network": frozenset({"rm", "prune"}), "buildx": frozenset({"rm", "prune"}), "context": frozenset({"rm"}),
 }
+_DOCKER_DELETE = (frozenset({"rm", "rmi"}), _DOCKER_DELETE_PAIRS)
 # tool basename -> (verbs, pairs as first word -> second words); pip3.12-style names count as pip
 _DELETE_TOOLS: dict = {
     "mise": (frozenset({"uninstall", "prune"}), {}),
@@ -327,13 +353,41 @@ _DELETE_TOOLS: dict = {
     "brew": (frozenset({"uninstall", "remove", "rm"}), {}),
     "pip": (frozenset({"uninstall"}), {}),
     "cargo": (frozenset({"uninstall"}), {}),
-    "docker": (frozenset({"rm", "rmi"}), _DOCKER_DELETE_PAIRS),
+    "docker": _DOCKER_DELETE,
+    "podman": _DOCKER_DELETE,
+    "nerdctl": _DOCKER_DELETE,
     "docker-compose": (frozenset({"down", "rm"}), {}),
     "kubectl": (frozenset({"delete"}), {}),
-    "helm": (frozenset({"uninstall", "delete"}), {}),
+    "helm": (frozenset({"uninstall", "delete"}),
+             {"repo": frozenset({"remove", "rm"}), "plugin": frozenset({"uninstall", "remove", "rm"})}),
     "rclone": (frozenset({"delete", "purge", "sync"}), {}),
     "prisma": (frozenset(), {"migrate": frozenset({"reset"})}),
+    "pipx": (frozenset({"uninstall", "uninstall-all"}), {}),
+    "uv": (frozenset(), {"pip": frozenset({"uninstall"}), "tool": frozenset({"uninstall"})}),
 }
+_SWITCH_DISCARDS = frozenset({"--discard-changes", "-f", "--force"})
+
+
+def _checkout_new_branch(t: str) -> bool:
+    """A checkout option that names a new branch: -b, -B (also glued, `-bfeat`), --orphan, -t, --track."""
+    return (t.startswith(("-b", "-B")) or t in ("-t", "--track", "--orphan")
+            or t.startswith(("--track=", "--orphan=")))
+
+
+def _git_discards(sub: str, rest: list[str]) -> bool:
+    """`git checkout` and `git switch` forms that overwrite uncommitted work: checkout with `-- <path>`, `-f`,
+    the operand `.`, or two plain operands (`git checkout <ref> <path…>`) unless an option names a new branch;
+    switch with --discard-changes or -f."""
+    if sub == "switch":
+        return bool(_SWITCH_DISCARDS & set(rest))
+    if sub != "checkout":
+        return False
+    if "-f" in rest or "--force" in rest or "." in rest:
+        return True
+    if "--" in rest and rest.index("--") + 1 < len(rest):  # `git checkout main --` names no path
+        return True
+    plain = [t for t in rest if not t.startswith("-")]
+    return len(plain) >= 2 and not any(_checkout_new_branch(t) for t in rest)
 
 
 def delete_what(command: str) -> Optional[str]:
@@ -353,7 +407,7 @@ def delete_what(command: str) -> Optional[str]:
                 raise CommandNotRead(_TOO_MANY_TOOLS)
             if name == "git":
                 sub, rest = _git_subcommand(list(toks[i:]))
-                if sub and _GIT_DELETE_RE.match(" ".join(["git", sub, *rest])):
+                if sub and (_GIT_DELETE_RE.match(" ".join(["git", sub, *rest])) or _git_discards(sub, rest)):
                     return f"`git {sub}` discards work"
                 continue
             hit = subcommand_hit(list(toks[i + 1 :]), *entry)
@@ -362,9 +416,23 @@ def delete_what(command: str) -> Optional[str]:
     return None
 
 
+def _truncate_in_the_open(command: str) -> bool:
+    """The lower-case word `truncate` in a here-document, or outside quotes: a word of its own in a simple
+    command of the line or of a script it nests. There it asks wherever it stands, as before 0.7.0
+    (`gtruncate -s 0 f`, `hdfs dfs -truncate 0 /f`, `echo truncate users | pgcli`): prose stands in quotes,
+    and no list names every tool that takes the text. The reader of the token pass decides what a word is, so
+    an escaped quote, a comment and a `$( … )` inside double quotes are read as the shell reads them."""
+    if any(_SQL_TRUNCATE_RE.search(m.group(3)) for m in _HEREDOC_RE.finditer(command)):
+        return True
+    return any(_OPEN_WORD_RE.match(t) for toks in nested_commands(strip_heredocs(command)) for t in toks)
+
+
 def _delete_judge(ev: Event) -> Optional[str]:
     """What the command would delete: the text pass, the scan of a script it names, then the token pass."""
-    if DELETE_RE.search(ev.command):
+    if DELETE_RE.search(ev.command) or (
+        _SQL_TRUNCATE_RE.search(ev.command)
+        and (_SQL_CLIENT_RE.search(ev.command) or _truncate_in_the_open(ev.command))
+    ):
         return "command contains a delete/discard pattern"
     for m in SCRIPT_RE.finditer(ev.command):
         script = m.group(3)
@@ -408,17 +476,26 @@ def tokens(text: str) -> list[str]:
 
 
 def segments(command: str) -> list[list[str]]:
-    """Token lists for each simple command of a compound line, wrappers and assignments stripped."""
+    """Token lists for each simple command of a compound line, wrappers and assignments stripped.
+
+    Fresh lists from a memo: five rules read the same line in one hook run, and none can change the cache."""
+    return [list(seg) for seg in _segments_cached(command)]
+
+
+@functools.lru_cache(maxsize=8)
+def _segments_cached(command: str) -> tuple[tuple[str, ...], ...]:
+    """segments' memo; one index walks past wrappers and options, so a long line costs one pass."""
     out = []
     for part in _SEP_RE.split(command):
         toks = tokens(part)
-        while toks and (_ASSIGN_RE.match(toks[0]) or toks[0] in _WRAPPERS):
-            toks = toks[1:]
-            while toks and toks[0].startswith("-") and toks[0] != "--":
-                toks = toks[1:]
-        if toks:
-            out.append(toks)
-    return out
+        i = 0
+        while i < len(toks) and (_ASSIGN_RE.match(toks[i]) or toks[i] in _WRAPPERS):
+            i += 1
+            while i < len(toks) and toks[i].startswith("-") and toks[i] != "--":
+                i += 1
+        if i < len(toks):
+            out.append(tuple(toks[i:]))
+    return tuple(out)
 
 
 def _expand(tok: str, cwd: str) -> str:
@@ -514,38 +591,111 @@ _WRITERS_LAST = {"cp", "mv", "install", "scp", "rsync", "ln"}
 _WRITERS_ALL = {"tee", "truncate", "touch", "chmod", "chown"}
 
 
+def _secret_seg(seg: list[str], cwd: str, writes: list[str], reads: list[str]) -> None:
+    """Add the secret files one simple command writes and reads to the two lists."""
+    head = os.path.basename(seg[0])
+    paths = [t for t in seg[1:] if not t.startswith("-") and t != "--"]
+    targets: list[str] = []
+    if head in _WRITERS_LAST and paths:
+        targets = paths[-1:]
+    elif head in _WRITERS_ALL:
+        targets = paths
+    elif head == "sed" and any(t.startswith("-i") for t in seg):
+        targets = paths
+    elif head == "git" and len(seg) > 1 and seg[1] in ("add", "stage"):
+        targets = paths[1:] if paths and paths[0] in ("add", "stage") else paths
+    for t in targets:
+        if secret_class(_expand(t, cwd)) == "secret":
+            writes.append(t)
+    for t in paths:
+        if t not in targets and secret_class(_expand(t, cwd)) == "secret":
+            reads.append(t)
+
+
+_SEARCH_TOOLS = frozenset("grep egrep fgrep zgrep rg ag ack".split())
+_PATTERN_OPTIONS = ("-e", "--regexp", "-f", "--file")  # these name the pattern; no operand is one then
+
+
+def _search_pattern(seg: list[str], k: int) -> tuple[Optional[int], list[str]]:
+    """For the search tool at seg[k] (grep and kin, `git grep`): the index of its pattern operand, or None when
+    -e, --regexp, -f or --file names the pattern (also glued, with `=`, or among other short options as in
+    `-rnf`), and the glued values of -f/--file (files it reads). The pattern is the first word that is not an
+    option; an option's value taken for it (`-A 3`) leaves the real pattern read as a path, which errs towards
+    asking."""
+    name = os.path.basename(seg[k])
+    start = k + 1
+    if name == "git":
+        sub, rest = _git_subcommand(seg[k:])
+        if sub != "grep":
+            return None, []
+        start = len(seg) - len(rest)
+    elif name not in _SEARCH_TOOLS:
+        return None, []
+    named = False
+    files = []
+    for t in seg[start:]:
+        if t in _PATTERN_OPTIONS:
+            named = True
+        elif t.startswith(("--regexp=", "--file=")):
+            named = True
+            if t.startswith("--file="):
+                files.append(t[len("--file=") :])
+        elif t.startswith("-") and not t.startswith("--"):
+            # short options in one word (`-rnf`): the first e or f names the pattern, the text after an f is its file
+            at = min((n for n in (t.find("e"), t.find("f")) if n > 0), default=0)
+            if at:
+                named = True
+                if t[at] == "f" and t[at + 1 :]:
+                    files.append(t[at + 1 :])
+    if named:
+        return None, files
+    for m in range(start, len(seg)):
+        t = seg[m]
+        if t == "--":  # grep: the pattern follows; git grep: paths follow, the pattern came before
+            return (m + 1 if name != "git" and m + 1 < len(seg) else None), files
+        if not t.startswith("-"):
+            return m, files
+    return None, files
+
+
+def _secret_reader_seg(seg: list[str], cwd: str, writes: list[str], reads: list[str]) -> None:
+    """The reader pass of secret-shell: _secret_seg without the pattern operand of a search tool at any
+    command word of the words, plus the files a glued -f/--file reads."""
+    drop = set()
+    if any(os.path.basename(t) in _SEARCH_TOOLS or os.path.basename(t) == "git" for t in seg):
+        for k in command_word_indexes(seg):
+            pattern, files = _search_pattern(seg, k)
+            if pattern is not None:
+                drop.add(pattern)
+            reads.extend(f for f in files if secret_class(_expand(f, cwd)) == "secret")
+    _secret_seg([t for m, t in enumerate(seg) if m not in drop], cwd, writes, reads)
+
+
+def _secret_verdict(writes: list[str], reads: list[str]) -> Optional[Decision]:
+    if writes:
+        return "deny", SECRET_WRITE_MSG.format(path=", ".join(dict.fromkeys(writes)))
+    if reads:
+        return "ask", SECRET_READ_MSG.format(path=", ".join(dict.fromkeys(reads)))
+    return None
+
+
 def rule_secret_shell(ev: Event, cfg: dict) -> Optional[Decision]:
     if ev.event != "PreToolUse" or ev.kind != "shell" or not ev.command:
         return None
-    writes, reads = [], []
+    writes: list[str] = []
+    reads: list[str] = []
     command = strip_heredocs(ev.command)
     for target in _REDIRECT_RE.findall(command):
         target = target.strip("\"'`,;)")
         if secret_class(_expand(target, ev.cwd)) == "secret":
             writes.append(target)
     for seg in segments(command):
-        head = os.path.basename(seg[0])
-        paths = [t for t in seg[1:] if not t.startswith("-") and t != "--"]
-        targets: list[str] = []
-        if head in _WRITERS_LAST and paths:
-            targets = paths[-1:]
-        elif head in _WRITERS_ALL:
-            targets = paths
-        elif head == "sed" and any(t.startswith("-i") for t in seg):
-            targets = paths
-        elif head == "git" and len(seg) > 1 and seg[1] in ("add", "stage"):
-            targets = paths[1:] if paths and paths[0] in ("add", "stage") else paths
-        for t in targets:
-            if secret_class(_expand(t, ev.cwd)) == "secret":
-                writes.append(t)
-        for t in paths:
-            if t not in targets and secret_class(_expand(t, ev.cwd)) == "secret":
-                reads.append(t)
+        _secret_seg(seg, ev.cwd, writes, reads)
     if writes:
-        return "deny", SECRET_WRITE_MSG.format(path=", ".join(dict.fromkeys(writes)))
-    if reads:
-        return "ask", SECRET_READ_MSG.format(path=", ".join(dict.fromkeys(reads)))
-    return None
+        return _secret_verdict(writes, reads)
+    # the reader pass adds to the same lists, so one message names every file of both passes
+    failed = reader_pass(command, lambda seg: _secret_reader_seg(seg, ev.cwd, writes, reads), "secret-shell")
+    return combine([d for d in (_secret_verdict(writes, reads), failed) if d])
 
 
 # ----------------------------------------------------------------------------
@@ -588,51 +738,89 @@ def current_branch(cwd: str) -> Optional[str]:
     return None
 
 
+GIT_ELSEWHERE_MSG = (
+    "git-guard: `git push` {what} runs in a container or on another host; the branch checked out there is not "
+    "known. Name the destination branch (`git push origin <branch>`) or confirm."
+)
+
+
+def _git_guard_seg(seg: list[str], cwd: str, protected: set, elsewhere: bool = False) -> Optional[Decision]:
+    """The git-guard verdict on one simple command: a hook bypass, a forced push, a push to a protected branch.
+    `elsewhere`: the push runs in a container or on another host, so the host's branch says nothing; a push
+    without a refspec, or to HEAD, asks."""
+    sub, rest = _git_subcommand(seg)
+    if sub is None:
+        return None
+    if "--no-verify" in rest or (sub == "commit" and "-n" in rest):
+        return "deny", GIT_MSG.format(what=f"`git {sub} --no-verify` skips the commit gate")
+    if sub != "push":
+        return None
+    if any(t in _FORCE_FLAGS or t.startswith("--force-with-lease=") for t in rest):
+        return "deny", GIT_MSG.format(what="force push")
+    if "--all" in rest or "--mirror" in rest:
+        return "deny", GIT_MSG.format(what="`git push --all/--mirror` can rewrite a protected branch")
+    positional: list[str] = []
+    skip = False
+    for t in rest:
+        if skip:
+            skip = False
+            continue
+        if t in _PUSH_OPT_WITH_VALUE:
+            skip = True
+            continue
+        if t.startswith("-"):
+            continue
+        positional.append(t)
+    refspecs = positional[1:]
+    if not refspecs:
+        if elsewhere:
+            return "ask", GIT_ELSEWHERE_MSG.format(what="without a refspec")
+        branch = current_branch(cwd)
+        if branch in protected:
+            return "deny", GIT_MSG.format(what=f"push to protected branch '{branch}'")
+        return None
+    to_head = False
+    for r in refspecs:
+        if r.startswith("+"):
+            return "deny", GIT_MSG.format(what=f"force refspec {r}")
+        dest = r.split(":", 1)[1] if ":" in r else r
+        if dest.startswith("refs/heads/"):
+            dest = dest[len("refs/heads/") :]
+        if dest == "HEAD" and elsewhere:
+            to_head = True
+            continue
+        if dest == "HEAD":
+            dest = current_branch(cwd) or dest
+        if dest in protected:
+            return "deny", GIT_MSG.format(what=f"push to protected branch '{dest}'")
+    return ("ask", GIT_ELSEWHERE_MSG.format(what="to HEAD")) if to_head else None
+
+
 def rule_git_guard(ev: Event, cfg: dict) -> Optional[Decision]:
     if ev.event != "PreToolUse" or ev.kind != "shell" or not ev.command:
         return None
     protected = protected_branches(cfg)
-    for seg in segments(strip_heredocs(ev.command)):
-        sub, rest = _git_subcommand(seg)
-        if sub is None:
-            continue
-        if "--no-verify" in rest or (sub == "commit" and "-n" in rest):
-            return "deny", GIT_MSG.format(what=f"`git {sub} --no-verify` skips the commit gate")
-        if sub != "push":
-            continue
-        if any(t in _FORCE_FLAGS or t.startswith("--force-with-lease=") for t in rest):
-            return "deny", GIT_MSG.format(what="force push")
-        if "--all" in rest or "--mirror" in rest:
-            return "deny", GIT_MSG.format(what="`git push --all/--mirror` can rewrite a protected branch")
-        positional: list[str] = []
-        skip = False
-        for t in rest:
-            if skip:
-                skip = False
-                continue
-            if t in _PUSH_OPT_WITH_VALUE:
-                skip = True
-                continue
-            if t.startswith("-"):
-                continue
-            positional.append(t)
-        refspecs = positional[1:]
-        if not refspecs:
-            branch = current_branch(ev.cwd)
-            if branch in protected:
-                return "deny", GIT_MSG.format(what=f"push to protected branch '{branch}'")
-            continue
-        for r in refspecs:
-            if r.startswith("+"):
-                return "deny", GIT_MSG.format(what=f"force refspec {r}")
-            dest = r.split(":", 1)[1] if ":" in r else r
-            if dest.startswith("refs/heads/"):
-                dest = dest[len("refs/heads/") :]
-            if dest == "HEAD":
-                dest = current_branch(ev.cwd) or dest
-            if dest in protected:
-                return "deny", GIT_MSG.format(what=f"push to protected branch '{dest}'")
-    return None
+    command = strip_heredocs(ev.command)
+    for seg in segments(command):
+        d = _git_guard_seg(seg, ev.cwd, protected)
+        if d:
+            return d
+    here = _local_simple_commands(command)
+
+    def judge(seg: list[str]) -> Optional[Decision]:
+        # a simple command the local reading does not find runs elsewhere: the host's branch says nothing there
+        return _git_guard_seg(seg, ev.cwd, protected, elsewhere=here is not None and tuple(seg) not in here)
+
+    return reader_pass(command, judge, "git-guard")
+
+
+def _local_simple_commands(command: str) -> Optional[set]:
+    """The words from every command word of every simple command this machine runs (the local reading), or None
+    when that reading stops; then every push is judged by the host's branch, as before."""
+    try:
+        return {toks[i:] for toks in nested_commands(command, local=True) for i in command_word_indexes(toks)}
+    except Exception:  # CommandNotRead or a crash: the full reading in reader_pass asks or judges on its own
+        return None
 
 
 # ----------------------------------------------------------------------------
@@ -672,7 +860,41 @@ _DEPLOY_TABLE: dict = {
     "cdk": (_verbs("deploy destroy"), {}, _PULUMI_CDK),
     "ansible-playbook": (_verbs(""), {}, "ansible-playbook changes hosts"),  # judged by _ansible_runs
     "flux": (_verbs("uninstall suspend"), {}, "flux changes reconciliation"),
+    # 0.7.0: the tools below are new; their rows are all in _DEPLOY_ADDED
+    "podman": (_verbs("push"), {"compose": _verbs("push")}, "pushes an image"),
+    "nerdctl": (_verbs("push"), {"compose": _verbs("push")}, "pushes an image"),
+    "pct": (_verbs(""), {}, _PROXMOX),
+    "argocd": (_verbs(""), {}, "argocd changes an application"),
+    "skopeo": (_verbs(""), {}, "copies or deletes registry images"),
+    "crane": (_verbs(""), {}, "copies or deletes registry images"),
 }
+_PROXMOX_GUEST = ("start stop shutdown reboot reset suspend resume destroy migrate clone rollback create set"
+                  " delsnapshot")
+_DOCKER_ADDED = (_verbs("build"), {"image": _verbs("push"), "manifest": _verbs("push"),
+                                   "buildx": _verbs("build bake")})
+_TERRAFORM_ADDED = (_verbs("force-unlock"), {"workspace": _verbs("delete"), "state": _verbs("replace-provider")})
+# 0.7.0 rows (verbs, pairs), read after the 0.6.1 rows above found nothing. Unlike those, they keep a help probe
+# silent wherever its word stands (`kubectl label --help`); the 0.6.1 rows ask for it as they did.
+_DEPLOY_ADDED: dict = {
+    "docker": _DOCKER_ADDED,
+    "podman": _DOCKER_ADDED,
+    "nerdctl": _DOCKER_ADDED,
+    "terraform": _TERRAFORM_ADDED,
+    "tofu": _TERRAFORM_ADDED,
+    "kubectl": (_verbs("label annotate set run taint expose autoscale debug"), {}),  # debug starts a container
+    "gh": (_verbs(""), {"run": _verbs("rerun cancel delete"), "workflow": _verbs("enable disable")}),
+    "argocd": (_verbs(""), {"app": _verbs("sync delete rollback set create patch")}),
+    "flux": (_verbs("reconcile resume delete create bootstrap"), {}),
+    "qm": (_verbs(_PROXMOX_GUEST), {}),
+    "pct": (_verbs(_PROXMOX_GUEST + " restore"), {}),
+    "skopeo": (_verbs("copy delete sync"), {}),
+    "crane": (_verbs("push copy delete tag"), {}),
+}
+_PUSH_ONLY = frozenset({"build", "buildx build", "buildx bake"})  # these count only with --push
+# aws: an operation under any service that starts so, and these pairs (_aws_hit)
+_AWS_DESTROY = ("delete-", "terminate-", "batch-delete-")
+_AWS_UPDATES = {"ecs": _verbs("update-service"),
+                "lambda": _verbs("update-function-code update-function-configuration update-alias")}
 _DRY_VALUES = frozenset({"client", "server", "true"})  # --dry-run=<these> previews; any other value applies
 # the 0.6.0 text pass, kept as it was (fix brief 1: nothing that asked at 0.6.0 may stop asking)
 _DEPLOY_PATTERNS = [
@@ -753,7 +975,35 @@ def _az_changes(args: list[str]) -> Optional[str]:
         return "az changes resources"
     if words[:3] == ["repos", "pr", "create"]:
         return None  # opens a PR (pr-prep's job), it changes no environment
-    return "az changes resources" if {"delete", "create"} & set(args[1:]) else None
+    if {"delete", "create"} & set(args[1:]):
+        return "az changes resources"
+    if words[:3] == ["repos", "pr", "update"]:
+        return None  # changes a pull request, no environment (tracker-guard still reads it)
+    lead = _az_leading_words(args)
+    if lead[:2] == ["extension", "update"]:
+        return None  # an install on this machine: host-install judges it
+    if {"deploy", "update", "up"} & set(lead[1:]) and not _help_probe(args):  # 0.7.0 words, where the verb stands
+        return "az changes resources"
+    return None
+
+
+def _az_leading_words(args: list[str]) -> list[str]:
+    """The plain words of an az call in front of the first option that follows a plain word (`webapp up` of
+    `az --verbose webapp up --name x`): the group and the verb, not an option's value."""
+    out: list[str] = []
+    for t in args:
+        if t.startswith("-"):
+            if out:
+                break
+            continue  # options at the very start are skipped
+        out.append(t)
+    return out
+
+
+def _help_probe(args: list[str]) -> bool:
+    """A help word in front of the first `--`; behind it, it belongs to the command inside (`-- ls --help`)."""
+    head = args[: args.index("--")] if "--" in args else args
+    return bool(_NC_HELP & set(head))
 
 
 def _ansible_runs(args: list[str], at_command_word: bool) -> bool:
@@ -772,9 +1022,56 @@ def _deploy_call(name: str, args: list[str], at_command_word: bool) -> Optional[
     if name == "ansible-playbook":
         return label if _ansible_runs(args, at_command_word) else None
     hit = subcommand_hit(args, verbs, pairs)
-    if not hit or (hit == "s3 sync" and "--delete" not in args):
+    if not hit:
+        return _deploy_added(name, args, label)
+    if hit == "s3 sync" and "--delete" not in args:
         return None
     return "aws s3 deletes" if name == "aws" and hit.startswith("s3 ") else label
+
+
+def _deploy_added(name: str, args: list[str], label: str) -> Optional[str]:
+    """The label when the 0.7.0 rows find a change; a help probe in front of the first `--` is none."""
+    if name == "aws":
+        hit = _aws_hit(args)
+        label = ("aws deletes or terminates resources" if hit and hit.split()[1].startswith(_AWS_DESTROY)
+                 else "aws updates a service or function")
+    elif name in _DEPLOY_ADDED:
+        hit = subcommand_hit(args, *_DEPLOY_ADDED[name])
+    else:
+        return None
+    if not hit or _help_probe(args):
+        return None
+    if hit in _PUSH_ONLY and not any(t == "--push" or (t.startswith("--push=") and t[7:].lower() != "false")
+                                     for t in args):
+        return None  # a local build; with --push it publishes the image
+    return label
+
+
+def _aws_hit(args: list[str]) -> Optional[str]:
+    """The words `service operation` when an aws call deletes, terminates or updates (_AWS_DESTROY,
+    _AWS_UPDATES), or None.
+    subcommand_hit's rule for options: a plain word after an option without `=` may be its value, so the word
+    taken for the service may be one, and then the next plain word is the service."""
+    service = ""
+    service_may_be_value = may_be_value = False
+    for t in drop_redirections(args):
+        if t == "--" or t in _NC_HELP:
+            return None
+        if t.startswith("-") and len(t) > 1:
+            may_be_value = "=" not in t
+            continue
+        if not service:
+            service, service_may_be_value, may_be_value = t, may_be_value, False
+            continue
+        if t.startswith(_AWS_DESTROY) or t in _AWS_UPDATES.get(service, ()):
+            return f"{service} {t}"
+        if service_may_be_value:  # the service word was an option's value: this word is the service
+            service, service_may_be_value, may_be_value = t, may_be_value, False
+            continue
+        if not may_be_value:
+            return None
+        may_be_value = False
+    return None
 
 
 def deploy_what(command: str) -> Optional[str]:
@@ -924,14 +1221,26 @@ def rule_protected_branch(ev: Event, cfg: dict) -> Optional[Decision]:
             return "deny", PROTECTED_MSG.format(what=f"edit of {rel}", branch=branch, root=root)
         return None
     if ev.kind == "shell" and ev.command:
-        for seg in segments(strip_heredocs(ev.command)):
-            sub, _rest = _git_subcommand(seg)
-            if sub != "commit":
-                continue
-            where = _git_c_dir(seg, ev.cwd)
-            branch = current_branch(where)
-            if branch in protected:
-                return "deny", PROTECTED_MSG.format(what="`git commit`", branch=branch, root=where)
+        command = strip_heredocs(ev.command)
+        for seg in segments(command):
+            d = _commit_on_protected(seg, ev.cwd, protected)
+            if d:
+                return d
+        # the local reading: a commit behind ssh or inside a container happens in another checkout
+        return reader_pass(command, lambda seg: _commit_on_protected(seg, ev.cwd, protected), "protected-branch",
+                           local=True)
+    return None
+
+
+def _commit_on_protected(seg: list[str], cwd: str, protected: set) -> Optional[Decision]:
+    """Deny when one simple command is a `git commit` in a checkout whose branch is protected."""
+    sub, _rest = _git_subcommand(seg)
+    if sub != "commit":
+        return None
+    where = _git_c_dir(seg, cwd)
+    branch = current_branch(where)
+    if branch in protected:
+        return "deny", PROTECTED_MSG.format(what="`git commit`", branch=branch, root=where)
     return None
 
 
@@ -1193,41 +1502,49 @@ def rule_tracker_guard(ev: Event, cfg: dict) -> Optional[Decision]:
         return "deny", TRACKER_MSG.format(what="`bypassRules` skips the work item rules",
                                           use="the tracker verbs; process rules are never bypassed")
     for seg in segments(command):
-        head = os.path.basename(seg[0])
-        if head == "az":
-            d = _az_tracker_guard(seg)
-            if d:
-                return d
-        if head == "gh" and len(seg) >= 3 and seg[1] == "issue" and seg[2] in _GH_ISSUE_REPLACEMENT:
-            return "deny", TRACKER_MSG.format(what=f"`gh issue {seg[2]}` bypasses the tracker",
-                                              use=_GH_ISSUE_REPLACEMENT[seg[2]])
-        if head == "gh" and len(seg) >= 3 and seg[1] == "label" and seg[2] in ("create", "edit", "delete", "clone"):
-            return "deny", TRACKER_MSG.format(what=f"`gh label {seg[2]}` bypasses the tracker",
-                                              use="`tracker owner labels-sync` (a human runs it)")
-        if head == "gh" and len(seg) >= 3 and seg[1] == "api":
-            path, skip = "", False
-            for t in seg[2:]:
-                if skip:
-                    skip = False
-                elif t in _GH_API_VALUE_FLAGS:
-                    skip = True
-                elif not t.startswith("-"):
-                    path = t
-                    break
-            method = (_flag_value(seg, {"-X", "--method"}) or "GET").upper()
-            mutating = method != "GET" or any(t in _GH_API_MUTATING_FLAGS for t in seg)
-            if _ISSUE_API_RE.search(path) and mutating:
-                return "deny", TRACKER_MSG.format(what=f"`gh api {method} {path}` writes issues or labels",
-                                                  use="the tracker verbs")
-        if head in ("curl", "wget", "http", "https", "xh"):
-            url = next((t for t in seg[1:] if ("api.github.com/repos/" in t and _ISSUE_API_RE.search(t))
-                        or _ADO_WIT_RE.search(t)), "")
-            if url and _http_writes(seg, head, url):
-                return "deny", TRACKER_MSG.format(what=f"`{head}` writes to {url}", use="the tracker verbs")
-        words = seg[1:] if head in ("python", "python3") else seg
-        if words and os.path.basename(words[0]) in ("tracker", "tracker.py") and "owner" in words[1:2]:
-            use = "`tracker new|claim|block|review|note`; ask the owner to promote or close"
-            return "deny", TRACKER_MSG.format(what="`tracker owner` is the human's verb", use=use)
+        d = _tracker_seg(seg)
+        if d:
+            return d
+    return reader_pass(command, _tracker_seg, "tracker-guard")
+
+
+def _tracker_seg(seg: list[str]) -> Optional[Decision]:
+    """The tracker-guard verdict on one simple command: a write to issues, labels or work items past the tracker."""
+    head = os.path.basename(seg[0])
+    if head == "az":
+        d = _az_tracker_guard(seg)
+        if d:
+            return d
+    if head == "gh" and len(seg) >= 3 and seg[1] == "issue" and seg[2] in _GH_ISSUE_REPLACEMENT:
+        return "deny", TRACKER_MSG.format(what=f"`gh issue {seg[2]}` bypasses the tracker",
+                                          use=_GH_ISSUE_REPLACEMENT[seg[2]])
+    if head == "gh" and len(seg) >= 3 and seg[1] == "label" and seg[2] in ("create", "edit", "delete", "clone"):
+        return "deny", TRACKER_MSG.format(what=f"`gh label {seg[2]}` bypasses the tracker",
+                                          use="`tracker owner labels-sync` (a human runs it)")
+    if head == "gh" and len(seg) >= 3 and seg[1] == "api":
+        path, skip = "", False
+        for t in seg[2:]:
+            if skip:
+                skip = False
+            elif t in _GH_API_VALUE_FLAGS:
+                skip = True
+            elif not t.startswith("-"):
+                path = t
+                break
+        method = (_flag_value(seg, {"-X", "--method"}) or "GET").upper()
+        mutating = method != "GET" or any(t in _GH_API_MUTATING_FLAGS for t in seg)
+        if _ISSUE_API_RE.search(path) and mutating:
+            return "deny", TRACKER_MSG.format(what=f"`gh api {method} {path}` writes issues or labels",
+                                              use="the tracker verbs")
+    if head in ("curl", "wget", "http", "https", "xh"):
+        url = next((t for t in seg[1:] if ("api.github.com/repos/" in t and _ISSUE_API_RE.search(t))
+                    or _ADO_WIT_RE.search(t)), "")
+        if url and _http_writes(seg, head, url):
+            return "deny", TRACKER_MSG.format(what=f"`{head}` writes to {url}", use="the tracker verbs")
+    words = seg[1:] if head in ("python", "python3") else seg
+    if words and os.path.basename(words[0]) in ("tracker", "tracker.py") and "owner" in words[1:2]:
+        use = "`tracker new|claim|block|review|note`; ask the owner to promote or close"
+        return "deny", TRACKER_MSG.format(what="`tracker owner` is the human's verb", use=use)
     return None
 
 
@@ -1322,7 +1639,8 @@ _HI_DOWNLOADERS = _w("curl wget")
 _HI_SHELL_WORDS = _w("! { then do else elif if while until time")
 _HI_WRAPPERS = _w("sudo env command exec nohup doas builtin timeout gtimeout nice ionice caffeinate arch stdbuf xargs"
                   " find watch")
-# a wrapper that reaches one of these first hands over to a container or another machine: not judged (decision 7)
+# a wrapper that reaches one of these first hands over to a container or another machine: not judged
+# (DECISIONS.md, 2026-11-16, "installs stay off the developer machine")
 _HI_REMOTE = _w("docker docker-compose podman nerdctl kubectl oc ssh devcontainer")
 _HI_PUNCT = ";&|()`\n"
 _HI_WORD_START = " \t\n;&|()`"  # a `#` after one of these (or at the start) begins a comment
@@ -1462,7 +1780,9 @@ def _hi_real(toks: list[str]) -> list[str]:
     for j in range(1, len(toks)):
         name = os.path.basename(toks[j])
         if name in _HI_REMOTE:
-            return []  # the container or remote route, also behind a wrapper (decision 7)
+            # the container or remote route, also behind a wrapper
+            # (DECISIONS.md, 2026-11-16, "installs stay off the developer machine")
+            return []
         if _hi_startable(name) or name in _HI_DOWNLOADERS:
             return toks[j:]
     return []
@@ -1576,7 +1896,8 @@ def _hi_options_only(toks: list[str]) -> bool:
 
 
 def _hi_walk(head: str, key: str, args: list[str], depth: int) -> Optional[str]:
-    """Walk a table tool's tokens left to right (decision 10)."""
+    """Walk a table tool's tokens left to right (DECISIONS.md, 2026-11-16, "installs stay off the developer
+    machine")."""
     install, fetch, exempt = _HI_TABLE[key]
     for i, t in enumerate(args):
         if t == "--":
@@ -1640,7 +1961,8 @@ def _hi_judge(toks: list[str], depth: int) -> Optional[str]:
 
 
 def _hi_commands(cmds: list[tuple[str, list[str]]], depth: int) -> Optional[str]:
-    """Judge each simple command, then the downloaded-script forms that span commands (decision 9)."""
+    """Judge each simple command, then the downloaded-script forms that span commands (DECISIONS.md, 2026-11-16,
+    "installs stay off the developer machine")."""
     downloader = ""  # a curl or wget earlier in the current pipeline
     for k, (sep, toks) in enumerate(cmds):
         what = _hi_judge(toks, depth)
@@ -1699,11 +2021,20 @@ def host_install_silent(cfg: dict) -> bool:
 def rule_host_install(ev: Event, cfg: dict) -> Optional[Decision]:
     if ev.event != "PreToolUse" or ev.kind != "shell" or not ev.command:
         return None
+    command = strip_heredocs(ev.command)
     try:
-        what = host_install_what(strip_heredocs(ev.command))
+        what = host_install_what(command)
     except Exception as exc:  # main() turns a crash into exit 1, which both harnesses let run silently: ask instead
         what = f"the command could not be read ({type(exc).__name__})"
-    return ("ask", HOST_INSTALL_MSG.format(what=what)) if what else None
+    if what:
+        return "ask", HOST_INSTALL_MSG.format(what=what)
+
+    def judge(seg: list[str]) -> Optional[Decision]:
+        found = _hi_judge(seg, 0)
+        return ("ask", HOST_INSTALL_MSG.format(what=found)) if found else None
+
+    # the local reading: what this machine runs; a container or remote tool ends the simple command
+    return reader_pass(command, judge, "host-install", local=True)
 
 
 # ----------------------------------------------------------------------------
@@ -1735,9 +2066,39 @@ _NC_SHELL_WORDS = frozenset("! { then do else elif if while until".split())
 # root, ssh's host); `time` is a wrapper here, so `time -p rm` and `/usr/bin/time rm` are read
 _NC_WRAPPERS: dict = {
     **dict.fromkeys("sudo doas env command exec builtin nohup time nice ionice stdbuf caffeinate arch setsid strace"
-                    " watch xargs parallel coproc".split(), 0),
+                    " watch xargs parallel coproc busybox toybox".split(), 0),
     **dict.fromkeys("timeout gtimeout flock chroot ssh script".split(), 1),  # BSD `script file command …`
 }
+# 0.7.0: a tool plus a subcommand that runs a command -> {subcommand words: plain words before that command}.
+# Runners run it on this machine; container tools run it in a container (the image, container, service or pod
+# comes first). The subcommand is found past the tool's own options; a `--` after it puts the command next.
+_NC_RUN = {("run",): 0}
+_NC_CONTAINER_SUBS = {(*pre, sub): 1 for pre in ((), ("container",), ("compose",)) for sub in ("run", "exec")}
+_NC_SUB_WRAPPERS: dict = {
+    **dict.fromkeys("uv poetry pdm pipenv hatch conda mamba micromamba".split(), _NC_RUN),
+    "mise": {("exec",): 0, ("x",): 0},
+    **dict.fromkeys("asdf bundle npm pnpm yarn".split(), {("exec",): 0}),
+    "direnv": {("exec",): 1},
+    **dict.fromkeys("docker podman nerdctl".split(), _NC_CONTAINER_SUBS),
+    **dict.fromkeys("docker-compose podman-compose".split(), {("run",): 1, ("exec",): 1}),
+    "kubectl": {("run",): 1, ("exec",): 1, ("debug",): 1},  # fix pass: `kubectl debug <pod> … -- <command…>`
+    "oc": {("run",): 1, ("exec",): 1, ("rsh",): 1, ("debug",): 1},  # `oc rsh <pod> <command…>`
+    "devcontainer": {("exec",): 0},
+}
+# fix pass: a tool plus a subcommand whose command follows an option: `nix develop … -c <command…>`,
+# `nix shell <installables…> --command <command…>`; the word after the first such option is a command word
+_NC_OPTION_RUNNERS: dict = {"nix": {"develop": frozenset({"-c", "--command"}), "shell": frozenset({"-c", "--command"})}}
+# fix pass: name -> (subcommand or "", options whose value is a script): `nix-shell --run '…'` wherever the
+# option stands, `npx -c '…'`, `npm exec --call '…'`
+_NC_SCRIPT_OPTIONS: dict = {
+    "nix-shell": ("", frozenset({"--run", "--command"})),
+    "npx": ("", frozenset({"-c", "--call"})),
+    "npm": ("exec", frozenset({"-c", "--call"})),
+}
+_NC_FD = frozenset({"fd", "fdfind"})
+_NC_FD_EXEC = frozenset("-x -X --exec --exec-batch".split())  # fd runs the command after these per match
+# the local reading ends at these command words: the command after them runs in a container or on another host
+_NC_ELSEWHERE = _HI_REMOTE | {"podman-compose"}
 # names whose quoted words are command lines for a shell: `ssh host '…'`, `watch '…'`, `parallel '…' ::: a`,
 # `trap '…' EXIT`, `tmux send-keys '…' Enter`
 _NC_SCRIPT_WORDS = frozenset("ssh watch parallel trap tmux".split())
@@ -1746,29 +2107,33 @@ _NC_HELP = frozenset("-h -help --help".split())
 _NC_FALLBACK_SPLIT_RE = re.compile(r"\|\||&&|[;|\n()`]")
 
 
-def nested_commands(command: str) -> tuple[tuple[str, ...], ...]:
+def nested_commands(command: str, local: bool = False) -> tuple[tuple[str, ...], ...]:
     """The tokens of every simple command of the line and of what it nests (`$( … )` in double quotes, `sh -c`,
-    `bash <<<`, `env -S`, `eval`, an ssh or watch script). Memoised: deploy-ask and delete-guard read the same
-    text in one hook run. Raises CommandNotRead past _HI_MAX_DEPTH, and when a simple command is too long to
-    read in bounded time; that outcome is memoised too."""
-    got = _nc_cached(command)
+    `bash <<<`, `env -S`, `eval`, an ssh or watch script). Memoised: seven rules read the same text in one hook
+    run. Raises CommandNotRead past _HI_MAX_DEPTH, and when a simple command is too long to read in bounded
+    time; that outcome is memoised too.
+
+    `local` is the local reading (host-install, protected-branch: what this machine runs): a simple command ends
+    at the first command word that names a container or remote tool (_HI_REMOTE), and nothing after it is read,
+    neither as a command nor as a script. `$( … )` in double quotes still counts: the local shell runs it."""
+    got = _nc_cached(command, local)
     if isinstance(got, CommandNotRead):
         raise CommandNotRead(str(got))
     return got
 
 
-@functools.lru_cache(maxsize=8)
-def _nc_cached(command: str):
+@functools.lru_cache(maxsize=16)
+def _nc_cached(command: str, local: bool = False):
     """nested_commands' memo: the token tuples, or the CommandNotRead that stopped the read."""
     out: list[tuple[str, ...]] = []
     try:
-        _nc_read(command, 0, out, set())
+        _nc_read(command, 0, out, set(), local)
     except CommandNotRead as exc:  # kept as a value so the second rule does not read the line again
         return exc
     return tuple(out)
 
 
-def _nc_read(text: str, depth: int, out: list, seen: set) -> None:
+def _nc_read(text: str, depth: int, out: list, seen: set, local: bool = False) -> None:
     """Append the simple commands of one line to out, then read what each nests one level deeper."""
     if depth > _HI_MAX_DEPTH:
         if text.strip():
@@ -1782,8 +2147,14 @@ def _nc_read(text: str, depth: int, out: list, seen: set) -> None:
         parts = [toks for _sep, toks in cmds]
     nested = list(subs)  # substitutions outside quotes are simple commands of their own in the lexer already
     for raw in parts:
-        nested.extend(_nc_here_strings(raw))  # taken before the redirections go: `<<<` is one
-        toks = drop_redirections(raw)
+        kept = _nc_kept(raw)
+        toks = [raw[k] for k in kept]
+        if local:
+            cut = _nc_remote_word(toks)
+            if cut is not None:  # the words from the container or remote tool on run elsewhere
+                raw = raw[: kept[cut]]
+                toks = toks[:cut]
+        nested.extend(_nc_here_strings(raw))  # taken from the words before the redirections go: `<<<` is one
         if not toks:
             continue
         out.append(tuple(toks))
@@ -1791,7 +2162,37 @@ def _nc_read(text: str, depth: int, out: list, seen: set) -> None:
     for script in nested:
         if script not in seen:  # one read per distinct script: a repeated nest costs nothing twice
             seen.add(script)
-            _nc_read(script, depth + 1, out, seen)
+            _nc_read(script, depth + 1, out, seen, local)
+
+
+def _nc_remote_word(toks: list[str]) -> Optional[int]:
+    """The first command word of a simple command that names a container or remote tool, or None."""
+    return min((i for i in command_word_indexes(toks) if os.path.basename(toks[i]) in _NC_ELSEWHERE), default=None)
+
+
+READER_MSG = "{rule}: {what}. Confirm the command; the guard could not check it."
+
+
+def reader_pass(text: str, judge: Callable[[list[str]], Optional[Decision]], rule: str,
+                local: bool = False) -> Optional[Decision]:
+    """The token pass of a rule that first reads segments(): judge the words from every command word of every
+    simple command the line runs. The first deny wins; asks are combined. Never raises: a line the reader could
+    not read, or a crash, asks with the reason (a rule's own deny from its first pass is returned before this)."""
+    try:
+        asks = []
+        for toks in nested_commands(text, local):
+            for i in sorted(command_word_indexes(toks)):
+                d = judge(list(toks[i:]))
+                if d and d[0] == "deny":
+                    return d
+                if d:
+                    asks.append(d)
+        return combine(asks)
+    except CommandNotRead as exc:  # too deep or too many words: ask rather than pass it unread
+        what = str(exc)
+    except Exception as exc:  # main() turns a crash into exit 1, which both harnesses let run silently: ask instead
+        what = f"the command could not be read ({type(exc).__name__})"
+    return "ask", READER_MSG.format(rule=rule, what=what)
 
 
 def _nc_here_strings(toks: list[str]) -> list[str]:
@@ -1835,7 +2236,27 @@ def _nc_scripts(toks: list[str]) -> list[str]:
         elif name == "env" and not env:
             env = True
             scripts.extend(_nc_split_string(toks, i))
+        if name in _NC_SCRIPT_OPTIONS and i in words:
+            scripts.extend(_nc_option_scripts(toks, i, *_NC_SCRIPT_OPTIONS[name]))
     return scripts
+
+
+def _nc_option_scripts(toks, i: int, sub: str, options: frozenset) -> list[str]:
+    """The scripts after toks[i] that are the value of one of `options` (`nix-shell --run '…'`, also
+    `--run=…`), wherever the option stands; when `sub` is set, only after that subcommand (`npm exec -c '…'`)."""
+    out = []
+    seen = not sub
+    for k in range(i + 1, len(toks)):
+        t = toks[k]
+        if not seen:
+            seen = t == sub
+            continue
+        head, eq, value = t.partition("=")
+        if t in options and k + 1 < len(toks):
+            out.append(toks[k + 1])
+        elif eq and head in options and head.startswith("--"):
+            out.append(value)
+    return out
 
 
 def _nc_operand(toks, j: int) -> Optional[str]:
@@ -1870,11 +2291,28 @@ def _nc_split_string(toks, i: int) -> list[str]:
     return out
 
 
-def command_word_indexes(toks) -> set:
+def command_word_indexes(toks) -> frozenset:
     """The indexes where a command name can stand: the first word after assignments, shell words and
     `function NAME`, and what a wrapper there runs (`sudo -u bob rm`, `timeout 10 rm`, `ssh host rm`,
     `find … -exec rm`), followed through wrapper chains. `command -v` is a lookup. Raises CommandNotRead past
-    _MAX_COMMAND_WORDS."""
+    _MAX_COMMAND_WORDS. Memoised per token tuple: seven rules ask for the same simple commands."""
+    got = _cwi_cached(tuple(toks))
+    if isinstance(got, CommandNotRead):
+        raise CommandNotRead(str(got))
+    return got
+
+
+@functools.lru_cache(maxsize=256)
+def _cwi_cached(toks: tuple):
+    """command_word_indexes' memo: the indexes, or the CommandNotRead that stopped the walk."""
+    try:
+        return frozenset(_command_word_indexes(toks))
+    except CommandNotRead as exc:  # kept as a value so the next rule does not walk the words again
+        return exc
+
+
+def _command_word_indexes(toks: tuple) -> set:
+    """command_word_indexes without the memo."""
     n = len(toks)
     i = 0
     while i < n:
@@ -1893,10 +2331,18 @@ def command_word_indexes(toks) -> set:
         name = os.path.basename(toks[j])
         if name == "find":
             later = [k + 1 for k in range(j + 1, n - 1) if toks[k] in _NC_FIND_EXEC]
+        elif name in _NC_FD:
+            later = [k + 1 for k in range(j + 1, n - 1) if toks[k] in _NC_FD_EXEC]
         elif name == "command" and j + 1 < n and toks[j + 1] in ("-v", "-V"):
             continue
+        elif name == "coproc" and j + 2 < n and toks[j + 2] in ("{", "("):
+            later = _nc_wrapped(toks, j + 1, 0)  # `coproc NAME { …`: a name stands only before a compound command
+        elif name in _NC_OPTION_RUNNERS:
+            later = _nc_option_wrapped(toks, j, _NC_OPTION_RUNNERS[name])
         elif name in _NC_WRAPPERS:
             later = _nc_wrapped(toks, j, _NC_WRAPPERS[name])
+        elif name in _NC_SUB_WRAPPERS:
+            later = _nc_sub_wrapped(toks, j, _NC_SUB_WRAPPERS[name])
         else:
             continue
         for k in later:
@@ -1936,6 +2382,57 @@ def _nc_wrapped(toks, j: int, before: int) -> list[int]:
     return out
 
 
+def _nc_sub_wrapped(toks, j: int, subs: dict) -> list[int]:
+    """The indexes where the command run by the runner or container tool at toks[j] may stand: find its
+    subcommand (`run`, `compose run`) past the tool's options, with subcommand_hit's rule for an option's value,
+    then read as a wrapper with that many plain words first. The word after the first `--` that follows the
+    subcommand counts too (`mise exec node@20 -- rm`)."""
+    path: tuple = ()
+    may_be_value = False
+    for k in range(j + 1, len(toks)):
+        t = toks[k]
+        if t == "--":
+            return []
+        if t.startswith("-") and len(t) > 1:
+            may_be_value = "=" not in t
+            continue
+        step = (*path, t)
+        if step in subs:
+            out = _nc_wrapped(toks, k, subs[step])
+            for m in range(k + 1, len(toks) - 1):
+                if toks[m] == "--":
+                    out.append(m + 1)
+                    break
+            return out
+        if any(p[: len(step)] == step for p in subs):  # `compose`, `container`: the next word decides
+            path, may_be_value = step, False
+            continue
+        if not may_be_value:
+            return []
+        may_be_value = False
+    return []
+
+
+def _nc_option_wrapped(toks, j: int, subs: dict) -> list[int]:
+    """The index of the command run by `nix develop … -c <command…>` at toks[j]: find the subcommand past the
+    tool's options, with subcommand_hit's rule for an option's value, then the word after the first of its
+    options that hands over a command (`-c`, `--command`)."""
+    may_be_value = False
+    for k in range(j + 1, len(toks)):
+        t = toks[k]
+        if t == "--":
+            return []
+        if t.startswith("-") and len(t) > 1:
+            may_be_value = "=" not in t
+            continue
+        if t in subs:
+            return [m + 1 for m in range(k + 1, len(toks) - 1) if toks[m] in subs[t]][:1]
+        if not may_be_value:
+            return []
+        may_be_value = False
+    return []
+
+
 def _is_redirection(t: str) -> bool:
     """A redirection word (`>out`, `2>&1`, `<<<word`); a quoted script such as `'>log rm -rf x'` holds whitespace
     and is no redirection."""
@@ -1944,15 +2441,20 @@ def _is_redirection(t: str) -> bool:
 
 def drop_redirections(args: list[str]) -> list[str]:
     """The arguments without redirections (`>out`, `2>1`, `> out`): a file name after `>` is no subcommand."""
+    return [args[k] for k in _nc_kept(args)]
+
+
+def _nc_kept(args: list[str]) -> list[int]:
+    """The indexes of the words that are no redirection and no redirection's target."""
     out = []
     skip = False
-    for t in args:
+    for k, t in enumerate(args):
         if skip:
             skip = False
         elif _BARE_REDIRECT_TOKEN_RE.match(t):
             skip = True  # the target is the next token
         elif not _is_redirection(t):
-            out.append(t)
+            out.append(k)
     return out
 
 
@@ -2068,10 +2570,183 @@ def _read_event() -> dict:
     return obj
 
 
+# Both wirings cut the pre hook at 5 s, and a cut hook fails open (the call runs unjudged): answer before that.
+# No environment variable sets it, since whoever starts a session could switch the budget off; tests set this.
+# The rules run in a forked child that the hook kills at the budget. A SIGALRM timer was not enough: before
+# Python 3.11 no signal handler runs inside one `re` search (measured on 3.9.6: a 1 MB `rsync a ` line answered
+# after 26 s), and a watchdog thread would wait for the same interpreter lock that search holds.
+HOOK_BUDGET_S = 3.5
+BUDGET_MSG = (
+    "guard: this call could not be judged within the hook's {budget} s budget (the command is {size} characters "
+    "long); rules that did not judge it: {rules}. Confirm it yourself."
+)
+STOPPED_MSG = (
+    "guard: the rules stopped before they finished judging this call (the command is {size} characters long); "
+    "rules that did not judge it: {rules}. Confirm it yourself."
+)
+Verdicts = list  # [(rule name, Optional[Decision])] in the order the rules ran
+_PIPE_DECODER = json.JSONDecoder()  # its own instance: the child's lines are ours, whatever replaces json.loads
+
+
+def _rules_in_process(names: list, ev: Event, cfg: dict) -> Verdicts:
+    """Run the rules in this process, without a budget: the path where there is no fork."""
+    return [(name, RULES[name](ev, cfg)) for name in names]
+
+
+def _rules_child(names: list, ev: Event, cfg: dict, wfd: int) -> None:
+    """The forked child: one JSON line per rule's verdict, then `done`, or one `error` line. Never returns."""
+    code = 0
+    try:
+        with os.fdopen(wfd, "w", encoding="utf-8") as out:
+            try:
+                for name in names:
+                    out.write(json.dumps({"rule": name, "decision": RULES[name](ev, cfg)}) + "\n")
+                    out.flush()
+                out.write(json.dumps({"done": True}) + "\n")
+            except Exception as exc:  # the parent raises it, so main prints the same `guard: error` as before
+                out.write(json.dumps({"error": str(exc)}) + "\n")
+    except BaseException:  # the pipe broke (the parent gave up) or the exit was asked for: nothing left to tell
+        code = 1
+    finally:
+        try:
+            sys.stderr.flush()  # a rule's warning on stderr; stdout belongs to the parent and is never flushed here
+        except Exception:  # the child is leaving either way; a broken stderr changes nothing
+            pass
+        os._exit(code)  # never back into the caller: no second response, no log line, no test runner teardown
+
+
+def _stop_child(pid: int) -> None:
+    """Kill the child (gone already is fine) and reap it, so no process is left behind."""
+    try:
+        os.kill(pid, signal.SIGKILL)
+    except ProcessLookupError:  # it has exited and been reaped already
+        pass
+    try:
+        os.waitpid(pid, 0)
+    except ChildProcessError:  # reaped elsewhere (SIGCHLD ignored by an embedding caller): nothing to wait for
+        pass
+
+
+def _read_verdicts(rfd: int, deadline: float) -> tuple:
+    """(verdicts, outcome) from the child's pipe: outcome is done, budget (time ran out) or stopped (pipe ended)."""
+    verdicts: Verdicts = []
+    pending = b""
+    while True:
+        left = deadline - time.monotonic()
+        if left <= 0:
+            return verdicts, "budget"
+        ready, _, _ = select.select([rfd], [], [], left)
+        if not ready:
+            return verdicts, "budget"
+        chunk = os.read(rfd, 65536)
+        if not chunk:
+            return verdicts, "stopped"  # killed or died: only the complete lines before count
+        pending += chunk
+        if b"\n" not in chunk:
+            continue
+        *lines, pending = pending.split(b"\n")
+        for line in lines:
+            try:
+                msg = _PIPE_DECODER.decode(line.decode("utf-8"))
+            except ValueError:  # not a line the child wrote whole: treat the rest as not judged
+                return verdicts, "stopped"
+            if "error" in msg:
+                raise RuntimeError(msg["error"])  # str() is the rule's own text: main prints it as before
+            if msg.get("done"):
+                return verdicts, "done"
+            d = msg.get("decision")
+            verdicts.append((msg.get("rule"), tuple(d) if d else None))
+
+
+def _run_rules(names: list, ev: Event, cfg: dict) -> tuple:
+    """(verdicts, outcome) of the rules, run in a child the hook kills at HOOK_BUDGET_S.
+
+    Where os.fork does not exist (Windows) or the fork fails, the rules run here without a budget, as before
+    0.7.0: a named limit."""
+    if not hasattr(os, "fork"):
+        return _rules_in_process(names, ev, cfg), "done"
+    rfd, wfd = os.pipe()
+    deadline = time.monotonic() + HOOK_BUDGET_S
+    try:
+        pid = os.fork()
+    except OSError:  # no process left to make (limits, memory): judge without a budget rather than not at all
+        os.close(rfd)
+        os.close(wfd)
+        return _rules_in_process(names, ev, cfg), "done"
+    if pid == 0:
+        os.close(rfd)
+        _rules_child(names, ev, cfg, wfd)
+    os.close(wfd)
+    try:
+        return _read_verdicts(rfd, deadline)
+    finally:
+        os.close(rfd)
+        _stop_child(pid)
+
+
+POST_TAIL_BYTES = 128 * 1024  # the post hook reads this much of the log's end: an asked call is a recent line
+
+
+def _call_id(ev: Event) -> Optional[str]:
+    """The harness's id of this tool call: Claude Code sends tool_use_id before and after the call, Copilot none."""
+    call = ev.raw.get("tool_use_id")
+    return call if isinstance(call, str) and call else None
+
+
+def _asked_rules(path: str, session: str, call: str) -> Optional[dict]:
+    """The rules that asked about this call, from the tail of the log; None when it was not asked or already ran."""
+    with open(path, "rb") as fh:
+        fh.seek(0, os.SEEK_END)
+        start = max(0, fh.tell() - POST_TAIL_BYTES)
+        fh.seek(start)
+        lines = fh.read().split(b"\n")
+    if start:
+        lines = lines[1:]  # the first line is cut by the seek
+    asked = None
+    for line in lines:
+        try:
+            row = json.loads(line.decode("utf-8"))
+        except ValueError:  # a broken or half-written line (UnicodeDecodeError is one too): not the call's
+            continue
+        if not isinstance(row, dict) or row.get("session") != session or row.get("call") != call:
+            continue
+        if row.get("verdict") == "ran":
+            return None  # recorded already: a repeated event writes no second line
+        rules = row.get("rules")
+        if row.get("verdict") == "ask" and isinstance(rules, dict):
+            asked = {name: "ran" for name, verdict in rules.items() if verdict == "ask"}
+    return asked or None
+
+
+def run_post() -> int:
+    """PostToolUse and PostToolUseFailure: append a `ran` line when the guard asked about this call. Prints
+    nothing and exits 0 in every case: the call has already happened, so there is nothing left to block."""
+    try:
+        raw = _read_event()
+    except ValueError:  # empty, not JSON or not an object (JSONDecodeError is a ValueError): no call to record
+        return 0
+    ev = Event(raw)
+    if ev.harness == "copilot":  # Copilot sends no call id, so no line of its log can be tied to this event
+        return 0
+    call = _call_id(ev)
+    if call is None:  # without the id the ask cannot be tied to this call; guessing would invent evidence
+        return 0
+    cfg = load_config(str(raw.get("cwd") or os.getcwd()))
+    try:
+        rules = _asked_rules(os.path.join(telemetry_dir(cfg), "decisions.jsonl"), ev.session, call)
+    except OSError:  # no log yet, or not readable: nothing was asked that this hook could find
+        return 0
+    if rules:
+        log_decision(("ran", ""), rules, ev, cfg)
+    return 0
+
+
 def run_hook(target: str, wrapper: Optional[str]) -> int:
+    if target == "post":  # never blocks, so it runs without the budget
+        return run_post()
     raw = _read_event()
     cfg = load_config(str(raw.get("cwd") or os.getcwd()))
-    if target == "capture":
+    if target == "capture":  # never blocks, so it runs without the budget
         return capture(raw, cfg)
     ev = Event(raw)
     # One Copilot path only: VS Code reads both .claude/settings.json and
@@ -2091,15 +2766,20 @@ def run_hook(target: str, wrapper: Optional[str]) -> int:
                                  "this call. Confirm it, and capture the event shape for the fixtures."))
         fired["unreadable-args"] = "ask"
     for name in names:
-        rule = RULES.get(name)
-        if rule is None:
+        if name not in RULES:
             raise ValueError(f"unknown rule: {name}")
-        d = rule(ev, cfg)
+    verdicts, outcome = _run_rules(names, ev, cfg)
+    for name, d in verdicts:
         if d and name in off and d[0] == "ask":  # the rule still runs, so the log shows how often it was silenced
             skipped[name] = "skipped"
         elif d:
             decisions.append(d)
             fired[name] = d[0]
+    if outcome != "done":  # the verdicts that arrived stand; a deny among them still wins in combine()
+        late = ", ".join(names[len(verdicts):])
+        msg = BUDGET_MSG if outcome == "budget" else STOPPED_MSG
+        decisions.append(("ask", msg.format(budget=HOOK_BUDGET_S, size=len(ev.command or ""), rules=late)))
+        fired["budget"] = "ask"
     final = combine(decisions)
     if final:
         log_decision(final, fired, ev, cfg)
@@ -2113,6 +2793,8 @@ def log_decision(decision: Decision, fired: dict[str, str], ev: Event, cfg: dict
     `rules` maps each rule that spoke to its own verdict; `verdict` is the combined one. A rule that would have
     spoken but is in `rules_off`, or host-install silenced by its knob (`off`, or `auto` in a disposable
     environment), is logged as `skipped` (its own line), so a month-long override stays visible.
+    `guard` names the version that judged; `call` is the harness's tool_use_id when it sends one, and the post
+    hook's `ran` line carries the same id, so an ask can be tied to the call that went ahead.
     No command text or paths: the rule names and the tool are enough to tune thresholds."""
     entry = {
         "ts": _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -2122,7 +2804,11 @@ def log_decision(decision: Decision, fired: dict[str, str], ev: Event, cfg: dict
         "event": ev.event,
         "harness": ev.harness,
         "session": ev.session,
+        "guard": VERSION,
     }
+    call = _call_id(ev)
+    if call:
+        entry["call"] = call
     path = os.path.join(telemetry_dir(cfg), "decisions.jsonl")
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)

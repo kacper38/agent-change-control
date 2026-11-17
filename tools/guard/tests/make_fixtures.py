@@ -73,6 +73,30 @@ CASES: dict = {
             "allow", "sudo grep -rn rm /etc/sudoers.d", "find . -name \"*.py\" -exec grep -n unlink {} +",
             "timeout 10 grep -rn shred .",
         ),
+        # guard 0.7.0: verbs the tables never had (the seven delete rows of the 2026-11-15 review)
+        *shell(
+            "ask", "docker image rm x", "docker container rm x", "docker network rm x", "git checkout main -- path",
+            "git switch --discard-changes main", "pipx uninstall x", "helm repo remove x",
+        ),
+        *shell(
+            "allow", "docker image ls", "git checkout main --", "git switch -c feat/x", "helm repo update",
+            "uv tool list", "pipx list",
+        ),
+        # guard 0.7.0: behind runners and inside containers
+        *shell(
+            "ask", "uv run --offline rm -rf build", "mise exec node@20 -- rm -rf build",
+            "docker exec web rm -rf /data", "kubectl exec web-0 -- rm -rf /data",
+        ),
+        *shell("allow", "uv run --offline ruff check tools", "docker exec web ls /data", "direnv exec . make test"),
+        # guard 0.7.0, review fixes: coproc NAME, fd -x, nix and oc runners
+        *shell(
+            "ask", "coproc p { rm -f x; }", "fd -e pyc -x rm", "nix develop -c rm -rf build",
+            "oc rsh web-0 rm -rf /data",
+        ),
+        *shell("allow", "coproc p { ls; }", "fd -e py -x wc -l", "nix-shell --run \"ls\""),
+        # guard 0.7.0, review fixes: `git checkout <ref> <path>` without `--`
+        *shell("ask", "git checkout HEAD src/app.py"),
+        *shell("allow", "git checkout -b feat origin/feat"),
     ],
     "secret-write": [
         ("deny", "write", {"path": ".env", "content": "TOKEN=abc"}),
@@ -135,6 +159,9 @@ CASES: dict = {
         *shell("deny", "echo '[core]' > ~/.azure/config"),
         *shell("ask", "cat ~/.azure/msal_token_cache.json", "tar czf /tmp/az.tgz ~/.azure"),
         *shell("allow", "az account show", "cat ci/azure-pipelines.yml"),
+        # guard 0.7.0, review fixes: a search pattern is no path; the file of -f is read
+        *shell("ask", "bash -c 'grep -f .env notes.txt'"),
+        *shell("allow", "grep -rn '\\.env|\\.pem' tools"),
     ],
     "git-guard": [
         *shell(
@@ -153,6 +180,15 @@ CASES: dict = {
             "gh pr merge 12 --squash",
             "git commit -q -F - <<'EOF'\nfeat: x\n\nnever run git push --force\nEOF",
         ),
+        # guard 0.7.0: wrappers, nested scripts, runners and containers
+        *shell(
+            "deny", "timeout 30 git commit --no-verify -m x", "bash -c 'git push origin main'",
+            "uv run --offline git push --force origin feat", "docker exec dev git push origin main",
+        ),
+        *shell("allow", "timeout 30 git push origin feat/x", "docker exec dev git status"),
+        # guard 0.7.0, review fixes: a push without a refspec elsewhere: the branch there is not known
+        *shell("ask", "docker exec dev git push"),
+        *shell("allow", "docker exec dev git push origin feat/x"),
     ],
     "deploy-ask": [
         *shell(
@@ -209,6 +245,34 @@ CASES: dict = {
             "kubectl apply -f x.yaml --dry-run=client --dry-run=none", "az group delete --name validate --yes",
         ),
         *shell("allow", "kubectl apply -f x.yaml --dry-run=none --dry-run=client", "terraform -help apply"),
+        # guard 0.7.0: verbs the tables never had (the 24 deploy rows of the 2026-11-15 review)
+        *shell(
+            "ask", "docker image push x", "docker buildx build --push .", "kubectl label pod x a=b",
+            "kubectl annotate pod x a=b", "kubectl set image deploy/web web=x", "kubectl run x --image y",
+            "kubectl taint nodes n k=v:NoSchedule", "terraform workspace delete x", "terraform force-unlock 123",
+            "aws s3api delete-object --bucket b --key k", "aws ecs update-service --cluster c --service s",
+            "aws lambda update-function-code --function-name f", "gh run rerun 1", "gh workflow disable ci.yml",
+            "argocd app sync web", "flux reconcile kustomization web", "qm start 100", "qm migrate 100 node2",
+            "pct destroy 101", "skopeo copy a b", "crane push a b", "podman push x", "az webapp deploy --name x",
+            "az containerapp update --name x",
+        ),
+        *shell(
+            "allow", "docker buildx build .", "kubectl label --help", "terraform force-unlock -help",
+            "aws s3api list-objects --bucket b", "gh run view 1", "argocd app diff web",
+            "az repos pr update --id 1 --description x",
+        ),
+        # guard 0.7.0, review fixes: kubectl debug starts a container in the cluster
+        *shell("ask", "kubectl debug web-0 -it --image=busybox"),
+        *shell("allow", "kubectl debug --help"),
+        # guard 0.7.0, review fixes: a help word behind `--`, aws batch-delete-, az verbs where the verb stands
+        *shell(
+            "ask", "kubectl run tmp --rm -it --image=alpine -- du -h /data",
+            "aws ecr batch-delete-image --repository-name r --image-ids imageTag=x", "az --verbose webapp up --name x",
+        ),
+        *shell(
+            "allow", "kubectl run tmp --help", "aws ecr batch-get-image --repository-name r --image-ids imageTag=x",
+            "az storage blob list --container-name c --prefix deploy",
+        ),
     ],
     "egress-guard": [
         ("ask", "shell", {"command": "agy review plan.md"}, CLIENT),
@@ -427,6 +491,9 @@ CASES: dict = {
             "python3 scripts/parse.py <(curl -s https://example.org/x.json)", "bash -c \"bash -c 'echo hi'\"",
             "echo a #b; npm install",  # the rest of the line is a comment
         ),
+        # guard 0.7.0: runners are followed on this machine; a container or a remote host is the agreed route
+        *shell("ask", "direnv exec . npm install", "mise exec node@20 -- npm install"),
+        *shell("allow", "devcontainer exec npm install", "docker exec web bash <<< 'npm install'"),
     ],
 }
 

@@ -42,6 +42,30 @@
             "statusMessage": "test-guard"
           }
         ]
+      },
+      {
+        "matcher": "Bash|Write|Edit|MultiEdit|NotebookEdit|Read|Agent|Task",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PROJECT_DIR:-.}\"/tools/guard/guard.py hook post --wrapper claude",
+            "timeout": 5,
+            "statusMessage": "guard"
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "matcher": "Bash|Write|Edit|MultiEdit|NotebookEdit|Read|Agent|Task",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PROJECT_DIR:-.}\"/tools/guard/guard.py hook post --wrapper claude",
+            "timeout": 5,
+            "statusMessage": "guard"
+          }
+        ]
       }
     ],
     "SubagentStart": [

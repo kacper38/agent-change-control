@@ -19,7 +19,8 @@
                                  cost_basis; the rest counted as left out), sessions per cost basis and
                                  marked sessions, sessions with unpriced
                                  requests (their own count is too low), and hook prompts per rule from
-                                 <telemetry>/decisions.jsonl.
+                                 <telemetry>/decisions.jsonl (guard >= 0.7.0: `ran X of Y`, Y the asks
+                                 that carry a call id, X those whose call went ahead).
   ledger.py recount [--write]    one-off for lines written before 2026-11-15 (no cost_basis, no recount key):
                                  rebuild each from its transcript under <CLAUDE_CONFIG_DIR or ~/.claude>/
                                  projects/*/<session>.jsonl, keeping its ts, or label it transcript: missing;
@@ -433,8 +434,14 @@ def load_sessions(tdir: str, since: _dt.datetime) -> list:
 
 
 def load_decisions(tdir: str, since: _dt.datetime) -> dict:
-    """{rule: {ask: n, deny: n}} from decisions.jsonl written by the guard."""
+    """{rule: {ask: n, deny: n, and any other verdict seen: skipped}} from decisions.jsonl written by the guard.
+
+    guard >= 0.7.0 adds `markable` (Y) and `ran` (X) per rule: Y counts the asks of rows answered `ask` that carry
+    a call id, the only asks its post hook can mark; X counts the `ran` rows whose session and call match such an
+    ask in the window. An ask without a call id (older guard, Copilot) can never get a ran row, so it is not in Y."""
     out: dict = {}
+    markable: set = set()  # (session, call, rule) of the asks a ran row can match
+    ran: set = set()
     path = os.path.join(tdir, "decisions.jsonl")
     if not os.path.exists(path):
         return out
@@ -452,9 +459,18 @@ def load_decisions(tdir: str, since: _dt.datetime) -> dict:
                 pairs = list(rules.items())
             else:
                 pairs = [(r, row.get("verdict", "ask")) for r in rules or ["?"]]
+            if row.get("verdict") == "ran":  # counted below, only against an ask of the same call
+                ran.update((row.get("session"), row.get("call"), rule) for rule, _ in pairs)
+                continue
             for rule, verdict in pairs:
                 r = out.setdefault(rule, {"ask": 0, "deny": 0})
                 r[verdict] = r.get(verdict, 0) + 1
+                if verdict == "ask" and row.get("verdict") == "ask" and row.get("call"):
+                    markable.add((row.get("session"), row["call"], rule))
+    for key in markable:
+        r = out[key[2]]
+        r["markable"] = r.get("markable", 0) + 1
+        r["ran"] = r.get("ran", 0) + (key in ran)
     return out
 
 
@@ -526,7 +542,10 @@ def cost_report(tdir: str, days: int, out, now: Optional[_dt.datetime] = None) -
     decisions = load_decisions(tdir, since)
     if decisions:
         out.write("hook prompts per rule (ask/deny): " + ", ".join(
-            f"{rule} {v['ask']}/{v['deny']}" + (f" skipped {v['skipped']}" if v.get("skipped") else "")
+            f"{rule} {v['ask']}/{v['deny']}"
+            # guard >= 0.7.0: asked calls that went ahead, of the asks that carry a call id (see load_decisions)
+            + (f" ran {v['ran']} of {v['markable']}" if v.get("markable") else "")
+            + (f" skipped {v['skipped']}" if v.get("skipped") else "")
             for rule, v in sorted(decisions.items())) + "\n")
     return 0
 

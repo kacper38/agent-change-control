@@ -195,14 +195,36 @@ variables (`KZ_TRACKER_REPO`, `KZ_TRACKER_AREA`, `KZ_TRACKER_ADO_MODE`,
   committed `guard.json` at the repo root that says `boundary: own` enables
   it. Gitignore the local file in a task repo yourself; the installer never
   edits `.gitignore`.
-- The deploy and delete asks (`deploy-ask`, `delete-guard`) judge a command
-  twice since guard 0.6.1: by the text patterns of 0.6.0, and by reading every
-  simple command the shell would run, nested scripts included (`bash -c '…'`,
-  `eval`, `ssh host '…'`, a here-string). A variable, a wrapper or an option
-  in front of the verb no longer hides it (`AWS_PROFILE=prod terraform apply`,
-  `kubectl -n prod delete …`, `sudo -u bob rm …`), and a line the reader
-  cannot read asks. The guard reads text and prompts; it is no sandbox, and
-  `DECISIONS.md` (2026-11-16) lists the forms it does not see.
+- Every shell rule judges a command twice: by its first pass, as before, and
+  by reading every simple command the shell would run, nested scripts included
+  (`bash -c '…'`, `eval`, `ssh host '…'`, a here-string). `deploy-ask` and
+  `delete-guard` do so since guard 0.6.1; `git-guard`, `tracker-guard`,
+  `secret-shell`, `protected-branch` and `host-install` since 0.7.0. A
+  variable, a wrapper or an option in front of the verb no longer hides it
+  (`AWS_PROFILE=prod terraform apply`, `kubectl -n prod delete …`,
+  `timeout 30 git commit --no-verify`), and a line the reader cannot read
+  asks. Since 0.7.0 a delete, a deploy, a forced push, a tracker bypass and a
+  secret file also count behind a runner (`uv run`, `mise exec`, `npm exec`,
+  `nix develop -c`) and inside a container (`docker run|exec`, `compose`,
+  `kubectl exec|debug`); an install inside a container stays silent, because
+  that is the agreed route for installs. The guard reads text and prompts; it
+  is no sandbox, and `DECISIONS.md` (2026-11-16 and 2026-11-17) lists the
+  forms it does not see.
+- Since guard 0.7.0 the pre hook answers within 3.5 s: the rules run in a
+  child process, and a call they have not judged by then asks under the name
+  `budget`, where it used to run unjudged once the harness cut the hook at
+  5 s. Where the platform has no `fork` (Windows) there is no budget.
+- A line of `decisions.jsonl` names the guard version and, in Claude Code, the
+  tool call. `guard.py hook post`, wired under PostToolUse and
+  PostToolUseFailure in `.claude/settings.json`, adds a `ran` line when a call
+  that was asked about went ahead. No hook fires when a prompt is declined, so
+  an ask without a `ran` line was declined, is still open, or was interrupted;
+  or its call ran after the ask had left the last 128 kB of the log, which is
+  all the post hook reads. A missing `ran` line alone is no proof of a decline.
+  A repository that had its settings file before 0.7.0 keeps it on install:
+  add the two `hook post` entries by hand
+  ([`docs/USING-AT-WORK.md`](docs/USING-AT-WORK.md) §2). Copilot sends no call
+  id, so its asks get no `ran` line.
 - `tools/testguard/check-test-tampering.sh` (the harness kit's guard plus
   pytest rules): deleted or renamed test files, a `def test_` that disappears,
   added skip/focus markers, `[skip ci]` in commits or the PR title. The
@@ -298,7 +320,9 @@ Anti-over-engineering (the lazy family):
 - `tools/telemetry/ledger.py hook` (SessionEnd) writes one line per session with
   per-model tokens and cost; `ledger.py cost --days 7` prints the week per
   project and model, the total of the session costs with the number of lines
-  it left out, and hook prompts per guard rule. `ledger.py recount` (a dry
+  it left out, and hook prompts per guard rule (with guard 0.7.0 also
+  `ran X of Y`: of the Y asks that carry a call id, X went ahead).
+  `ledger.py recount` (a dry
   run; `--write` applies it) is a one-off for lines written before the cost
   basis existed: it rebuilds each from its transcript and keeps the old
   figures in the line, or labels it when the transcript is gone.

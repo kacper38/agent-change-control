@@ -213,6 +213,60 @@ def test_cost_report(ledger, tdir):
     assert "no sessions" in out.getvalue()
 
 
+def _prompt_line(ledger, tdir, decisions):
+    """The per-rule line of `ledger.py cost` over one session row and these decision rows."""
+    tdir.mkdir()
+    now = dt.datetime(2026, 10, 29, 12, 0, tzinfo=dt.timezone.utc)
+    row = {"ts": "2026-10-28T10:00:00Z", "session": "s1", "project": "/Users/t/alpha", "spawns": [],
+           "subagents": {"flag": False}, "models": {}}
+    (tdir / "sessions-2026-10.jsonl").write_text(json.dumps(row) + "\n")
+    (tdir / "decisions.jsonl").write_text("\n".join(json.dumps(r) for r in decisions) + "\n")
+    out = io.StringIO()
+    ledger.cost_report(str(tdir), 7, out, now=now)
+    return next(ln for ln in out.getvalue().splitlines() if ln.startswith("hook prompts per rule"))
+
+
+def _ask(call, rules=("delete-guard",), ts="2026-10-28T11:00:00Z", session="s1"):
+    row = {"ts": ts, "verdict": "ask", "rules": {r: "ask" for r in rules}, "session": session, "guard": "0.7.0"}
+    if call:
+        row["call"] = call
+    return row
+
+
+def _ran(call, rules=("delete-guard",), ts="2026-10-28T11:00:01Z", session="s1"):
+    return {"ts": ts, "verdict": "ran", "rules": {r: "ran" for r in rules}, "session": session, "call": call,
+            "guard": "0.7.0"}
+
+
+def test_cost_report_shows_how_many_asked_calls_ran(ledger, tdir):
+    """guard >= 0.7.0: `ran X of Y`, Y the asks with a call id (the only ones the post hook can mark)."""
+    rows = [_ask(f"c{i}") for i in range(3)] + [_ran(f"c{i}") for i in range(2)]
+    rows.append({"ts": "2026-10-28T11:00:00Z", "verdict": "deny", "rules": {"git-guard": "deny"}})
+    line = _prompt_line(ledger, tdir, rows)
+    assert line == "hook prompts per rule (ask/deny): delete-guard 3/0 ran 2 of 3, git-guard 0/1"
+
+
+def test_asks_without_a_call_id_are_not_counted_as_markable(ledger, tdir):
+    """Guard before 0.7.0, Copilot, a harness without an id: such an ask can never get a ran line."""
+    rows = [_ask(None), _ask(None), _ask("c1"), _ask(None, rules=("deploy-ask",))]
+    line = _prompt_line(ledger, tdir, rows)
+    assert line == "hook prompts per rule (ask/deny): delete-guard 3/0 ran 0 of 1, deploy-ask 1/0"
+
+
+def test_a_ran_line_whose_ask_is_outside_the_window_is_not_counted(ledger, tdir):
+    rows = [_ask("old", ts="2026-10-01T11:00:00Z"), _ran("old"), _ask("c1"), _ran("c1"),
+            _ran("c1", session="s2"), _ran("never-asked")]
+    line = _prompt_line(ledger, tdir, rows)
+    assert line == "hook prompts per rule (ask/deny): delete-guard 1/0 ran 1 of 1"
+
+
+def test_two_rules_asked_in_one_call(ledger, tdir):
+    rules = ("delete-guard", "deploy-ask")
+    rows = [_ask("c1", rules=rules), _ran("c1", rules=rules), _ask("c2", rules=rules), _ran("c1", rules=rules)]
+    line = _prompt_line(ledger, tdir, rows)
+    assert line == "hook prompts per rule (ask/deny): delete-guard 2/0 ran 1 of 2, deploy-ask 2/0 ran 1 of 2"
+
+
 def test_prices_file_is_well_formed(ledger):
     prices = ledger.load_prices()
     assert "claude-opus-4-5" in prices

@@ -158,6 +158,10 @@ Q1 | feat/x | secret-shell | ask | <.env cat
 Q1 | feat/x | secret-shell | ask | cat 0<.env
 Q1 | feat/x | secret-shell | ask | sort <.env >out.txt
 Q1 | feat/x | secret-shell | ask | bash -c 'cat <.env'
+Q2 | feat/x | secret-shell | deny | git -C . add .env
+Q2 | feat/x | secret-shell | deny | git -c core.autocrlf=false add .env
+Q2 | feat/x | secret-shell | deny | git --git-dir=.git add server.key
+Q2 | feat/x | secret-shell | deny | git -C sub stage .env
 """
 
 # forms of this work beyond the acceptance rows: the same readings, other spellings
@@ -171,6 +175,9 @@ Xs | feat/x | shell | silent | rg --iglob=.env --ignore=.env TODO
 Xs | feat/x | shell | silent | KEY_FILE=server.key ./run.sh
 Xs | feat/x | shell | silent | curl --url=https://example.org/.env
 Xs | feat/x | shell | silent | cat <&3
+X2 | feat/x | secret-shell | deny | git --no-pager -C sub add -- .env
+X2 | feat/x | secret-shell | deny | sudo git --work-tree=. stage -f id_rsa
+Xs | feat/x | shell | silent | git -C sub add -A
 """
 
 

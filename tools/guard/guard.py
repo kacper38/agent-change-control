@@ -646,8 +646,10 @@ def _secret_seg(seg: list[str], cwd: str, writes: list[str], reads: list[str]) -
         targets = paths
     elif head == "sed" and any(t.startswith("-i") for t in seg):
         targets = paths
-    elif head == "git" and len(seg) > 1 and seg[1] in ("add", "stage"):
-        targets = paths[1:] if paths and paths[0] in ("add", "stage") else paths
+    elif head == "git":
+        sub, rest = _git_subcommand(seg)  # past git's own options: `git -C sub add .env` (0.8.0)
+        if sub in ("add", "stage"):
+            targets = [t for t in rest if not t.startswith("-") and t != "--"]
     for t in targets:
         if secret_class(_expand(t, cwd)) == "secret":
             writes.append(t)

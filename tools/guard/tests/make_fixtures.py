@@ -279,9 +279,21 @@ CASES: dict = {
         ("ask", "shell", {"command": "gemini -p 'summarize this'"}, CLIENT),
         ("ask", "shell", {"command": "curl https://api.openai.com/v1/chat/completions -d @req.json"}, CLIENT),
         ("ask", "shell", {"command": "ollama run llama3 < notes.txt"}, CLIENT),
+        # guard 0.7.1: Hugging Face. Every call of its CLI asks, a download too, as for the other vendors' tools
+        ("ask", "shell", {"command": "hf upload my-org/notes ./docs"}, CLIENT),
+        ("ask", "shell", {"command": "huggingface-cli upload my-org/notes ./docs"}, CLIENT),
+        ("ask", "shell", {"command": "hf download BAAI/bge-m3"}, CLIENT),
+        ("ask", "shell", {"command": "curl https://router.huggingface.co/v1/chat/completions -d @req.json"}, CLIENT),
+        ("ask", "shell", {"command": "curl https://abc123.eu-west-1.aws.endpoints.huggingface.cloud/v1/chat/completions"
+                                     " --json @req.json"}, CLIENT),
+        ("ask", "shell", {"command": "curl https://someone-demo.hf.space/api/predict -d @req.json"}, CLIENT),
         ("allow", "shell", {"command": "agy review plan.md"}),
         ("allow", "shell", {"command": "curl https://api.github.com/repos/x/y"}, CLIENT),
         ("allow", "shell", {"command": "git status"}, CLIENT),
+        ("allow", "shell", {"command": "hf upload my-org/notes ./docs"}),
+        # the bare domain serves downloads and stays out of the host list
+        ("allow", "shell", {"command": "curl -L https://huggingface.co/BAAI/bge-m3/resolve/main/model.safetensors"
+                                       " -o model.safetensors"}, CLIENT),
     ],
     # blocking cases need a real git tree and live in test_scratch_md.py
     "scratch-md": [

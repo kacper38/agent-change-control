@@ -1110,9 +1110,13 @@ def rule_deploy_ask(ev: Event, cfg: dict) -> Optional[Decision]:
 # egress-guard: inside a client boundary, other-vendor LLM tools need a yes
 # ----------------------------------------------------------------------------
 
-_OTHER_LLM_CLIS = {"agy", "gemini", "codex", "llm", "openai", "ollama", "aider", "cursor-agent"}
+_OTHER_LLM_CLIS = {"agy", "gemini", "codex", "llm", "openai", "ollama", "aider", "cursor-agent",
+                   "hf", "huggingface-cli"}  # 0.7.1: every call of the Hugging Face CLI, a download too
 _LLM_HOSTS_RE = re.compile(
     r"api\.openai\.com|generativelanguage\.googleapis\.com|openrouter\.ai|api\.mistral\.ai|api\.together\.xyz|api\.anthropic\.com"
+    # 0.7.1, Hugging Face: the inference router, dedicated endpoints, Spaces. The bare huggingface.co serves
+    # downloads and stays out
+    r"|router\.huggingface\.co|\.endpoints\.huggingface\.cloud|\.hf\.space"
 )
 EGRESS_MSG = (
     "Client boundary (KZ_BOUNDARY=client): {what} would send material to another vendor's endpoint. "

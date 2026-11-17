@@ -1605,7 +1605,8 @@ _HI_DOWNLOADERS = _w("curl wget")
 _HI_SHELL_WORDS = _w("! { then do else elif if while until time")
 _HI_WRAPPERS = _w("sudo env command exec nohup doas builtin timeout gtimeout nice ionice caffeinate arch stdbuf xargs"
                   " find watch")
-# a wrapper that reaches one of these first hands over to a container or another machine: not judged (decision 7)
+# a wrapper that reaches one of these first hands over to a container or another machine: not judged
+# (DECISIONS.md, 2026-11-16, "installs stay off the developer machine")
 _HI_REMOTE = _w("docker docker-compose podman nerdctl kubectl oc ssh devcontainer")
 _HI_PUNCT = ";&|()`\n"
 _HI_WORD_START = " \t\n;&|()`"  # a `#` after one of these (or at the start) begins a comment
@@ -1745,7 +1746,9 @@ def _hi_real(toks: list[str]) -> list[str]:
     for j in range(1, len(toks)):
         name = os.path.basename(toks[j])
         if name in _HI_REMOTE:
-            return []  # the container or remote route, also behind a wrapper (decision 7)
+            # the container or remote route, also behind a wrapper
+            # (DECISIONS.md, 2026-11-16, "installs stay off the developer machine")
+            return []
         if _hi_startable(name) or name in _HI_DOWNLOADERS:
             return toks[j:]
     return []
@@ -1859,7 +1862,8 @@ def _hi_options_only(toks: list[str]) -> bool:
 
 
 def _hi_walk(head: str, key: str, args: list[str], depth: int) -> Optional[str]:
-    """Walk a table tool's tokens left to right (decision 10)."""
+    """Walk a table tool's tokens left to right (DECISIONS.md, 2026-11-16, "installs stay off the developer
+    machine")."""
     install, fetch, exempt = _HI_TABLE[key]
     for i, t in enumerate(args):
         if t == "--":
@@ -1923,7 +1927,8 @@ def _hi_judge(toks: list[str], depth: int) -> Optional[str]:
 
 
 def _hi_commands(cmds: list[tuple[str, list[str]]], depth: int) -> Optional[str]:
-    """Judge each simple command, then the downloaded-script forms that span commands (decision 9)."""
+    """Judge each simple command, then the downloaded-script forms that span commands (DECISIONS.md, 2026-11-16,
+    "installs stay off the developer machine")."""
     downloader = ""  # a curl or wget earlier in the current pipeline
     for k, (sep, toks) in enumerate(cmds):
         what = _hi_judge(toks, depth)

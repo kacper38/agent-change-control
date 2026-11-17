@@ -591,6 +591,50 @@ _WRITERS_LAST = {"cp", "mv", "install", "scp", "rsync", "ln"}
 _WRITERS_ALL = {"tee", "truncate", "touch", "chmod", "chown"}
 
 
+# options whose value is a pattern to leave out or to match, not a file that is read (the manuals of tar, rsync,
+# grep, rg, fd, ag, git ls-files): `tar --exclude=.env` stays silent
+_PATTERN_VALUE_OPTIONS = frozenset("--exclude --exclude-dir --exclude-from --include --glob --iglob --ignore"
+                                   " --filter".split())
+_INPUT_REDIRECT_RE = re.compile(r"^\d*<(?![<&(>])(\S+)$")  # `<f`, `0<f`; not `<<`, `<<<`, `<&3`, `<(…)`, `<>`
+_BARE_INPUT_RE = re.compile(r"^\d*<$")  # `< f`: the file is the next word
+
+
+def _path_candidates(t: str) -> list[str]:
+    """The paths one argument word can name (0.8.0): the bare word; the value of `--name=value` or `-n=value`
+    unless the option names a pattern; the rest of a short option glued to its value (`-T.env`, `-d@.env`);
+    the path behind `@` (`@f`, `name@f`, `name=@f`, `;type=…` cut off: curl, httpie). A word with `://` is a
+    URL and is read as before: the bare word only."""
+    if "://" in t:
+        return [] if t.startswith("-") else [t]
+    if t.startswith("-"):
+        name, eq, value = t.partition("=")
+        if eq:
+            if name in _PATTERN_VALUE_OPTIONS:
+                return []
+            word = value
+        elif t.startswith("--") or len(t) < 3:
+            return []
+        else:
+            word = t[2:]
+    else:
+        word = t
+    out = [word]
+    _name, at, path = word.partition("@")
+    if at and path:
+        out.append(path.split(";", 1)[0])
+    return out
+
+
+def _secret_reads(seg: list[str], cwd: str, skip: list[str]) -> list[str]:
+    """The secret files the argument words of one simple command name, past those in `skip` (written ones)."""
+    out = []
+    for t in seg[1:]:
+        for p in _path_candidates(t):
+            if p and p not in skip and secret_class(_expand(p, cwd)) == "secret":
+                out.append(p)
+    return out
+
+
 def _secret_seg(seg: list[str], cwd: str, writes: list[str], reads: list[str]) -> None:
     """Add the secret files one simple command writes and reads to the two lists."""
     head = os.path.basename(seg[0])
@@ -607,9 +651,7 @@ def _secret_seg(seg: list[str], cwd: str, writes: list[str], reads: list[str]) -
     for t in targets:
         if secret_class(_expand(t, cwd)) == "secret":
             writes.append(t)
-    for t in paths:
-        if t not in targets and secret_class(_expand(t, cwd)) == "secret":
-            reads.append(t)
+    reads.extend(_secret_reads(seg, cwd, targets))
 
 
 _SEARCH_TOOLS = frozenset("grep egrep fgrep zgrep rg ag ack".split())
@@ -695,6 +737,8 @@ def rule_secret_shell(ev: Event, cfg: dict) -> Optional[Decision]:
         return _secret_verdict(writes, reads)
     # the reader pass adds to the same lists, so one message names every file of both passes
     failed = reader_pass(command, lambda seg: _secret_reader_seg(seg, ev.cwd, writes, reads), "secret-shell")
+    if failed is None:  # the read went through, so its input redirections are known (`cat <.env`)
+        reads.extend(p for p in nested_inputs(command) if secret_class(_expand(p, ev.cwd)) == "secret")
     return combine([d for d in (_secret_verdict(writes, reads), failed) if d])
 
 
@@ -2126,21 +2170,45 @@ def nested_commands(command: str, local: bool = False) -> tuple[tuple[str, ...],
     got = _nc_cached(command, local)
     if isinstance(got, CommandNotRead):
         raise CommandNotRead(str(got))
-    return got
+    return got[0]
+
+
+def nested_inputs(command: str, local: bool = False) -> tuple[str, ...]:
+    """The files the simple commands of nested_commands read through an input redirection (`<f`, `0<f`,
+    `< f`), from the same memoised read; the token tuples carry no redirection. Raises as nested_commands."""
+    got = _nc_cached(command, local)
+    if isinstance(got, CommandNotRead):
+        raise CommandNotRead(str(got))
+    return got[1]
 
 
 @functools.lru_cache(maxsize=16)
 def _nc_cached(command: str, local: bool = False):
-    """nested_commands' memo: the token tuples, or the CommandNotRead that stopped the read."""
+    """nested_commands' memo: the token tuples and the input files, or the CommandNotRead that stopped the read."""
     out: list[tuple[str, ...]] = []
+    inputs: list[str] = []
     try:
-        _nc_read(command, 0, out, set(), local)
+        _nc_read(command, 0, out, set(), local, inputs)
     except CommandNotRead as exc:  # kept as a value so the second rule does not read the line again
         return exc
-    return tuple(out)
+    return tuple(out), tuple(inputs)
 
 
-def _nc_read(text: str, depth: int, out: list, seen: set, local: bool = False) -> None:
+def _nc_inputs(raw: list[str]) -> list[str]:
+    """The files of the input redirections among the words of one simple command."""
+    out = []
+    for k, t in enumerate(raw):
+        if _BARE_INPUT_RE.match(t):
+            out.extend(raw[k + 1 : k + 2])
+        else:
+            m = _INPUT_REDIRECT_RE.match(t)
+            if m:
+                out.append(m.group(1))
+    return out
+
+
+def _nc_read(text: str, depth: int, out: list, seen: set, local: bool = False,
+             inputs: Optional[list] = None) -> None:
     """Append the simple commands of one line to out, then read what each nests one level deeper."""
     if depth > _HI_MAX_DEPTH:
         if text.strip():
@@ -2162,6 +2230,8 @@ def _nc_read(text: str, depth: int, out: list, seen: set, local: bool = False) -
                 raw = raw[: kept[cut]]
                 toks = toks[:cut]
         nested.extend(_nc_here_strings(raw))  # taken from the words before the redirections go: `<<<` is one
+        if inputs is not None:
+            inputs.extend(_nc_inputs(raw))
         if not toks:
             continue
         out.append(tuple(toks))
@@ -2169,7 +2239,7 @@ def _nc_read(text: str, depth: int, out: list, seen: set, local: bool = False) -
     for script in nested:
         if script not in seen:  # one read per distinct script: a repeated nest costs nothing twice
             seen.add(script)
-            _nc_read(script, depth + 1, out, seen, local)
+            _nc_read(script, depth + 1, out, seen, local, inputs)
 
 
 def _nc_remote_word(toks: list[str]) -> Optional[int]:

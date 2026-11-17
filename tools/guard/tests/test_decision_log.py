@@ -153,11 +153,14 @@ def test_post_failure_cases_are_silent_no_ops(guard, monkeypatch, capsys, tmp_pa
 
 
 def test_post_runs_without_the_budget(guard, monkeypatch, capsys, tmp_path):
-    def no_arming():
-        raise AssertionError("post armed the budget")
+    _hook(guard, monkeypatch, capsys, "pre", _pre(tmp_path, "rm -rf build"))
 
-    monkeypatch.setattr(guard, "_arm_budget", no_arming)
+    def no_fork():
+        raise AssertionError("post forked a rules process")
+
+    monkeypatch.setattr(guard.os, "fork", no_fork)
     assert _hook(guard, monkeypatch, capsys, "post", _post(tmp_path)) == (0, "")
+    assert [r["verdict"] for r in _rows(tmp_path)] == ["ask", "ran"]
 
 
 def test_pre_then_post_through_the_real_hook(guard_path, tmp_path):

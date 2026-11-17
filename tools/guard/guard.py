@@ -22,11 +22,13 @@ import functools
 import json
 import os
 import re
+import select
 import shlex
 import signal
 import socket
 import subprocess
 import sys
+import time
 from collections.abc import Mapping
 from typing import Callable, Optional
 
@@ -2537,42 +2539,117 @@ def _read_event() -> dict:
 
 
 # Both wirings cut the pre hook at 5 s, and a cut hook fails open (the call runs unjudged): answer before that.
-# No environment variable sets it, since whoever starts a session could switch the timer off; tests set this.
+# No environment variable sets it, since whoever starts a session could switch the budget off; tests set this.
+# The rules run in a forked child that the hook kills at the budget. A SIGALRM timer was not enough: before
+# Python 3.11 no signal handler runs inside one `re` search (measured on 3.9.6: a 1 MB `rsync a ` line answered
+# after 26 s), and a watchdog thread would wait for the same interpreter lock that search holds.
 HOOK_BUDGET_S = 3.5
 BUDGET_MSG = (
     "guard: this call could not be judged within the hook's {budget} s budget (the command is {size} characters "
     "long); rules that did not judge it: {rules}. Confirm it yourself."
 )
+STOPPED_MSG = (
+    "guard: the rules stopped before they finished judging this call (the command is {size} characters long); "
+    "rules that did not judge it: {rules}. Confirm it yourself."
+)
+Verdicts = list  # [(rule name, Optional[Decision])] in the order the rules ran
+_PIPE_DECODER = json.JSONDecoder()  # its own instance: the child's lines are ours, whatever replaces json.loads
 
 
-class BudgetExceeded(BaseException):
-    """Raised by the SIGALRM handler; a BaseException, so a rule's `except Exception` cannot swallow it."""
+def _rules_in_process(names: list, ev: Event, cfg: dict) -> Verdicts:
+    """Run the rules in this process, without a budget: the path where there is no fork."""
+    return [(name, RULES[name](ev, cfg)) for name in names]
 
 
-def _on_budget(signum, frame) -> None:
-    """SIGALRM handler: stop the running rule (a handler that raises also stops a running `re` match)."""
-    raise BudgetExceeded()
-
-
-def _arm_budget() -> Optional[tuple]:
-    """Start the wall-clock budget; return (previous handler,), or None where nothing was armed."""
-    if not (hasattr(signal, "setitimer") and hasattr(signal, "SIGALRM")):
-        return None  # Windows: no interval timer, the hook runs as before 0.7.0
+def _rules_child(names: list, ev: Event, cfg: dict, wfd: int) -> None:
+    """The forked child: one JSON line per rule's verdict, then `done`, or one `error` line. Never returns."""
+    code = 0
     try:
-        previous = signal.signal(signal.SIGALRM, _on_budget)
-    except ValueError:  # not the main thread (an embedding caller): run without a budget rather than fail
-        return None
-    signal.setitimer(signal.ITIMER_REAL, HOOK_BUDGET_S)
-    return (previous,)
+        with os.fdopen(wfd, "w", encoding="utf-8") as out:
+            try:
+                for name in names:
+                    out.write(json.dumps({"rule": name, "decision": RULES[name](ev, cfg)}) + "\n")
+                    out.flush()
+                out.write(json.dumps({"done": True}) + "\n")
+            except Exception as exc:  # the parent raises it, so main prints the same `guard: error` as before
+                out.write(json.dumps({"error": str(exc)}) + "\n")
+    except BaseException:  # the pipe broke (the parent gave up) or the exit was asked for: nothing left to tell
+        code = 1
+    finally:
+        try:
+            sys.stderr.flush()  # a rule's warning on stderr; stdout belongs to the parent and is never flushed here
+        except Exception:  # the child is leaving either way; a broken stderr changes nothing
+            pass
+        os._exit(code)  # never back into the caller: no second response, no log line, no test runner teardown
 
 
-def _disarm_budget(armed: Optional[tuple]) -> None:
-    """Stop the timer, then put the previous handler back; harmless when called twice."""
-    if armed is None:
-        return
-    signal.setitimer(signal.ITIMER_REAL, 0)
-    previous = armed[0]
-    signal.signal(signal.SIGALRM, signal.SIG_DFL if previous is None else previous)  # None: set outside Python
+def _stop_child(pid: int) -> None:
+    """Kill the child (gone already is fine) and reap it, so no process is left behind."""
+    try:
+        os.kill(pid, signal.SIGKILL)
+    except ProcessLookupError:  # it has exited and been reaped already
+        pass
+    try:
+        os.waitpid(pid, 0)
+    except ChildProcessError:  # reaped elsewhere (SIGCHLD ignored by an embedding caller): nothing to wait for
+        pass
+
+
+def _read_verdicts(rfd: int, deadline: float) -> tuple:
+    """(verdicts, outcome) from the child's pipe: outcome is done, budget (time ran out) or stopped (pipe ended)."""
+    verdicts: Verdicts = []
+    pending = b""
+    while True:
+        left = deadline - time.monotonic()
+        if left <= 0:
+            return verdicts, "budget"
+        ready, _, _ = select.select([rfd], [], [], left)
+        if not ready:
+            return verdicts, "budget"
+        chunk = os.read(rfd, 65536)
+        if not chunk:
+            return verdicts, "stopped"  # killed or died: only the complete lines before count
+        pending += chunk
+        if b"\n" not in chunk:
+            continue
+        *lines, pending = pending.split(b"\n")
+        for line in lines:
+            try:
+                msg = _PIPE_DECODER.decode(line.decode("utf-8"))
+            except ValueError:  # not a line the child wrote whole: treat the rest as not judged
+                return verdicts, "stopped"
+            if "error" in msg:
+                raise RuntimeError(msg["error"])  # str() is the rule's own text: main prints it as before
+            if msg.get("done"):
+                return verdicts, "done"
+            d = msg.get("decision")
+            verdicts.append((msg.get("rule"), tuple(d) if d else None))
+
+
+def _run_rules(names: list, ev: Event, cfg: dict) -> tuple:
+    """(verdicts, outcome) of the rules, run in a child the hook kills at HOOK_BUDGET_S.
+
+    Where os.fork does not exist (Windows) or the fork fails, the rules run here without a budget, as before
+    0.7.0: a named limit."""
+    if not hasattr(os, "fork"):
+        return _rules_in_process(names, ev, cfg), "done"
+    rfd, wfd = os.pipe()
+    deadline = time.monotonic() + HOOK_BUDGET_S
+    try:
+        pid = os.fork()
+    except OSError:  # no process left to make (limits, memory): judge without a budget rather than not at all
+        os.close(rfd)
+        os.close(wfd)
+        return _rules_in_process(names, ev, cfg), "done"
+    if pid == 0:
+        os.close(rfd)
+        _rules_child(names, ev, cfg, wfd)
+    os.close(wfd)
+    try:
+        return _read_verdicts(rfd, deadline)
+    finally:
+        os.close(rfd)
+        _stop_child(pid)
 
 
 POST_TAIL_BYTES = 128 * 1024  # the post hook reads this much of the log's end: an asked call is a recent line
@@ -2656,28 +2733,21 @@ def run_hook(target: str, wrapper: Optional[str]) -> int:
         decisions.append(("ask", "guard: the tool arguments arrived as a string that is not JSON; no rule could read "
                                  "this call. Confirm it, and capture the event shape for the fixtures."))
         fired["unreadable-args"] = "ask"
-    judged = 0  # rules whose verdict is recorded; the rest are named in the budget ask
-    armed = _arm_budget()
-    try:
-        for name in names:
-            rule = RULES.get(name)
-            if rule is None:
-                raise ValueError(f"unknown rule: {name}")
-            d = rule(ev, cfg)
-            if d and name in off and d[0] == "ask":  # the rule still runs, so the log shows how often it was silenced
-                skipped[name] = "skipped"
-            elif d:
-                decisions.append(d)
-                fired[name] = d[0]
-            judged += 1  # counted after the verdict is kept: an alarm in between names the rule, never drops it
-        _disarm_budget(armed)  # inside the try: an alarm that fires before the timer is off is still caught
-    except BudgetExceeded:  # the finished rules' verdicts stand; a deny among them still wins in combine()
-        _disarm_budget(armed)
-        decisions.append(("ask", BUDGET_MSG.format(budget=HOOK_BUDGET_S, size=len(ev.command or ""),
-                                                   rules=", ".join(names[judged:]))))
+    for name in names:
+        if name not in RULES:
+            raise ValueError(f"unknown rule: {name}")
+    verdicts, outcome = _run_rules(names, ev, cfg)
+    for name, d in verdicts:
+        if d and name in off and d[0] == "ask":  # the rule still runs, so the log shows how often it was silenced
+            skipped[name] = "skipped"
+        elif d:
+            decisions.append(d)
+            fired[name] = d[0]
+    if outcome != "done":  # the verdicts that arrived stand; a deny among them still wins in combine()
+        late = ", ".join(names[len(verdicts):])
+        msg = BUDGET_MSG if outcome == "budget" else STOPPED_MSG
+        decisions.append(("ask", msg.format(budget=HOOK_BUDGET_S, size=len(ev.command or ""), rules=late)))
         fired["budget"] = "ask"
-    finally:
-        _disarm_budget(armed)
     final = combine(decisions)
     if final:
         log_decision(final, fired, ev, cfg)

@@ -134,6 +134,22 @@ ROWS = [
     ("P2", "feat/x", "secret-shell", "ask", 'grep -e ".env" notes.txt'),
     ("P2", "feat/x", "secret-shell", "ask", 'git grep -n "\\.pem" -- tools'),
     ("P2", "feat/x", "secret-shell", "deny", "bash -c 'grep KEY notes.txt > .env'"),
+    # P2, short options in one cluster: the first e or f of the cluster names the pattern, and what follows an f
+    # is its file; -E and -F are other options and name nothing
+    ("P2", "feat/x", "secret-shell", "ask", "bash -c 'grep -rnf .env notes.txt'"),
+    ("P2", "feat/x", "secret-shell", "ask", "bash -c 'grep -if .env notes.txt'"),
+    ("P2", "feat/x", "secret-shell", "ask", "bash -c 'rg -if .env notes.txt'"),
+    ("P2", "feat/x", "secret-shell", "ask", "bash -c 'git grep -nf .env -- notes.txt'"),
+    ("P2", "feat/x", "secret-shell", "ask", "bash -c 'grep -rnf.env notes.txt'"),
+    ("P2", "feat/x", "secret-shell", "ask", "bash -c 'grep -rne KEY .env'"),
+    ("P2", "feat/x", "secret-shell", "ask", "bash -c 'grep -ef .env'"),
+    ("P2", "feat/x", "secret-shell", "ask", "timeout 5 grep -rnf .env notes.txt"),
+    ("P2", "feat/x", "secret-shell", "silent", "bash -c \"grep -rnE '\\.env|\\.pem' tools\""),
+    ("P2", "feat/x", "secret-shell", "silent", "bash -c \"grep -rnF '.env|.pem' tools\""),
+    ("P2", "feat/x", "secret-shell", "silent", "bash -c \"grep -rniw '\\.env|\\.pem' tools\""),
+    ("P2", "feat/x", "secret-shell", "silent", "bash -c 'grep -rnf patterns.txt notes.txt'"),
+    # the named limit: an option's value taken for the pattern (`-A 3`) leaves the pattern read as a path
+    ("P2", "feat/x", "secret-shell", "ask", "bash -c \"grep -A 3 -B 3 -rn '\\.env|\\.pem' tools\""),
     # A1: `git checkout <ref> <path…>` without `--` overwrites the working copy; -b, -B, --orphan, -t and
     # --track name a new branch and its start point
     ("A1", "feat/x", "delete-guard", "ask", "git checkout HEAD src/app.py"),

@@ -590,9 +590,10 @@ _PATTERN_OPTIONS = ("-e", "--regexp", "-f", "--file")  # these name the pattern;
 
 def _search_pattern(seg: list[str], k: int) -> tuple[Optional[int], list[str]]:
     """For the search tool at seg[k] (grep and kin, `git grep`): the index of its pattern operand, or None when
-    -e, --regexp, -f or --file names the pattern (also glued or with `=`), and the glued values of -f/--file
-    (files it reads). The pattern is the first word that is not an option; an option's value taken for it
-    (`-A 3`) leaves the real pattern read as a path, which errs towards asking."""
+    -e, --regexp, -f or --file names the pattern (also glued, with `=`, or among other short options as in
+    `-rnf`), and the glued values of -f/--file (files it reads). The pattern is the first word that is not an
+    option; an option's value taken for it (`-A 3`) leaves the real pattern read as a path, which errs towards
+    asking."""
     name = os.path.basename(seg[k])
     start = k + 1
     if name == "git":
@@ -611,10 +612,13 @@ def _search_pattern(seg: list[str], k: int) -> tuple[Optional[int], list[str]]:
             named = True
             if t.startswith("--file="):
                 files.append(t[len("--file=") :])
-        elif t.startswith(("-e", "-f")) and not t.startswith("--"):
-            named = True
-            if t.startswith("-f"):
-                files.append(t[2:])
+        elif t.startswith("-") and not t.startswith("--"):
+            # short options in one word (`-rnf`): the first e or f names the pattern, the text after an f is its file
+            at = min((n for n in (t.find("e"), t.find("f")) if n > 0), default=0)
+            if at:
+                named = True
+                if t[at] == "f" and t[at + 1 :]:
+                    files.append(t[at + 1 :])
     if named:
         return None, files
     for m in range(start, len(seg)):

@@ -323,9 +323,9 @@ _SQL_TRUNCATE_RE = re.compile(r"truncate\s")
 _SQL_CLIENT_RE = re.compile(
     r"(?<![A-Za-z0-9_])(?:psql|mysql|mariadb|cqlsh|snowsql|duckdb|cockroach|hbase|clickhouse)(?![A-Za-z0-9_])"
 )
-# a quoted span of a command line: '…', or "…" with a backslash escaping the next character. A quote that never
-# closes matches to the end of the text and has no closing group, so one pass reads any text
-_QUOTED_RE = re.compile(r"'[^']*(?:(')|\Z)|\"(?:\\.|[^\"\\])*\\?(?:(\")|\Z)", re.DOTALL)
+# the lower-case word as a word of its own in a simple command (`truncate`, `gtruncate`, `-truncate`): a quoted
+# string with the word in it is one token with white space, and does not match
+_OPEN_WORD_RE = re.compile(r"^\S*truncate$")
 SCRIPT_RE = re.compile(
     r"(python3?|node|bun|deno|bash|sh|zsh|tsx|ts-node|ruby|perl|php)\s+(-\S+\s+)*(\S+\.(py|js|mjs|cjs|ts|sh|zsh|bash|rb|pl|php))"
 )
@@ -416,14 +416,14 @@ def delete_what(command: str) -> Optional[str]:
 
 
 def _truncate_in_the_open(command: str) -> bool:
-    """The lower-case word `truncate` outside the quoted strings of the command lines, or in a here-document.
-    There it asks wherever it stands, as before 0.7.0 (`gtruncate -s 0 f`, `hdfs dfs -truncate 0 /f`,
-    `echo truncate users | pgcli`): prose stands in quotes, and no list names every tool that takes the text.
-    A quote that never closes hides nothing."""
-    lines = _QUOTED_RE.sub(lambda m: "''" if m.group(1) or m.group(2) else m.group(0), strip_heredocs(command))
-    return bool(_SQL_TRUNCATE_RE.search(lines)) or any(
-        _SQL_TRUNCATE_RE.search(m.group(3)) for m in _HEREDOC_RE.finditer(command)
-    )
+    """The lower-case word `truncate` in a here-document, or outside quotes: a word of its own in a simple
+    command of the line or of a script it nests. There it asks wherever it stands, as before 0.7.0
+    (`gtruncate -s 0 f`, `hdfs dfs -truncate 0 /f`, `echo truncate users | pgcli`): prose stands in quotes,
+    and no list names every tool that takes the text. The reader of the token pass decides what a word is, so
+    an escaped quote, a comment and a `$( … )` inside double quotes are read as the shell reads them."""
+    if any(_SQL_TRUNCATE_RE.search(m.group(3)) for m in _HEREDOC_RE.finditer(command)):
+        return True
+    return any(_OPEN_WORD_RE.match(t) for toks in nested_commands(strip_heredocs(command)) for t in toks)
 
 
 def _delete_judge(ev: Event) -> Optional[str]:

@@ -113,7 +113,22 @@ REVIEW_CASES = [
     ("command", "silent", "git commit -m \"$(cat <<'EOF'\nfix: title\nEOF\n)\" && echo \"may truncate it\""),
     # what the cut still gives up: the word inside quotes, away from a statement start, no listed client
     ("command", "silent", "pgcli -c \"/* cleanup */ truncate users\""),
-    ("command", "silent", "bash -c \"echo truncate users | pgcli\""),
+    # found by the review of that commit: its own expression for quoted strings took an apostrophe that is no
+    # quote for one, and hid a substitution inside double quotes. The reader of the token rules decides now what
+    # stands outside quotes, in the line and in every script it nests
+    ("command", "ask", "echo don\\'t; echo truncate users | pgcli; echo won\\'t"),
+    ("command", "ask", "echo $'a\\'b'; echo truncate users | pgcli; echo 'c'"),
+    ("command", "ask", "# it's\necho truncate users | pgcli\n# that's"),
+    ("command", "ask", "echo \"$(echo truncate users | pgcli)\""),
+    ("command", "ask", "echo \"`echo truncate users | pgcli`\""),
+    ("command", "ask", "bash -c \"echo truncate users | pgcli\""),
+    ("command", "ask", "ssh db 'echo truncate users | pgcli'"),
+    ("command", "ask", "eval \"echo truncate users | pgcli\""),
+    ("command", "ask", "docker exec db sh -c 'echo truncate users | pgcli'"),
+    ("command", "ask", "echo \"never closed truncate users | pgcli"),
+    ("command", "silent", "bash -c 'echo \"this may truncate the output\"'"),
+    ("command", "silent", "ssh host 'git commit -m \"do not truncate the title\"'"),
+    ("command", "silent", "grep -n \"truncate\" tools/guard/guard.py"),
 ]
 ALL_CASES = CASES + REVIEW_CASES
 

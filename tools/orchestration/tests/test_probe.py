@@ -10,6 +10,7 @@ import re
 import stat
 import subprocess
 import sys
+import tempfile
 
 import pytest
 
@@ -419,6 +420,33 @@ def test_hung_cli_times_out(probe, tmp_path, monkeypatch):
     code, text, _ = run_main(probe, tmp_path, fake_claude(tmp_path, "time.sleep(10)\n"), "--only", "denial-exits-zero")
     assert code == 1
     assert text.splitlines()[1].strip() == "timed out after 1 s"
+
+
+def test_the_written_record_holds_no_local_path(probe, tmp_path):
+    body = "print(os.path.expanduser('~') + ' ' + os.getcwd())\nsys.exit(3)\n"  # lands in every reason
+    code, text, record = run_main(probe, tmp_path, fake_claude(tmp_path, body))
+    workdir, home = os.path.realpath(str(tmp_path / "work")), os.path.expanduser("~")
+    assert code == 1 and workdir + "/" in text and home in text, "the terminal keeps the real paths"
+    written = record.read_text()
+    for local in (workdir, str(tmp_path), os.path.realpath(str(tmp_path)), home):
+        assert local not in written, local
+    reason = json.loads(written)["canaries"]["workflow-by-name"]["reason"]
+    assert reason == "no JSON result (exit 3): ~ <workdir>/workflow-by-name-run"
+
+
+def test_scrub_replaces_the_longest_path_first_at_any_depth(probe):
+    tmp, home = tempfile.gettempdir(), os.path.expanduser("~")
+    workdir = os.path.join(tmp, "w")
+    real_tmp = os.path.realpath(tmp)
+    record = {"a": [f"{workdir}/x {tmp}/y", {"b": f"{real_tmp}/z {home}/q {os.path.realpath(workdir)}"}], "n": 3}
+    assert probe.scrub(record, probe.local_paths(workdir)) == {
+        "a": ["<workdir>/x <tmp>/y", {"b": "<tmp>/z ~/q <workdir>"}], "n": 3}
+
+
+def test_the_committed_record_holds_no_local_path():
+    text = RECORD.read_text()
+    for local in ("/Users/", "/home/", "/private/", "/var/folders/", "/tmp/"):
+        assert local not in text, local
 
 
 def test_missing_cli_exits_2(probe, tmp_path):

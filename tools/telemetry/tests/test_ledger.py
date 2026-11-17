@@ -412,3 +412,361 @@ def test_cost_report_counts_sessions_by_basis_and_marks(ledger, tdir):
     ledger.cost_report(str(tdir), 7, out, now=dt.datetime(2026, 10, 29, tzinfo=dt.timezone.utc))
     assert ("sessions by cost basis: claude-code 2, own 2, unrecorded 1; marked 3 "
             "(missing 1, out-of-range 1, unchecked 1)") in out.getvalue()
+
+
+def marked_line(req, **extra):
+    """An opus-4-5 request whose usage carries extra fields such as speed and inference_geo."""
+    usage = {"input_tokens": 1, "output_tokens": 1, "cache_read_input_tokens": 0, "cache_creation_input_tokens": 0,
+             **extra}
+    return json.dumps({"type": "assistant", "requestId": req, "message": {"model": "claude-opus-4-5", "usage": usage}})
+
+
+def test_requests_outside_the_standard_speed_and_geo_are_marked(ledger, tmp_path, tdir):
+    proj = tmp_path / "projects" / "-p"
+    sub = proj / "s1" / "subagents" / "workflows" / "wf_1"
+    sub.mkdir(parents=True)
+    (proj / "s1.jsonl").write_text("\n".join([
+        marked_line("r1", speed="fast"),
+        marked_line("r1", speed="fast"),  # streamed duplicate: one request
+        marked_line("r2", speed="fast", inference_geo="us"),
+        marked_line("r3", speed="standard", inference_geo="global"),
+        marked_line("r4", speed=None, inference_geo="not_available"),
+        marked_line("r5", speed="", inference_geo=None),
+        marked_line("r6"),
+        marked_line("r7", speed=2),  # not a string: named by its type
+        marked_line("r8", inference_geo="x" * 30),  # cut at 20 characters
+    ]) + "\n")
+    (sub / "agent-a.jsonl").write_text(marked_line("w1", speed="fast") + "\n")
+    e = ledger.build_entry({"session_id": "s1", "transcript_path": str(proj / "s1.jsonl")}, str(tdir), PRICES)
+    assert e["unpriced"] == {"speed:fast": 3, "inference_geo:us": 1, "speed:int": 1, "inference_geo:" + "x" * 20: 1}
+    assert e["cost_usd_own"] == round(9 * 30 / 1e6, 4), "the pricing does not change"
+
+
+def test_a_session_without_marked_requests_writes_the_same_line_as_before(ledger, tmp_path, tdir):
+    proj = tmp_path / "projects" / "-p"
+    proj.mkdir(parents=True)
+    (proj / "s1.jsonl").write_text("\n".join([marked_line("r1", speed="standard", inference_geo="global"),
+                                              marked_line("r2", speed=None, inference_geo="not_available"),
+                                              marked_line("r3")]) + "\n")
+    e = ledger.build_entry({"session_id": "s1", "transcript_path": str(proj / "s1.jsonl")}, str(tdir), PRICES)
+    assert sorted(e) == ["cost_basis", "cost_check", "cost_usd", "cost_usd_cc", "cost_usd_own", "models",
+                         "parse_errors", "project", "reason", "session", "spawns", "subagents", "ts"]
+
+
+def test_cost_report_names_sessions_with_unpriced_requests(ledger, tdir):
+    tdir.mkdir()
+    base = {"ts": "2026-10-28T10:00:00Z", "project": "/p", "spawns": [], "subagents": {}, "models": {},
+            "cost_basis": "own", "cost_check": "missing"}
+    rows = [dict(base, session="a", unpriced={"speed:fast": 3}),
+            dict(base, session="b", unpriced={"speed:fast": 1, "inference_geo:us": 2}),
+            dict(base, session="c")]
+    (tdir / "sessions-2026-10.jsonl").write_text("\n".join(json.dumps(r) for r in rows) + "\n")
+    out = io.StringIO()
+    ledger.cost_report(str(tdir), 7, out, now=dt.datetime(2026, 10, 29, tzinfo=dt.timezone.utc))
+    assert ("sessions with requests the ledger does not price: 2 (inference_geo:us 2, speed:fast 4)"
+            in out.getvalue().splitlines())
+    (tdir / "sessions-2026-10.jsonl").write_text(json.dumps(dict(base, session="c")) + "\n")
+    out = io.StringIO()
+    ledger.cost_report(str(tdir), 7, out, now=dt.datetime(2026, 10, 29, tzinfo=dt.timezone.utc))
+    assert "does not price" not in out.getvalue()
+
+
+def report_lines(ledger, tdir, rows):
+    tdir.mkdir(exist_ok=True)
+    (tdir / "sessions-2026-10.jsonl").write_text("\n".join(json.dumps(r) for r in rows) + "\n")
+    out = io.StringIO()
+    ledger.cost_report(str(tdir), 7, out, now=dt.datetime(2026, 10, 29, tzinfo=dt.timezone.utc))
+    return out.getvalue().splitlines()
+
+
+def test_cost_report_totals_the_session_costs_and_names_what_it_left_out(ledger, tdir):
+    base = {"ts": "2026-10-28T10:00:00Z", "project": "/p", "spawns": [], "subagents": {},
+            "models": {"claude-opus-4-5": {"input": 1, "output": 1, "cache_read": 0, "cache_write": 0, "turns": 1,
+                                           "cost_usd": 0.1}}}
+    rows = [dict(base, session="a", cost_basis="claude-code", cost_usd=1000.005),
+            dict(base, session="b", cost_basis="own", cost_usd=234.555),
+            dict(base, session="c", cost_basis="own", cost_usd=None),
+            dict(base, session="d", cost_basis="own", cost_usd="12"),
+            dict(base, session="e", cost_basis="own", cost_usd=True),
+            dict(base, session="f", cost_usd=None)]  # written before 2026-11-15: no basis
+    lines = report_lines(ledger, tdir, rows)
+    table_end = next(i for i, ln in enumerate(lines) if ln.startswith("sessions by cost basis"))
+    assert lines[table_end - 1] == ("total session cost: $1,234.56 over 2 sessions; left out: 4 "
+                                    "(unrecorded 1, no cost 3)"), "right after the table"
+    assert lines[table_end - 2].startswith("p "), "the table rows stay where they were"
+
+
+def test_cost_report_total_without_anything_left_out(ledger, tdir):
+    base = {"ts": "2026-10-28T10:00:00Z", "project": "/p", "spawns": [], "subagents": {}, "models": {}}
+    lines = report_lines(ledger, tdir, [dict(base, session="a", cost_basis="own", cost_usd=2.5),
+                                        dict(base, session="b", cost_basis="own", cost_usd=0)])
+    assert "total session cost: $2.50 over 2 sessions" in lines
+    lines = report_lines(ledger, tdir, [dict(base, session="a", cost_basis="own", cost_usd=float("nan"))])
+    assert "total session cost: $0.00 over 0 sessions; left out: 1 (unrecorded 0, no cost 1)" in lines
+
+
+# --- recount ------------------------------------------------------------------------------------------------------
+
+RECOUNT_AT = dt.datetime(2026, 11, 16, 8, 0, tzinfo=dt.timezone.utc)
+
+
+def old_row(session, ts="2026-11-10T09:00:00Z", project="/Users/t/alpha"):
+    """A line as the hook wrote it before 2026-11-15: no cost_basis, a null cost_usd."""
+    return {"ts": ts, "session": session, "project": project, "reason": "exit", "spawns": [], "parse_errors": 0,
+            "subagents": {"transcripts": 0, "tokens": 0, "share": 0.0, "flag": False}, "cost_usd": None,
+            "models": {"claude-opus-4-5": {"input": 0, "output": 493600, "cache_read": 0, "cache_write": 0,
+                                           "turns": 1, "cost_usd": None}}}
+
+
+def config_transcript(tmp_path, session, project="-p"):
+    """A transcript under <CLAUDE_CONFIG_DIR>/projects/<project>/: 493,600 output tokens of opus 4.5 = $12.34."""
+    proj = tmp_path / "cfg" / "projects" / project
+    proj.mkdir(parents=True, exist_ok=True)
+    path = proj / f"{session}.jsonl"
+    path.write_text(line("claude-opus-4-5", 0, 493600, req="r1") + "\n")
+    return path
+
+
+def recount_setup(tmp_path, tdir, monkeypatch):
+    """Two month files: a recountable line, one without a transcript, a current line, garbage, and a file with
+    nothing to do. Returns {file name: bytes before}."""
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "cfg"))
+    tdir.mkdir()
+    config_transcript(tmp_path, "aaaaaaaa-1111")
+    current = {"ts": "2026-11-15T10:00:00Z", "session": "cccccccc-3333", "project": "/Users/t/gamma",
+               "cost_basis": "own", "cost_check": "missing", "cost_usd": 1.0, "models": {}}
+    config_transcript(tmp_path, "cccccccc-3333")  # has a transcript, but a basis: not a candidate
+    (tdir / "sessions-2026-11.jsonl").write_bytes(b"".join([
+        json.dumps(old_row("aaaaaaaa-1111")).encode() + b"\n",
+        json.dumps(current).encode() + b"\n",
+        b"not json at all\n",  # UTF-8: load_sessions (cost_report, below) reads the files as strict UTF-8
+        json.dumps(old_row("bbbbbbbb-2222", ts="2026-11-10T10:00:00Z", project="/Users/t/beta")).encode() + b"\n",
+    ]))
+    (tdir / "sessions-2026-10.jsonl").write_bytes(json.dumps(dict(current, ts="2026-10-20T10:00:00Z",
+                                                                  session="dddd")).encode() + b"\n")
+    return {p.name: p.read_bytes() for p in tdir.iterdir()}
+
+
+def file_lines(data: bytes) -> list:
+    """The lines of a month file split on b"\\n" only (splitlines() would also split on \\r and other breaks)."""
+    assert data.endswith(b"\n")
+    return data[:-1].split(b"\n")
+
+
+def assert_untouched(after: bytes, untouched: list) -> None:
+    """Each untouched line is in the file exactly once, byte for byte, and they keep their order."""
+    lines = file_lines(after)
+    for kept in untouched:
+        assert lines.count(kept) == 1, kept
+    assert [ln for ln in lines if ln in untouched] == untouched
+
+
+def test_recount_dry_run_prints_what_it_would_do_and_writes_nothing(ledger, tmp_path, tdir, monkeypatch):
+    before = recount_setup(tmp_path, tdir, monkeypatch)
+    out = io.StringIO()
+    assert ledger.recount(str(tdir), False, out, now=RECOUNT_AT) == 0
+    assert out.getvalue().splitlines() == [
+        "2026-11-10T09:00:00Z aaaaaaaa alpha null -> $12.34 (own, missing)",
+        "2026-11-10T10:00:00Z bbbbbbbb beta no transcript",
+        "recount: 1 recounted ($12.34), 1 without a transcript, 0 with an incomplete transcript, 0 errors, "
+        "1 unparsable lines kept; dry run, nothing written (--write applies it)"]
+    assert {p.name: p.read_bytes() for p in tdir.iterdir()} == before, "no lock file, no change"
+
+
+def test_recount_write_rebuilds_labels_and_keeps_every_line(ledger, tmp_path, tdir, monkeypatch):
+    before = recount_setup(tmp_path, tdir, monkeypatch)
+    out = io.StringIO()
+    assert ledger.recount(str(tdir), True, out, now=RECOUNT_AT) == 0
+    assert out.getvalue().splitlines()[-1].endswith("; written")
+    month = tdir / "sessions-2026-11.jsonl"
+    data = month.read_bytes()
+    assert data.count(b"\n") == before[month.name].count(b"\n")
+    assert_untouched(data, file_lines(before[month.name])[1:3])  # the current line and the garbage
+    assert (tdir / "sessions-2026-10.jsonl").read_bytes() == before["sessions-2026-10.jsonl"]
+    rows = {r["session"]: r for r in (json.loads(b) for b in file_lines(data) if not b.startswith(b"not json"))}
+    new = rows["aaaaaaaa-1111"]
+    assert (new["ts"], new["project"], new["reason"]) == ("2026-11-10T09:00:00Z", "/Users/t/alpha", "exit")
+    assert (new["cost_usd"], new["cost_basis"], new["cost_check"]) == (12.34, "own", "missing")
+    old = old_row("aaaaaaaa-1111")
+    assert new["recount"] == {"at": "2026-11-16T08:00:00Z", "was": {
+        k: old[k] for k in ("cost_usd", "models", "parse_errors", "spawns", "subagents")}}
+    assert rows["bbbbbbbb-2222"] == dict(old_row("bbbbbbbb-2222", ts="2026-11-10T10:00:00Z", project="/Users/t/beta"),
+                                         recount={"at": "2026-11-16T08:00:00Z", "transcript": "missing"})
+    assert not os.path.exists(str(month) + ".tmp")
+    written = {p.name: p.read_bytes() for p in tdir.iterdir()}
+    out = io.StringIO()
+    assert ledger.recount(str(tdir), True, out, now=RECOUNT_AT) == 0, "a second run finds nothing"
+    assert out.getvalue().splitlines() == ["recount: 0 recounted ($0.00), 0 without a transcript, "
+                                           "0 with an incomplete transcript, 0 errors, "
+                                           "1 unparsable lines kept; nothing to write"]
+    assert {p.name: p.read_bytes() for p in tdir.iterdir()} == written
+    out = io.StringIO()
+    ledger.cost_report(str(tdir), 30, out, now=RECOUNT_AT)
+    # the two current lines and the recounted one have a basis; the line without a transcript stays unrecorded
+    assert "sessions by cost basis: own 3, unrecorded 1; marked 3 (missing 3)" in out.getvalue()
+
+
+def test_recount_leaves_a_failing_line_untouched_and_exits_1(ledger, tmp_path, tdir, monkeypatch):
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "cfg"))
+    tdir.mkdir()
+    for sid in ("badts", "dup", "elsewhere", "good"):
+        config_transcript(tmp_path, sid)
+    unreadable = tmp_path / "cfg" / "projects" / "-p" / "dirlike.jsonl"
+    unreadable.mkdir()  # a directory where the transcript should be: open() fails
+    config_transcript(tmp_path, "twice", "-p")
+    config_transcript(tmp_path, "twice", "-q")  # two hits: not evidence
+    # the two dup lines differ (reason), so neither is safe to replace
+    bad = [dict(old_row("badts"), ts="yesterday"), old_row("dirlike"), old_row("dup"), dict(old_row("dup"), reason="x"),
+           dict(old_row("elsewhere"), ts="2026-10-31T23:00:00Z"), old_row(""), old_row("../x")]
+    month = tdir / "sessions-2026-11.jsonl"
+    month.write_text("\n".join(json.dumps(r) for r in bad + [old_row("twice"), old_row("good")]) + "\n")
+    before = month.read_bytes()
+    out = io.StringIO()
+    assert ledger.recount(str(tdir), True, out, now=RECOUNT_AT) == 1
+    text = out.getvalue().splitlines()
+    assert text[0].startswith("yesterday badts ") and " error: ValueError: " in text[0]
+    assert " error: IsADirectoryError: " in text[1]
+    # bad ts, unreadable, dup twice, wrong month file, no session id (append_entry could not replace it)
+    assert sum(" error: " in ln for ln in text) == 6, text
+    assert text[-1] == ("recount: 1 recounted ($12.34), 2 without a transcript, 0 with an incomplete transcript, "
+                        "6 errors, 0 unparsable lines kept; written")
+    after = month.read_bytes()
+    assert after.count(b"\n") == before.count(b"\n")
+    assert_untouched(after, file_lines(before)[:6])
+    rows = [json.loads(b) for b in file_lines(after)]
+    assert {r["session"]: r["recount"].get("transcript") for r in rows if "recount" in r} == {
+        "../x": "missing", "twice": "missing", "good": None}
+
+
+def test_recount_verb_runs_from_main_as_a_dry_run(ledger, tmp_path, tdir, monkeypatch):
+    before = recount_setup(tmp_path, tdir, monkeypatch)
+    out = io.StringIO()
+    assert ledger.main(["recount"], out=out) == 0
+    assert "dry run, nothing written" in out.getvalue()
+    assert {p.name: p.read_bytes() for p in tdir.iterdir()} == before
+    assert "ledger.py recount" in ledger.__doc__
+
+
+def run_recount(ledger, tdir, write):
+    """(exit code, output lines) of one recount run."""
+    out = io.StringIO()
+    code = ledger.recount(str(tdir), write, out, now=RECOUNT_AT)
+    return code, out.getvalue().splitlines()
+
+
+def month_setup(tmp_path, tdir, monkeypatch, rows):
+    """sessions-2026-11.jsonl holding `rows` (dicts are dumped, bytes are kept) and the current line last."""
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "cfg"))
+    tdir.mkdir()
+    current = {"ts": "2026-11-15T10:00:00Z", "session": "cccccccc-3333", "project": "/Users/t/gamma",
+               "cost_basis": "own", "cost_check": "missing", "cost_usd": 1.0, "models": {}}
+    month = tdir / "sessions-2026-11.jsonl"
+    month.write_bytes(b"".join((r if isinstance(r, bytes) else json.dumps(r).encode()) + b"\n"
+                               for r in rows + [current]))
+    return month
+
+
+def summary(recounted="0 recounted ($0.00)", missing=0, incomplete=0, errors=0, tail="written"):
+    return (f"recount: {recounted}, {missing} without a transcript, {incomplete} with an incomplete transcript, "
+            f"{errors} errors, 0 unparsable lines kept; {tail}")
+
+
+DRY = "dry run, nothing written (--write applies it)"
+
+
+def test_recount_rebuilds_an_identical_pair_once(ledger, tmp_path, tdir, monkeypatch):
+    pair = json.dumps(old_row("eeeeeeee-5555")).encode()
+    month = month_setup(tmp_path, tdir, monkeypatch, [pair, pair])
+    config_transcript(tmp_path, "eeeeeeee-5555")
+    before = month.read_bytes()
+    assert run_recount(ledger, tdir, False) == (0, [
+        "2026-11-10T09:00:00Z eeeeeeee alpha null -> $12.34 (own, missing) (2 identical lines become one)",
+        summary("1 recounted ($12.34)", tail=DRY)])
+    assert month.read_bytes() == before and not (tdir / ledger.LOCK_FILE).exists()
+    code, text = run_recount(ledger, tdir, True)
+    assert (code, text[-1]) == (0, summary("1 recounted ($12.34)"))
+    after = month.read_bytes()
+    assert after.count(b"\n") == before.count(b"\n") - 1, "the pair becomes one line, nothing else goes"
+    assert_untouched(after, file_lines(before)[2:])
+    rows = [json.loads(b) for b in file_lines(after)]
+    new = [r for r in rows if r["session"] == "eeeeeeee-5555"]
+    assert len(new) == 1 and new[0]["cost_usd"] == 12.34 and new[0]["recount"]["lines"] == 2
+    written = month.read_bytes()
+    assert run_recount(ledger, tdir, True) == (0, [summary(tail="nothing to write")]), "a second run finds nothing"
+    assert month.read_bytes() == written
+
+
+def test_recount_labels_an_identical_pair_without_a_transcript_once(ledger, tmp_path, tdir, monkeypatch):
+    row = old_row("ffffffff-6666")
+    pair = json.dumps(row).encode()
+    month = month_setup(tmp_path, tdir, monkeypatch, [pair, pair])
+    before = month.read_bytes()
+    assert run_recount(ledger, tdir, False) == (0, [
+        "2026-11-10T09:00:00Z ffffffff alpha no transcript (2 identical lines become one)",
+        summary(missing=1, tail=DRY)])
+    assert month.read_bytes() == before
+    assert run_recount(ledger, tdir, True)[0] == 0
+    after = month.read_bytes()
+    assert after.count(b"\n") == before.count(b"\n") - 1
+    assert_untouched(after, file_lines(before)[2:])
+    rows = [json.loads(b) for b in file_lines(after) if b"ffffffff" in b]
+    assert rows == [dict(row, recount={"at": "2026-11-16T08:00:00Z", "transcript": "missing", "lines": 2})]
+
+
+def test_recount_names_each_line_of_a_differing_pair_and_touches_neither(ledger, tmp_path, tdir, monkeypatch):
+    month = month_setup(tmp_path, tdir, monkeypatch, [old_row("dup"), dict(old_row("dup"), reason="clear")])
+    config_transcript(tmp_path, "dup")
+    before = month.read_bytes()
+    for write in (False, True):
+        code, text = run_recount(ledger, tdir, write)
+        assert code == 1
+        assert [ln.split(" error: ")[1] for ln in text[:-1]] == [
+            "ValueError: 2 differing lines with this session id in sessions-2026-11.jsonl"] * 2
+        assert text[-1] == summary(errors=2, tail=DRY if not write else "nothing to write")
+        assert month.read_bytes() == before
+
+
+def test_recount_labels_an_incomplete_transcript_and_keeps_the_old_line(ledger, tmp_path, tdir, monkeypatch):
+    for kind, body, tokens in (("empty", "", 0),
+                               ("garbage", "not json\n[1, 2]\n{\"type\": \"assistant\", \"message\": 3}\n", 0),
+                               ("fewer", line("claude-opus-4-5", 0, 1000, req="r1") + "\n", 1000)):
+        base = tmp_path / kind
+        base.mkdir()
+        tel = base / "telemetry"
+        row = old_row("gggggggg-7777")
+        month = month_setup(base, tel, monkeypatch, [row])
+        path = config_transcript(base, "gggggggg-7777")
+        path.write_text(body)
+        before = month.read_bytes()
+        assert run_recount(ledger, tel, False) == (0, [
+            f"2026-11-10T09:00:00Z gggggggg alpha incomplete transcript (old 493600 tokens, transcript {tokens})",
+            summary(incomplete=1, tail=DRY)]), kind
+        assert month.read_bytes() == before, kind
+        assert run_recount(ledger, tel, True) == (0, [
+            f"2026-11-10T09:00:00Z gggggggg alpha incomplete transcript (old 493600 tokens, transcript {tokens})",
+            summary(incomplete=1)]), kind
+        after = month.read_bytes()
+        assert after.count(b"\n") == before.count(b"\n")
+        assert_untouched(after, file_lines(before)[1:])
+        rows = [json.loads(b) for b in file_lines(after) if b"gggggggg" in b]
+        assert rows == [dict(row, recount={"at": "2026-11-16T08:00:00Z", "transcript": "incomplete"})], kind
+
+
+def test_recount_treats_malformed_old_models_as_zero_and_keeps_was_as_it_stood(ledger, tmp_path, tdir, monkeypatch):
+    lean = {k: v for k, v in old_row("hhhhhhhh-8888").items() if k not in ("spawns", "subagents")}
+    lean["models"] = "garbled"
+    month = month_setup(tmp_path, tdir, monkeypatch, [lean])
+    config_transcript(tmp_path, "hhhhhhhh-8888")
+    code, text = run_recount(ledger, tdir, True)
+    assert (code, text[0]) == (0, "2026-11-10T09:00:00Z hhhhhhhh alpha null -> $12.34 (own, missing)")
+    new = [json.loads(b) for b in file_lines(month.read_bytes()) if b"hhhhhhhh" in b][0]
+    assert new["recount"]["was"] == {"cost_usd": None, "models": "garbled", "parse_errors": 0}, \
+        "a key the old line did not have is left out"
+
+
+def test_recount_names_a_line_whose_session_id_is_not_a_string(ledger, tmp_path, tdir, monkeypatch):
+    month = month_setup(tmp_path, tdir, monkeypatch, [dict(old_row("x"), session=["a"])])
+    before = month.read_bytes()
+    code, text = run_recount(ledger, tdir, True)
+    assert code == 1 and text[0].endswith(" error: ValueError: no session id, so the line cannot be replaced")
+    assert month.read_bytes() == before

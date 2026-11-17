@@ -301,8 +301,8 @@ TOOL_RE = (
     r"|prisma\s+migrate\s+reset|--force-reset|(DROP|drop)\s+(TABLE|DATABASE|SCHEMA|table|database|schema)"
     # SQL TRUNCATE: the upper-case keyword wherever it stands, as before 0.7.0; the lower-case word only where a
     # statement can start (line start, ; quote paren backtick) or in front of `table`, so that prose such as
-    # "may truncate the description" does not ask (0.7.0). _delete_judge adds the command lines that name a SQL
-    # client; the coreutils `truncate` command asks through SHELL_RE
+    # "may truncate the description" does not ask (0.7.0). For a command line _delete_judge adds the word outside
+    # quotes and the lines that name a SQL client; the coreutils `truncate` command asks through SHELL_RE
     r"|TRUNCATE\s|(?:^|[;\"'(`])\s*truncate\s|truncate\s+table\s"
     r"|(DELETE|delete)\s+(FROM|from)\s|rclone\s+(delete|purge|sync)|rsync\s.*--delete"
 )
@@ -323,6 +323,9 @@ _SQL_TRUNCATE_RE = re.compile(r"truncate\s")
 _SQL_CLIENT_RE = re.compile(
     r"(?<![A-Za-z0-9_])(?:psql|mysql|mariadb|cqlsh|snowsql|duckdb|cockroach|hbase|clickhouse)(?![A-Za-z0-9_])"
 )
+# a quoted span of a command line: '…', or "…" with a backslash escaping the next character. A quote that never
+# closes matches to the end of the text and has no closing group, so one pass reads any text
+_QUOTED_RE = re.compile(r"'[^']*(?:(')|\Z)|\"(?:\\.|[^\"\\])*\\?(?:(\")|\Z)", re.DOTALL)
 SCRIPT_RE = re.compile(
     r"(python3?|node|bun|deno|bash|sh|zsh|tsx|ts-node|ruby|perl|php)\s+(-\S+\s+)*(\S+\.(py|js|mjs|cjs|ts|sh|zsh|bash|rb|pl|php))"
 )
@@ -412,9 +415,23 @@ def delete_what(command: str) -> Optional[str]:
     return None
 
 
+def _truncate_in_the_open(command: str) -> bool:
+    """The lower-case word `truncate` outside the quoted strings of the command lines, or in a here-document.
+    There it asks wherever it stands, as before 0.7.0 (`gtruncate -s 0 f`, `hdfs dfs -truncate 0 /f`,
+    `echo truncate users | pgcli`): prose stands in quotes, and no list names every tool that takes the text.
+    A quote that never closes hides nothing."""
+    lines = _QUOTED_RE.sub(lambda m: "''" if m.group(1) or m.group(2) else m.group(0), strip_heredocs(command))
+    return bool(_SQL_TRUNCATE_RE.search(lines)) or any(
+        _SQL_TRUNCATE_RE.search(m.group(3)) for m in _HEREDOC_RE.finditer(command)
+    )
+
+
 def _delete_judge(ev: Event) -> Optional[str]:
     """What the command would delete: the text pass, the scan of a script it names, then the token pass."""
-    if DELETE_RE.search(ev.command) or (_SQL_TRUNCATE_RE.search(ev.command) and _SQL_CLIENT_RE.search(ev.command)):
+    if DELETE_RE.search(ev.command) or (
+        _SQL_TRUNCATE_RE.search(ev.command)
+        and (_SQL_CLIENT_RE.search(ev.command) or _truncate_in_the_open(ev.command))
+    ):
         return "command contains a delete/discard pattern"
     for m in SCRIPT_RE.finditer(ev.command):
         script = m.group(3)

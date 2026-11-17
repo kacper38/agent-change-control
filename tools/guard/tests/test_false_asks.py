@@ -89,6 +89,31 @@ REVIEW_CASES = [
     ("command", "silent", "cat ~/.psqlrc; echo \"will truncate output\""),
     ("command", "silent", "echo \"we will truncate the log\" > notes-mysql_old.txt"),
     ("command", "silent", "mysqladmin status; echo \"may truncate rows\""),
+    # found while checking that fix: no list names every tool that takes the text. Outside quotes and in a
+    # here-document the lower-case word asks wherever it stands, as at 0.6.1; prose stands inside quotes
+    ("command", "ask", "gtruncate -s 0 app.log"),
+    ("command", "ask", "sudo gtruncate -s 0 /var/log/x"),
+    ("command", "ask", "hdfs dfs -truncate 0 /data/part-0"),
+    ("command", "ask", "rados -p pool truncate obj 0"),
+    ("command", "ask", "echo truncate users | pgcli"),
+    ("command", "ask", "echo truncate users | python manage.py dbshell"),
+    ("command", "ask", "echo truncate users | docker exec -i db sh -c 'exec $CLIENT'"),
+    ("command", "ask", "echo begin\\; truncate users\\; commit | ysqlsh"),
+    ("command", "ask", "echo the export may truncate long titles"),
+    ("command", "ask", "pgcli <<EOF\n/* cleanup */ truncate users;\nEOF"),
+    ("command", "ask", "bash <<'EOF'\necho truncate users | pgcli\nEOF"),
+    ("command", "ask", "git commit -F - <<'EOF'\nfix: an in-place truncate and rewrite\nEOF"),
+    ("command", "ask", "cat <<EOF > notes.txt\nit's done\nEOF\necho truncate users | pgcli"),
+    ("command", "ask", "# don't wait\necho truncate users | pgcli"),
+    ("command", "silent", "git commit -m \"it's fine\" -m \"don't truncate the title\""),
+    ("command", "silent", "bash -c \"git commit -m \\\"do not truncate the title\\\"\""),
+    ("command", "silent", "bash -c 'git commit -m \"do not truncate the title\"'"),
+    ("command", "silent", "gh pr create --title x --body \"list items may truncate the description\""),
+    ("command", "silent", "echo 'this may truncate the output' | tee notes.txt"),
+    ("command", "silent", "git commit -m \"$(cat <<'EOF'\nfix: title\nEOF\n)\" && echo \"may truncate it\""),
+    # what the cut still gives up: the word inside quotes, away from a statement start, no listed client
+    ("command", "silent", "pgcli -c \"/* cleanup */ truncate users\""),
+    ("command", "silent", "bash -c \"echo truncate users | pgcli\""),
 ]
 ALL_CASES = CASES + REVIEW_CASES
 

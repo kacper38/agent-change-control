@@ -261,6 +261,15 @@ CASES: dict = {
         # guard 0.7.0, review fixes: kubectl debug starts a container in the cluster
         *shell("ask", "kubectl debug web-0 -it --image=busybox"),
         *shell("allow", "kubectl debug --help"),
+        # guard 0.7.0, review fixes: a help word behind `--`, aws batch-delete-, az verbs where the verb stands
+        *shell(
+            "ask", "kubectl run tmp --rm -it --image=alpine -- du -h /data",
+            "aws ecr batch-delete-image --repository-name r --image-ids imageTag=x", "az --verbose webapp up --name x",
+        ),
+        *shell(
+            "allow", "kubectl run tmp --help", "aws ecr batch-get-image --repository-name r --image-ids imageTag=x",
+            "az storage blob list --container-name c --prefix deploy",
+        ),
     ],
     "egress-guard": [
         ("ask", "shell", {"command": "agy review plan.md"}, CLIENT),

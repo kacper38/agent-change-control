@@ -829,9 +829,9 @@ _DEPLOY_ADDED: dict = {
 }
 _PUSH_ONLY = frozenset({"build", "buildx build", "buildx bake"})  # these count only with --push
 # aws: an operation under any service that starts so, and these pairs (_aws_hit)
-_AWS_DESTROY = ("delete-", "terminate-")
+_AWS_DESTROY = ("delete-", "terminate-", "batch-delete-")
 _AWS_UPDATES = {"ecs": _verbs("update-service"),
-                "lambda": _verbs("update-function-code update-function-configuration")}
+                "lambda": _verbs("update-function-code update-function-configuration update-alias")}
 _DRY_VALUES = frozenset({"client", "server", "true"})  # --dry-run=<these> previews; any other value applies
 # the 0.6.0 text pass, kept as it was (fix brief 1: nothing that asked at 0.6.0 may stop asking)
 _DEPLOY_PATTERNS = [
@@ -916,9 +916,31 @@ def _az_changes(args: list[str]) -> Optional[str]:
         return "az changes resources"
     if words[:3] == ["repos", "pr", "update"]:
         return None  # changes a pull request, no environment (tracker-guard still reads it)
-    if {"deploy", "update", "up"} & set(args[1:]) and not _NC_HELP & set(args):  # 0.7.0 words
+    lead = _az_leading_words(args)
+    if lead[:2] == ["extension", "update"]:
+        return None  # an install on this machine: host-install judges it
+    if {"deploy", "update", "up"} & set(lead[1:]) and not _help_probe(args):  # 0.7.0 words, where the verb stands
         return "az changes resources"
     return None
+
+
+def _az_leading_words(args: list[str]) -> list[str]:
+    """The plain words of an az call in front of the first option that follows a plain word (`webapp up` of
+    `az --verbose webapp up --name x`): the group and the verb, not an option's value."""
+    out: list[str] = []
+    for t in args:
+        if t.startswith("-"):
+            if out:
+                break
+            continue  # options at the very start are skipped
+        out.append(t)
+    return out
+
+
+def _help_probe(args: list[str]) -> bool:
+    """A help word in front of the first `--`; behind it, it belongs to the command inside (`-- ls --help`)."""
+    head = args[: args.index("--")] if "--" in args else args
+    return bool(_NC_HELP & set(head))
 
 
 def _ansible_runs(args: list[str], at_command_word: bool) -> bool:
@@ -945,7 +967,7 @@ def _deploy_call(name: str, args: list[str], at_command_word: bool) -> Optional[
 
 
 def _deploy_added(name: str, args: list[str], label: str) -> Optional[str]:
-    """The label when the 0.7.0 rows find a change; a help probe anywhere in the call is none."""
+    """The label when the 0.7.0 rows find a change; a help probe in front of the first `--` is none."""
     if name == "aws":
         hit = _aws_hit(args)
         label = ("aws deletes or terminates resources" if hit and hit.split()[1].startswith(_AWS_DESTROY)
@@ -954,7 +976,7 @@ def _deploy_added(name: str, args: list[str], label: str) -> Optional[str]:
         hit = subcommand_hit(args, *_DEPLOY_ADDED[name])
     else:
         return None
-    if not hit or _NC_HELP & set(args):
+    if not hit or _help_probe(args):
         return None
     if hit in _PUSH_ONLY and not any(t == "--push" or (t.startswith("--push=") and t[7:].lower() != "false")
                                      for t in args):

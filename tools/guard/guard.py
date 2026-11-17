@@ -753,7 +753,7 @@ _DEPLOY_ADDED: dict = {
     "nerdctl": _DOCKER_ADDED,
     "terraform": _TERRAFORM_ADDED,
     "tofu": _TERRAFORM_ADDED,
-    "kubectl": (_verbs("label annotate set run taint expose autoscale"), {}),
+    "kubectl": (_verbs("label annotate set run taint expose autoscale debug"), {}),  # debug starts a container
     "gh": (_verbs(""), {"run": _verbs("rerun cancel delete"), "workflow": _verbs("enable disable")}),
     "argocd": (_verbs(""), {"app": _verbs("sync delete rollback set create patch")}),
     "flux": (_verbs("reconcile resume delete create bootstrap"), {}),
@@ -1925,9 +1925,23 @@ _NC_SUB_WRAPPERS: dict = {
     **dict.fromkeys("asdf bundle npm pnpm yarn".split(), {("exec",): 0}),
     "direnv": {("exec",): 1},
     **dict.fromkeys("docker podman nerdctl".split(), _NC_CONTAINER_SUBS),
-    **dict.fromkeys("docker-compose podman-compose kubectl oc".split(), {("run",): 1, ("exec",): 1}),
+    **dict.fromkeys("docker-compose podman-compose".split(), {("run",): 1, ("exec",): 1}),
+    "kubectl": {("run",): 1, ("exec",): 1, ("debug",): 1},  # fix pass: `kubectl debug <pod> … -- <command…>`
+    "oc": {("run",): 1, ("exec",): 1, ("rsh",): 1, ("debug",): 1},  # `oc rsh <pod> <command…>`
     "devcontainer": {("exec",): 0},
 }
+# fix pass: a tool plus a subcommand whose command follows an option: `nix develop … -c <command…>`,
+# `nix shell <installables…> --command <command…>`; the word after the first such option is a command word
+_NC_OPTION_RUNNERS: dict = {"nix": {"develop": frozenset({"-c", "--command"}), "shell": frozenset({"-c", "--command"})}}
+# fix pass: name -> (subcommand or "", options whose value is a script): `nix-shell --run '…'` wherever the
+# option stands, `npx -c '…'`, `npm exec --call '…'`
+_NC_SCRIPT_OPTIONS: dict = {
+    "nix-shell": ("", frozenset({"--run", "--command"})),
+    "npx": ("", frozenset({"-c", "--call"})),
+    "npm": ("exec", frozenset({"-c", "--call"})),
+}
+_NC_FD = frozenset({"fd", "fdfind"})
+_NC_FD_EXEC = frozenset("-x -X --exec --exec-batch".split())  # fd runs the command after these per match
 # the local reading ends at these command words: the command after them runs in a container or on another host
 _NC_ELSEWHERE = _HI_REMOTE | {"podman-compose"}
 # names whose quoted words are command lines for a shell: `ssh host '…'`, `watch '…'`, `parallel '…' ::: a`,
@@ -2067,7 +2081,27 @@ def _nc_scripts(toks: list[str]) -> list[str]:
         elif name == "env" and not env:
             env = True
             scripts.extend(_nc_split_string(toks, i))
+        if name in _NC_SCRIPT_OPTIONS and i in words:
+            scripts.extend(_nc_option_scripts(toks, i, *_NC_SCRIPT_OPTIONS[name]))
     return scripts
+
+
+def _nc_option_scripts(toks, i: int, sub: str, options: frozenset) -> list[str]:
+    """The scripts after toks[i] that are the value of one of `options` (`nix-shell --run '…'`, also
+    `--run=…`), wherever the option stands; when `sub` is set, only after that subcommand (`npm exec -c '…'`)."""
+    out = []
+    seen = not sub
+    for k in range(i + 1, len(toks)):
+        t = toks[k]
+        if not seen:
+            seen = t == sub
+            continue
+        head, eq, value = t.partition("=")
+        if t in options and k + 1 < len(toks):
+            out.append(toks[k + 1])
+        elif eq and head in options and head.startswith("--"):
+            out.append(value)
+    return out
 
 
 def _nc_operand(toks, j: int) -> Optional[str]:
@@ -2142,8 +2176,14 @@ def _command_word_indexes(toks: tuple) -> set:
         name = os.path.basename(toks[j])
         if name == "find":
             later = [k + 1 for k in range(j + 1, n - 1) if toks[k] in _NC_FIND_EXEC]
+        elif name in _NC_FD:
+            later = [k + 1 for k in range(j + 1, n - 1) if toks[k] in _NC_FD_EXEC]
         elif name == "command" and j + 1 < n and toks[j + 1] in ("-v", "-V"):
             continue
+        elif name == "coproc" and j + 2 < n and toks[j + 2] in ("{", "("):
+            later = _nc_wrapped(toks, j + 1, 0)  # `coproc NAME { …`: a name stands only before a compound command
+        elif name in _NC_OPTION_RUNNERS:
+            later = _nc_option_wrapped(toks, j, _NC_OPTION_RUNNERS[name])
         elif name in _NC_WRAPPERS:
             later = _nc_wrapped(toks, j, _NC_WRAPPERS[name])
         elif name in _NC_SUB_WRAPPERS:
@@ -2212,6 +2252,26 @@ def _nc_sub_wrapped(toks, j: int, subs: dict) -> list[int]:
         if any(p[: len(step)] == step for p in subs):  # `compose`, `container`: the next word decides
             path, may_be_value = step, False
             continue
+        if not may_be_value:
+            return []
+        may_be_value = False
+    return []
+
+
+def _nc_option_wrapped(toks, j: int, subs: dict) -> list[int]:
+    """The index of the command run by `nix develop … -c <command…>` at toks[j]: find the subcommand past the
+    tool's options, with subcommand_hit's rule for an option's value, then the word after the first of its
+    options that hands over a command (`-c`, `--command`)."""
+    may_be_value = False
+    for k in range(j + 1, len(toks)):
+        t = toks[k]
+        if t == "--":
+            return []
+        if t.startswith("-") and len(t) > 1:
+            may_be_value = "=" not in t
+            continue
+        if t in subs:
+            return [m + 1 for m in range(k + 1, len(toks) - 1) if toks[m] in subs[t]][:1]
         if not may_be_value:
             return []
         may_be_value = False

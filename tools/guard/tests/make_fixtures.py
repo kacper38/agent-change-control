@@ -88,6 +88,12 @@ CASES: dict = {
             "docker exec web rm -rf /data", "kubectl exec web-0 -- rm -rf /data",
         ),
         *shell("allow", "uv run --offline ruff check tools", "docker exec web ls /data", "direnv exec . make test"),
+        # guard 0.7.0, review fixes: coproc NAME, fd -x, nix and oc runners
+        *shell(
+            "ask", "coproc p { rm -f x; }", "fd -e pyc -x rm", "nix develop -c rm -rf build",
+            "oc rsh web-0 rm -rf /data",
+        ),
+        *shell("allow", "coproc p { ls; }", "fd -e py -x wc -l", "nix-shell --run \"ls\""),
     ],
     "secret-write": [
         ("deny", "write", {"path": ".env", "content": "TOKEN=abc"}),
@@ -246,6 +252,9 @@ CASES: dict = {
             "aws s3api list-objects --bucket b", "gh run view 1", "argocd app diff web",
             "az repos pr update --id 1 --description x",
         ),
+        # guard 0.7.0, review fixes: kubectl debug starts a container in the cluster
+        *shell("ask", "kubectl debug web-0 -it --image=busybox"),
+        *shell("allow", "kubectl debug --help"),
     ],
     "egress-guard": [
         ("ask", "shell", {"command": "agy review plan.md"}, CLIENT),

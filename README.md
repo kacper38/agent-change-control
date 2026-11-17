@@ -117,7 +117,8 @@ On the laptop, before a tool call runs:
 
 - `tools/guard/guard.py` (PreToolUse in Claude Code through
   `.claude/settings.json`, in Copilot through `.github/hooks/guard.json`):
-  asks before secret files are read or anything deploys; denies force-push and
+  asks before secret files are read, anything deploys or a command installs
+  packages or runs a downloaded script on the host; denies force-push and
   protected-branch commits, `gh issue …`, `gh label …`, `az boards work-item`
   writes, `az devops invoke`, any `bypassRules` and raw API writes; counts
   subagent spawns. Every rule ships with allow, ask, deny and crash fixtures
@@ -159,8 +160,11 @@ On the server and in CI:
   REST API only; the first live run (step A0 on a scratch organisation, then
   the pilot A9) settles the response shapes, the branch ACL token and whether
   the session-start digest fits its time budget.
-- Tests: `uv run --no-project --with pytest python -m pytest -o addopts= -q`
-  (add `--python /usr/bin/python3` for 3.9); lint: `uvx ruff check .`.
+- Tests: `uv run --offline --no-project --with pytest python -m pytest -o addopts= -q`
+  (add `--python /usr/bin/python3` for 3.9); lint: `uvx --offline ruff check .`.
+  `--offline` keeps both on the local cache, which is what `AGENTS.md` asks of
+  an agent; on a new machine the owner fills the cache once by running them
+  without it.
 
 ## Reference
 
@@ -180,7 +184,12 @@ variables (`KZ_TRACKER_REPO`, `KZ_TRACKER_AREA`, `KZ_TRACKER_ADO_MODE`,
 ### Guards
 
 - `tools/guard/guard.py` takes its knobs from the committed `.claude/guard.json`
-  (`protected_branches`, `boundary`, `scratch_md_mode`, telemetry dir). A
+  (`protected_branches`, `boundary`, `scratch_md_mode`, `host_install`,
+  telemetry dir). `host_install` is `auto` (the default), `ask` or `off`, and
+  `KZ_HOST_INSTALL` overrides it: `auto` silences the install asks where the
+  hook itself runs in a container, a dev container, a Codespace, a Claude Code
+  cloud session or on a GitHub Actions or Azure Pipelines agent, and every ask
+  it silences is logged as `skipped`. A
   gitignored `.claude/guard.local.json` or `KZ_RULES_OFF=rule,rule` silences
   the named rules' asks, logged as `skipped`; denies stand, and only a
   committed `guard.json` at the repo root that says `boundary: own` enables

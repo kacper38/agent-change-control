@@ -36,6 +36,12 @@ QA team or an auditor. You (Claude) execute; Kacper reviews and decides.
    - per-client isolation: separate AWS accounts / Azure subscriptions where
      possible, at minimum separate state, vaults, and registries; no
      cross-client reuse of artifacts or data
+   - an agent installs nothing on the developer machine: no package or
+     runtime installer (`npm install`, `pip install`, `uv add`, `brew install`,
+     …) and no fetch-and-run (`npx <pkg>`, `uvx <tool>`, `curl … | sh`); checks
+     run offline from the local cache (`uv run --offline …`,
+     `npx --no-install …`); anything that needs a download runs in a
+     container; a missing dependency is reported to the owner, not installed
 7. **Name what's deferred.** When time-boxing, say explicitly what is skeleton
    vs production-grade, and record the gap in DECISIONS.md.
 8. **Wrong path → back out.** Prefer `git restore` / a fresh approach over

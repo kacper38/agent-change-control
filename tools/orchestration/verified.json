@@ -1,0 +1,122 @@
+{
+  "schema": "orchestration-probe/1",
+  "cli_version": "2.1.323",
+  "date": "2026-11-13",
+  "model": "haiku",
+  "models": [
+    "claude-haiku-5-5"
+  ],
+  "cost_usd": 0.0352,
+  "canaries": {
+    "workflow-by-name": {
+      "status": "holds",
+      "reason": "",
+      "expect": "a saved workflow starts by name under dontAsk when allow rules name it for both routes the model may take, Workflow(<name>) and Skill(<name>), and its agent runs",
+      "backs": "fact 4, D2",
+      "observed": {
+        "exit_code": 0,
+        "denied_tools": [],
+        "workflow_calls": 1,
+        "workflow_agents_started": 1,
+        "marker": true,
+        "result_messages": 2
+      },
+      "cost_usd": 0.0051
+    },
+    "denial-exits-zero": {
+      "status": "holds",
+      "reason": "",
+      "expect": "without the Workflow(<name>) allow rule the launch is denied, also when Skill(<name>) is allowed, and the run still exits 0 with subtype success",
+      "backs": "fact 3, D4",
+      "observed": {
+        "exit_code": 0,
+        "subtype": "success",
+        "is_error": false,
+        "denied_tools": [
+          "Workflow"
+        ],
+        "workflow_agents_started": 0
+      },
+      "cost_usd": 0.0026
+    },
+    "hook-blocks-workflow-agent": {
+      "status": "holds",
+      "reason": "",
+      "expect": "a PreToolUse hook from project settings fires inside a workflow agent and its exit 2 blocks the call",
+      "backs": "fact 5, D7",
+      "observed": {
+        "allowed_marker": true,
+        "forbidden_marker": false,
+        "allowed_attempts": 1,
+        "forbidden_attempts": 1,
+        "blocked_rows": 1,
+        "spawned_from_parent": null,
+        "denied_tools": []
+      },
+      "cost_usd": 0.0053
+    },
+    "hook-blocks-nested-subagent": {
+      "status": "holds",
+      "reason": "",
+      "expect": "a PreToolUse hook from project settings fires inside a subagent started by a subagent and its exit 2 blocks the call",
+      "backs": "fact 5, D1",
+      "observed": {
+        "allowed_marker": true,
+        "forbidden_marker": false,
+        "allowed_attempts": 1,
+        "forbidden_attempts": 1,
+        "blocked_rows": 1,
+        "spawned_from_parent": true,
+        "denied_tools": [
+          "Bash"
+        ]
+      },
+      "cost_usd": 0.0046
+    },
+    "depth-pin": {
+      "status": "holds",
+      "reason": "",
+      "expect": "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=2 in settings env allows a second subagent layer and no third",
+      "backs": "fact 8, D1, step 1.1",
+      "observed": {
+        "control_layers": 3,
+        "pinned_layers": 2,
+        "control_max_depth": 3,
+        "pinned_max_depth": 2,
+        "control_env": "3",
+        "pinned_env": "2"
+      },
+      "cost_usd": 0.008
+    },
+    "spawn-log-workflow-agents": {
+      "status": "holds",
+      "reason": "",
+      "expect": "the guard's SubagentStart hook logs a workflow agent to spawns.jsonl as workflow-subagent",
+      "backs": "section 1 (fan-out control), step 1.2",
+      "observed": {
+        "spawn_rows": 1,
+        "agent_labels": [
+          "workflow-subagent"
+        ],
+        "same_session": true,
+        "marker": true
+      },
+      "cost_usd": 0.0045
+    },
+    "workflow-background-off": {
+      "status": "holds",
+      "reason": "",
+      "expect": "a saved workflow still starts by name and its agent runs with CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1 in settings env",
+      "backs": "D4 item 3 with D2, step 2.4",
+      "observed": {
+        "exit_code": 0,
+        "denied_tools": [],
+        "workflow_calls": 1,
+        "workflow_agents_started": 1,
+        "marker": true,
+        "result_messages": 2
+      },
+      "cost_usd": 0.0051
+    }
+  }
+}

@@ -572,6 +572,61 @@ def _secret_seg(seg: list[str], cwd: str, writes: list[str], reads: list[str]) -
             reads.append(t)
 
 
+_SEARCH_TOOLS = frozenset("grep egrep fgrep zgrep rg ag ack".split())
+_PATTERN_OPTIONS = ("-e", "--regexp", "-f", "--file")  # these name the pattern; no operand is one then
+
+
+def _search_pattern(seg: list[str], k: int) -> tuple[Optional[int], list[str]]:
+    """For the search tool at seg[k] (grep and kin, `git grep`): the index of its pattern operand, or None when
+    -e, --regexp, -f or --file names the pattern (also glued or with `=`), and the glued values of -f/--file
+    (files it reads). The pattern is the first word that is not an option; an option's value taken for it
+    (`-A 3`) leaves the real pattern read as a path, which errs towards asking."""
+    name = os.path.basename(seg[k])
+    start = k + 1
+    if name == "git":
+        sub, rest = _git_subcommand(seg[k:])
+        if sub != "grep":
+            return None, []
+        start = len(seg) - len(rest)
+    elif name not in _SEARCH_TOOLS:
+        return None, []
+    named = False
+    files = []
+    for t in seg[start:]:
+        if t in _PATTERN_OPTIONS:
+            named = True
+        elif t.startswith(("--regexp=", "--file=")):
+            named = True
+            if t.startswith("--file="):
+                files.append(t[len("--file=") :])
+        elif t.startswith(("-e", "-f")) and not t.startswith("--"):
+            named = True
+            if t.startswith("-f"):
+                files.append(t[2:])
+    if named:
+        return None, files
+    for m in range(start, len(seg)):
+        t = seg[m]
+        if t == "--":  # grep: the pattern follows; git grep: paths follow, the pattern came before
+            return (m + 1 if name != "git" and m + 1 < len(seg) else None), files
+        if not t.startswith("-"):
+            return m, files
+    return None, files
+
+
+def _secret_reader_seg(seg: list[str], cwd: str, writes: list[str], reads: list[str]) -> None:
+    """The reader pass of secret-shell: _secret_seg without the pattern operand of a search tool at any
+    command word of the words, plus the files a glued -f/--file reads."""
+    drop = set()
+    if any(os.path.basename(t) in _SEARCH_TOOLS or os.path.basename(t) == "git" for t in seg):
+        for k in command_word_indexes(seg):
+            pattern, files = _search_pattern(seg, k)
+            if pattern is not None:
+                drop.add(pattern)
+            reads.extend(f for f in files if secret_class(_expand(f, cwd)) == "secret")
+    _secret_seg([t for m, t in enumerate(seg) if m not in drop], cwd, writes, reads)
+
+
 def _secret_verdict(writes: list[str], reads: list[str]) -> Optional[Decision]:
     if writes:
         return "deny", SECRET_WRITE_MSG.format(path=", ".join(dict.fromkeys(writes)))
@@ -595,7 +650,7 @@ def rule_secret_shell(ev: Event, cfg: dict) -> Optional[Decision]:
     if writes:
         return _secret_verdict(writes, reads)
     # the reader pass adds to the same lists, so one message names every file of both passes
-    failed = reader_pass(command, lambda seg: _secret_seg(seg, ev.cwd, writes, reads), "secret-shell")
+    failed = reader_pass(command, lambda seg: _secret_reader_seg(seg, ev.cwd, writes, reads), "secret-shell")
     return combine([d for d in (_secret_verdict(writes, reads), failed) if d])
 
 

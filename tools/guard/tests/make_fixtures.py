@@ -156,6 +156,9 @@ CASES: dict = {
         *shell("deny", "echo '[core]' > ~/.azure/config"),
         *shell("ask", "cat ~/.azure/msal_token_cache.json", "tar czf /tmp/az.tgz ~/.azure"),
         *shell("allow", "az account show", "cat ci/azure-pipelines.yml"),
+        # guard 0.7.0, review fixes: a search pattern is no path; the file of -f is read
+        *shell("ask", "bash -c 'grep -f .env notes.txt'"),
+        *shell("allow", "grep -rn '\\.env|\\.pem' tools"),
     ],
     "git-guard": [
         *shell(

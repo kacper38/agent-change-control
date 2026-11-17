@@ -704,8 +704,16 @@ def current_branch(cwd: str) -> Optional[str]:
     return None
 
 
-def _git_guard_seg(seg: list[str], cwd: str, protected: set) -> Optional[Decision]:
-    """The git-guard verdict on one simple command: a hook bypass, a forced push, a push to a protected branch."""
+GIT_ELSEWHERE_MSG = (
+    "git-guard: `git push` {what} runs in a container or on another host; the branch checked out there is not "
+    "known. Name the destination branch (`git push origin <branch>`) or confirm."
+)
+
+
+def _git_guard_seg(seg: list[str], cwd: str, protected: set, elsewhere: bool = False) -> Optional[Decision]:
+    """The git-guard verdict on one simple command: a hook bypass, a forced push, a push to a protected branch.
+    `elsewhere`: the push runs in a container or on another host, so the host's branch says nothing; a push
+    without a refspec, or to HEAD, asks."""
     sub, rest = _git_subcommand(seg)
     if sub is None:
         return None
@@ -731,21 +739,27 @@ def _git_guard_seg(seg: list[str], cwd: str, protected: set) -> Optional[Decisio
         positional.append(t)
     refspecs = positional[1:]
     if not refspecs:
+        if elsewhere:
+            return "ask", GIT_ELSEWHERE_MSG.format(what="without a refspec")
         branch = current_branch(cwd)
         if branch in protected:
             return "deny", GIT_MSG.format(what=f"push to protected branch '{branch}'")
         return None
+    to_head = False
     for r in refspecs:
         if r.startswith("+"):
             return "deny", GIT_MSG.format(what=f"force refspec {r}")
         dest = r.split(":", 1)[1] if ":" in r else r
         if dest.startswith("refs/heads/"):
             dest = dest[len("refs/heads/") :]
+        if dest == "HEAD" and elsewhere:
+            to_head = True
+            continue
         if dest == "HEAD":
             dest = current_branch(cwd) or dest
         if dest in protected:
             return "deny", GIT_MSG.format(what=f"push to protected branch '{dest}'")
-    return None
+    return ("ask", GIT_ELSEWHERE_MSG.format(what="to HEAD")) if to_head else None
 
 
 def rule_git_guard(ev: Event, cfg: dict) -> Optional[Decision]:
@@ -757,7 +771,22 @@ def rule_git_guard(ev: Event, cfg: dict) -> Optional[Decision]:
         d = _git_guard_seg(seg, ev.cwd, protected)
         if d:
             return d
-    return reader_pass(command, lambda seg: _git_guard_seg(seg, ev.cwd, protected), "git-guard")
+    here = _local_simple_commands(command)
+
+    def judge(seg: list[str]) -> Optional[Decision]:
+        # a simple command the local reading does not find runs elsewhere: the host's branch says nothing there
+        return _git_guard_seg(seg, ev.cwd, protected, elsewhere=here is not None and tuple(seg) not in here)
+
+    return reader_pass(command, judge, "git-guard")
+
+
+def _local_simple_commands(command: str) -> Optional[set]:
+    """The words from every command word of every simple command this machine runs (the local reading), or None
+    when that reading stops; then every push is judged by the host's branch, as before."""
+    try:
+        return {toks[i:] for toks in nested_commands(command, local=True) for i in command_word_indexes(toks)}
+    except Exception:  # CommandNotRead or a crash: the full reading in reader_pass asks or judges on its own
+        return None
 
 
 # ----------------------------------------------------------------------------

@@ -212,7 +212,47 @@ ROWS = [
     ("R2-3", "feat/x", "deploy-ask", "ask", "az deployment group create -g g -f main.bicep"),
     ("R2-3", "feat/x", "deploy-ask", "ask", "az storage blob list --container-name c --prefix delete"),
     ("R2-3", "feat/x", "host-install", "ask", "az extension update --name azure-devops"),
+    # R2-4: a push the full reading finds and the local reading does not runs in a container or on another
+    # host: without a refspec, or to HEAD, it asks whatever the host's branch; what the text decides stays
+    ("R2-4", "main", "git-guard", "ask", "docker exec dev git push"),
+    ("R2-4", "feat/x", "git-guard", "ask", "docker exec dev git push"),
+    ("R2-4", "main", "git-guard", "ask", "ssh build 'cd /srv/app && git push'"),
+    ("R2-4", "feat/x", "git-guard", "ask", "ssh build 'cd /srv/app && git push'"),
+    ("R2-4", "feat/x", "git-guard", "ask", "ssh build git push"),
+    ("R2-4", "main", "git-guard", "ask", "kubectl exec pod -- git push"),
+    ("R2-4", "feat/x", "git-guard", "ask", "oc rsh web-0 git push"),
+    ("R2-4", "main", "git-guard", "ask", "docker compose exec app git push origin HEAD"),
+    ("R2-4", "feat/x", "git-guard", "ask", "docker compose exec app git push -u origin HEAD"),
+    ("R2-4", "main", "git-guard", "deny", "docker exec dev git push origin main"),
+    ("R2-4", "feat/x", "git-guard", "deny", "docker exec dev git push origin main"),
+    ("R2-4", "feat/x", "git-guard", "deny", "docker exec dev git push origin HEAD:main"),
+    ("R2-4", "main", "git-guard", "deny", "docker exec dev git push --force"),
+    ("R2-4", "feat/x", "git-guard", "deny", "docker exec dev git push --all origin"),
+    ("R2-4", "feat/x", "git-guard", "deny", "docker exec dev git push --no-verify origin feat/x"),
+    ("R2-4", "main", "git-guard", "deny", "ssh build 'git push origin +feat/x'"),
+    ("R2-4", "main", "git-guard", "silent", "docker exec dev git push origin feat/x"),
+    ("R2-4", "main", "git-guard", "silent", "docker exec dev git push origin HEAD:feat/x"),
+    ("R2-4", "main", "git-guard", "silent", "ssh build 'git push origin feat/x'"),
+    ("R2-4", "main", "git-guard", "silent", "docker exec dev git status"),
+    ("R2-4", "main", "git-guard", "deny", "git push"),
+    ("R2-4", "feat/x", "git-guard", "silent", "git push"),
+    ("R2-4", "main", "git-guard", "deny", "timeout 30 git push"),
+    ("R2-4", "feat/x", "git-guard", "silent", "timeout 30 git push"),
+    ("R2-4", "main", "git-guard", "deny", "bash -c 'git push'"),
+    ("R2-4", "feat/x", "git-guard", "silent", "bash -c 'git push'"),
+    ("R2-4", "main", "git-guard", "deny", "uv run git push"),
+    ("R2-4", "feat/x", "git-guard", "silent", "uv run git push"),
+    ("R2-4", "main", "git-guard", "deny", "sudo git push"),
+    ("R2-4", "main", "git-guard", "deny", "git push origin HEAD"),
+    ("R2-4", "feat/x", "git-guard", "silent", "git push origin HEAD"),
 ]
+
+
+def test_a_push_elsewhere_says_the_branch_there_is_not_known(guard, monkeypatch):
+    monkeypatch.setattr(guard, "current_branch", lambda cwd: "main")
+    got = guard.rule_git_guard(_ev(guard, "docker exec dev git push"), dict(guard.DEFAULTS))
+    assert got[0] == "ask"
+    assert "not known" in got[1]
 
 
 def _ev(guard, command):

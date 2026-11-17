@@ -186,6 +186,9 @@ CASES: dict = {
             "uv run --offline git push --force origin feat", "docker exec dev git push origin main",
         ),
         *shell("allow", "timeout 30 git push origin feat/x", "docker exec dev git status"),
+        # guard 0.7.0, review fixes: a push without a refspec elsewhere: the branch there is not known
+        *shell("ask", "docker exec dev git push"),
+        *shell("allow", "docker exec dev git push origin feat/x"),
     ],
     "deploy-ask": [
         *shell(

@@ -36,13 +36,44 @@ CASES = [
     ("command", "ask", "node -e \"client.del('k')\""),
 ]
 
+# Found by the fresh review of the branch: SQL and delete calls that asked at 0.6.1 and that the two narrowed
+# expressions let pass. The upper-case keyword asks wherever it stands, `truncate table` too, the lower-case word
+# anywhere on a command line that names a SQL client, and `del(` after an underscore. Prose stays silent.
+REVIEW_CASES = [
+    ("command", "ask", "echo truncate table audit | psql"),
+    ("command", "ask", "echo truncate audit | psql"),
+    ("command", "ask", "echo TRUNCATE audit | psql -d app"),
+    ("command", "ask", "echo TRUNCATE audit > cleanup.sql"),
+    ("command", "ask", "psql -c \"/* cleanup */ truncate audit\""),
+    ("command", "ask", "psql -c \"DO $$ BEGIN TRUNCATE TABLE audit; END $$\""),
+    ("command", "ask", "psql -c \"do $$ begin truncate audit; end $$\""),
+    ("command", "ask", "printf 'begin;\\ntruncate audit;\\n' | psql"),
+    ("command", "ask", "printf 'begin;\\ntruncate audit;\\n' | /usr/bin/mysql app"),
+    ("command", "ask", "echo truncate t1 | hbase shell"),
+    ("command", "ask", "docker exec db psql -c \"select 1 /* x */; -- y\ntruncate audit\""),
+    ("command", "ask", "python3 -c \"redis_del(key)\""),
+    ("command", "ask", "python3 -c \"cache_del(k)\""),
+    ("script", "ask", "cur.execute(\"/* cleanup */ TRUNCATE TABLE audit\")"),
+    ("script", "ask", "sql = \"do $$ begin truncate table audit; end $$\""),
+    ("script", "ask", "redis_del(key)"),
+    ("command", "silent", "git commit -m \"fix: do not truncate the title\""),
+    ("command", "silent", "echo \"we will truncate the log\""),
+    ("command", "silent", "mysqldump app > dump.sql && echo \"long rows may truncate here\""),
+    ("script", "silent", "# the export may truncate long titles\nprint(\"x\")"),
+    ("script", "silent", "result = remodel(x)\nprint(result)"),
+    # the price of the client rule, as at 0.6.1: prose on a line that names a SQL client asks
+    ("command", "ask", "psql -c \"select 1 -- then truncate later\""),
+]
+ALL_CASES = CASES + REVIEW_CASES
+
 
 def _ev(guard, command, cwd):
     return guard.Event({"hook_event_name": "PreToolUse", "tool_name": "Bash", "cwd": str(cwd),
                         "tool_input": {"command": command}})
 
 
-@pytest.mark.parametrize("kind,expected,text", CASES, ids=[f"{c[0]}-{c[1]}-{i}" for i, c in enumerate(CASES)])
+@pytest.mark.parametrize("kind,expected,text", ALL_CASES,
+                         ids=[f"{c[0]}-{c[1]}-{i}" for i, c in enumerate(ALL_CASES)])
 def test_case(guard, tmp_path, kind, expected, text):
     if kind == "script":
         (tmp_path / "step.py").write_text(text + "\n", encoding="utf-8")
@@ -57,14 +88,16 @@ def test_case(guard, tmp_path, kind, expected, text):
 
 
 @pytest.mark.parametrize("text", ["model (", "load_model(x)", "handel(", "may truncate the description",
-                                  "echo \"this may truncate the output\""])
+                                  "echo \"this may truncate the output\"", "remodel(x)", "model2del(x)",
+                                  "will truncate tables of contents"])
 def test_prose_does_not_match_the_text_pass(guard, text):
     assert not guard.DELETE_RE.search(text), text
 
 
 @pytest.mark.parametrize("text", ["del (x)", "del(x)", "client.del(key)", "psql -c \"truncate users\"",
                                   "psql -c 'TRUNCATE TABLE x'", "truncate users;", "BEGIN; truncate x",
-                                  "cur.execute(\"truncate users\")", "x = 1\ntruncate users;"])
+                                  "cur.execute(\"truncate users\")", "x = 1\ntruncate users;",
+                                  "then TRUNCATE audit", "we truncate table names", "redis_del(key)", "_del (x)"])
 def test_code_and_sql_still_match_the_text_pass(guard, text):
     assert guard.DELETE_RE.search(text), text
 

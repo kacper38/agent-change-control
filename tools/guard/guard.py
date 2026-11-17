@@ -299,20 +299,28 @@ TOOL_RE = (
     r"|docker\s+(rm|rmi|system\s+prune|volume\s+(rm|prune)|image\s+prune|container\s+prune"
     r"|builder\s+prune|compose\s+(down|rm))|kubectl\s+delete|helm\s+(uninstall|delete)|dropdb"
     r"|prisma\s+migrate\s+reset|--force-reset|(DROP|drop)\s+(TABLE|DATABASE|SCHEMA|table|database|schema)"
-    # SQL TRUNCATE only where a statement can start (line start, ; quote paren backtick): not prose such as
-    # "may truncate the description" (0.7.0); the coreutils `truncate` command still asks through SHELL_RE
-    r"|(?:^|[;\"'(`])\s*(?:TRUNCATE|truncate)\s"
+    # SQL TRUNCATE: the upper-case keyword wherever it stands, as before 0.7.0; the lower-case word only where a
+    # statement can start (line start, ; quote paren backtick) or in front of `table`, so that prose such as
+    # "may truncate the description" does not ask (0.7.0). _delete_judge adds the command lines that name a SQL
+    # client; the coreutils `truncate` command asks through SHELL_RE
+    r"|TRUNCATE\s|(?:^|[;\"'(`])\s*truncate\s|truncate\s+table\s"
     r"|(DELETE|delete)\s+(FROM|from)\s|rclone\s+(delete|purge|sync)|rsync\s.*--delete"
 )
 CODE_RE = (
     r"os\.(remove|unlink|rmdir|removedirs)|shutil\.rmtree|\.unlink\(|\.rmdir\(|send2trash"
     r"|fs\.(rm|rmSync|unlink|unlinkSync|rmdir|rmdirSync)|fsPromises\.(rm|unlink|rmdir)|rimraf"
-    # Python `del (x)` as a word: not the tail of "model (" or "load_model(x)" (0.7.0)
-    r"|\bdel\s*\("
+    # `del (x)` and `cache_del(k)`, not the tail of a word: "model (" and "load_model(x)" stay silent (0.7.0)
+    r"|(?<![A-Za-z0-9])del\s*\("
     r"|remove_dir_all|remove_file|std::fs::remove|File\.(delete|unlink)|FileUtils\.(rm|remove)"
     r"|Remove-Item|Directory\.Delete|(^|\s)del\s+/[sq]|(^|\s)rd\s+/s"
 )
 DELETE_RE = re.compile("|".join([SHELL_RE, FIND_RE, GIT_RE, TOOL_RE, CODE_RE]), re.MULTILINE)
+# on a command line that names one of these clients, the lower-case word is SQL wherever it stands
+# (`echo truncate audit | psql`); the list holds the clients whose TRUNCATE needs no TABLE keyword
+_SQL_TRUNCATE_RE = re.compile(r"truncate\s")
+_SQL_CLIENT_RE = re.compile(
+    r"(?:^|[\s;&|(`\"'/])(?:psql|mysql|mariadb|cqlsh|snowsql|duckdb|cockroach|hbase|clickhouse(?:-client)?)(?:\s|$)"
+)
 SCRIPT_RE = re.compile(
     r"(python3?|node|bun|deno|bash|sh|zsh|tsx|ts-node|ruby|perl|php)\s+(-\S+\s+)*(\S+\.(py|js|mjs|cjs|ts|sh|zsh|bash|rb|pl|php))"
 )
@@ -404,7 +412,7 @@ def delete_what(command: str) -> Optional[str]:
 
 def _delete_judge(ev: Event) -> Optional[str]:
     """What the command would delete: the text pass, the scan of a script it names, then the token pass."""
-    if DELETE_RE.search(ev.command):
+    if DELETE_RE.search(ev.command) or (_SQL_TRUNCATE_RE.search(ev.command) and _SQL_CLIENT_RE.search(ev.command)):
         return "command contains a delete/discard pattern"
     for m in SCRIPT_RE.finditer(ev.command):
         script = m.group(3)

@@ -94,6 +94,9 @@ CASES: dict = {
             "oc rsh web-0 rm -rf /data",
         ),
         *shell("allow", "coproc p { ls; }", "fd -e py -x wc -l", "nix-shell --run \"ls\""),
+        # guard 0.7.0, review fixes: `git checkout <ref> <path>` without `--`
+        *shell("ask", "git checkout HEAD src/app.py"),
+        *shell("allow", "git checkout -b feat origin/feat"),
     ],
     "secret-write": [
         ("deny", "write", {"path": ".env", "content": "TOKEN=abc"}),

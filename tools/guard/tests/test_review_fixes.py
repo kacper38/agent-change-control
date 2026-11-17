@@ -134,6 +134,32 @@ ROWS = [
     ("P2", "feat/x", "secret-shell", "ask", 'grep -e ".env" notes.txt'),
     ("P2", "feat/x", "secret-shell", "ask", 'git grep -n "\\.pem" -- tools'),
     ("P2", "feat/x", "secret-shell", "deny", "bash -c 'grep KEY notes.txt > .env'"),
+    # A1: `git checkout <ref> <path…>` without `--` overwrites the working copy; -b, -B, --orphan, -t and
+    # --track name a new branch and its start point
+    ("A1", "feat/x", "delete-guard", "ask", "git checkout HEAD src/app.py"),
+    ("A1", "feat/x", "delete-guard", "ask", "git checkout main src/a.py src/b.py"),
+    ("A1", "feat/x", "delete-guard", "ask", "git checkout main -- src/a.py"),
+    ("A1", "feat/x", "delete-guard", "ask", "git -C /x checkout HEAD src/app.py"),
+    ("A1", "feat/x", "delete-guard", "ask", "timeout 5 git checkout HEAD src/app.py"),
+    ("A1", "feat/x", "delete-guard", "ask", "bash -c 'git checkout HEAD src/app.py'"),
+    ("A1", "feat/x", "delete-guard", "ask", "git checkout -q origin/main src/app.py"),
+    ("A1", "feat/x", "delete-guard", "ask", "git checkout HEAD~1 src/app.py 2>/dev/null"),
+    ("A1", "feat/x", "delete-guard", "silent", "git checkout feat/x"),
+    ("A1", "feat/x", "delete-guard", "silent", "git checkout -b feat/y"),
+    ("A1", "feat/x", "delete-guard", "silent", "git checkout -b feat origin/feat"),
+    ("A1", "feat/x", "delete-guard", "silent", "git checkout -bfeat origin/feat"),
+    ("A1", "feat/x", "delete-guard", "silent", "git checkout -B feat origin/feat"),
+    ("A1", "feat/x", "delete-guard", "silent", "git checkout -t origin/feat"),
+    ("A1", "feat/x", "delete-guard", "silent", "git checkout -t -b feat origin/feat"),
+    # the 0.6.1 text pass asks for `checkout --<word>` (it reads a `--`); that stays
+    ("A1", "feat/x", "delete-guard", "ask", "git checkout --orphan gh-pages main"),
+    ("A1", "feat/x", "delete-guard", "ask", "git checkout --track origin/feat"),
+    ("A1", "feat/x", "delete-guard", "silent", "git checkout -q main"),
+    ("A1", "feat/x", "delete-guard", "silent", "git checkout -"),
+    ("A1", "feat/x", "delete-guard", "silent", "git checkout main --"),
+    ("A1", "feat/x", "delete-guard", "silent", "git -C /x checkout -b feat/q"),
+    ("A1", "feat/x", "delete-guard", "silent", "git checkout -q -b feat origin/feat"),
+    ("A1", "feat/x", "delete-guard", "silent", "git checkout main > /tmp/out.log"),
 ]
 
 

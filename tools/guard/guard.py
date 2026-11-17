@@ -352,16 +352,26 @@ _DELETE_TOOLS: dict = {
 _SWITCH_DISCARDS = frozenset({"--discard-changes", "-f", "--force"})
 
 
+def _checkout_new_branch(t: str) -> bool:
+    """A checkout option that names a new branch: -b, -B (also glued, `-bfeat`), --orphan, -t, --track."""
+    return (t.startswith(("-b", "-B")) or t in ("-t", "--track", "--orphan")
+            or t.startswith(("--track=", "--orphan=")))
+
+
 def _git_discards(sub: str, rest: list[str]) -> bool:
-    """`git checkout` and `git switch` forms that overwrite uncommitted work: checkout with `-- <path>`, `-f` or
-    the operand `.`; switch with --discard-changes or -f."""
+    """`git checkout` and `git switch` forms that overwrite uncommitted work: checkout with `-- <path>`, `-f`,
+    the operand `.`, or two plain operands (`git checkout <ref> <path…>`) unless an option names a new branch;
+    switch with --discard-changes or -f."""
     if sub == "switch":
         return bool(_SWITCH_DISCARDS & set(rest))
     if sub != "checkout":
         return False
     if "-f" in rest or "--force" in rest or "." in rest:
         return True
-    return "--" in rest and rest.index("--") + 1 < len(rest)  # `git checkout main --` names no path
+    if "--" in rest and rest.index("--") + 1 < len(rest):  # `git checkout main --` names no path
+        return True
+    plain = [t for t in rest if not t.startswith("-")]
+    return len(plain) >= 2 and not any(_checkout_new_branch(t) for t in rest)
 
 
 def delete_what(command: str) -> Optional[str]:

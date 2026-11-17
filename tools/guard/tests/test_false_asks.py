@@ -129,6 +129,12 @@ REVIEW_CASES = [
     ("command", "silent", "bash -c 'echo \"this may truncate the output\"'"),
     ("command", "silent", "ssh host 'git commit -m \"do not truncate the title\"'"),
     ("command", "silent", "grep -n \"truncate\" tools/guard/guard.py"),
+    # a line break written as \n in a printf or echo string starts a statement like a real one, whatever the
+    # client (the first review's `printf` form asked only on a line that names a listed client)
+    ("command", "ask", "printf 'begin\\ntruncate users\\n' | pgcli"),
+    ("command", "ask", "printf 'begin\\n  truncate users\\n' | mycli"),
+    ("command", "ask", "echo -e \"begin;\\n\\ttruncate users;\" | pgcli"),
+    ("script", "ask", "sql = \"begin\\ntruncate users\""),
 ]
 ALL_CASES = CASES + REVIEW_CASES
 

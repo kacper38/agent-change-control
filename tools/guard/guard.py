@@ -300,10 +300,11 @@ TOOL_RE = (
     r"|builder\s+prune|compose\s+(down|rm))|kubectl\s+delete|helm\s+(uninstall|delete)|dropdb"
     r"|prisma\s+migrate\s+reset|--force-reset|(DROP|drop)\s+(TABLE|DATABASE|SCHEMA|table|database|schema)"
     # SQL TRUNCATE: the upper-case keyword wherever it stands, as before 0.7.0; the lower-case word only where a
-    # statement can start (line start, ; quote paren backtick) or in front of `table`, so that prose such as
-    # "may truncate the description" does not ask (0.7.0). For a command line _delete_judge adds the word outside
-    # quotes and the lines that name a SQL client; the coreutils `truncate` command asks through SHELL_RE
-    r"|TRUNCATE\s|(?:^|[;\"'(`])\s*truncate\s|truncate\s+table\s"
+    # statement can start (line start, also written \n in a string, ; quote paren backtick) or in front of
+    # `table`, so that prose such as "may truncate the description" does not ask (0.7.0). For a command line
+    # _delete_judge adds the word outside quotes and the lines that name a SQL client; the coreutils `truncate`
+    # command asks through SHELL_RE
+    r"|TRUNCATE\s|(?:^|[;\"'(`]|\\n)(?:\s|\\[ntr])*truncate\s|truncate\s+table\s"
     r"|(DELETE|delete)\s+(FROM|from)\s|rclone\s+(delete|purge|sync)|rsync\s.*--delete"
 )
 CODE_RE = (

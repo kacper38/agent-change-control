@@ -1,0 +1,51 @@
+# the safety net: git, gh and az as a later word of a simple command (verdicts at 0.7.1)
+sandbox-exec -f p.sb git push --force origin feat
+mytool run git commit --no-verify -m x
+./with-env.sh prod git push --force origin feat
+proxychains4 git push -f origin feat
+retry 3 git push --force origin feat
+sudo mytool git push --force origin feat
+FOO=1 mytool git push --force origin feat
+bash -c 'mytool git push --force origin feat'
+mytool /usr/bin/git push --force origin feat
+mytool git push origin HEAD:main
+mytool git push origin +feat
+mytool git -c core.hooksPath=/dev/null commit -m x
+mytool gh issue close 3
+sandbox-exec -f p.sb gh issue edit 3 --add-label status/done
+mytool gh label create x
+mytool gh api -X PATCH repos/o/r/issues/3 -f state=closed
+mytool az boards work-item update --id 3 --state Done
+mytool az devops invoke --area wit --resource workitems
+mytool python3 tools/tracker/tracker.py owner done 3
+echo git commit --no-verify -m x
+printf '%s\n' git push --force
+mytool git status
+mytool git push origin feat
+mytool gh issue list
+mytool gh pr view 3
+brew install git gh
+which git gh az
+man git push
+mytool rm -rf build
+grep -rn git push --force docs
+npm exec -- git push --force origin feat
+npx git push --force
+pnpm exec git push --force origin feat
+yarn exec git push --force origin feat
+bundle exec git push --force origin feat
+poetry run git push --force origin feat
+uv run git push --force origin feat
+mise exec -- git push --force origin feat
+direnv exec . git push --force origin feat
+docker run --rm -v "$PWD":/git alpine/git push --force
+ssh host git push --force origin main
+kubectl exec pod -- git push --force
+watch -n 5 git push --force origin feat
+parallel git push --force origin ::: a b
+flock /tmp/l git push --force origin feat
+gh pr merge 3
+gh pr merge 3 --admin
+mytool gh pr merge 3
+git commit --no-verify -m x
+git push --force origin feat

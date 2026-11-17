@@ -1,0 +1,54 @@
+== git merge: is a cut --no-verify unique there? (merge also has --no-verify-signatures)
+$ git merge --no-verif side
+error: ambiguous option: no-verif (could be --no-verify-signatures or --no-verify)
+usage: git merge [<options>] [<commit>...]
+   or: git merge --abort
+   or: git merge --continue
+-> exit 129
+$ git merge --no-verify side
+Already up to date.
+-> exit 0
+
+== git push: prefixes that more than one option shares
+$ git push --a origin
+error: ambiguous option: a (could be --all or --atomic)
+usage: git push [<options>] [<repository> [<refspec>...]]
+
+    -v, --[no-]verbose    be more verbose
+-> exit 129
+$ git push --d origin side
+error: ambiguous option: d (could be --delete or --dry-run)
+usage: git push [<options>] [<repository> [<refspec>...]]
+
+    -v, --[no-]verbose    be more verbose
+-> exit 129
+$ git push --de origin side
+error: unable to delete 'side': remote ref does not exist
+error: failed to push some refs to '../remote.git'
+-> exit 1
+$ git push --atomi origin feat
+Everything up-to-date
+-> exit 0
+
+== git config: the newer subcommand spelling
+$ git config set core.hooksPath /dev/null
+-> exit 0
+$ git config --get core.hooksPath
+/dev/null
+-> exit 0
+$ git config unset core.hooksPath
+-> exit 0
+$ git config get core.hooksPath
+-> exit 1
+$ git config core.hookspath /dev/null
+-> exit 0
+$ git config --get core.hooksPath
+/dev/null
+-> exit 0
+$ git config --unset core.hooksPath
+-> exit 0
+
+== husky's own switch has no effect without husky (shown for the record: the hook still runs)
+$ env HUSKY=0 git commit --allow-empty -m husky-zero
+HOOK-RAN
+-> exit 1

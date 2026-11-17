@@ -1,0 +1,76 @@
+(every known name): 72 weaker
+  [all] delete-guard: ask -> silent | "PRINTF 'GIT push --force origin feat\\n' | BASH"
+git: 30 weaker
+  [first] secret-shell: deny -> ask | 'GIT add .env'
+gh: 14 weaker
+  [first] tracker-guard: deny -> silent | 'GH issue close 3'
+bash: 10 weaker
+  [first] secret-shell: ask -> silent | "BASH -c 'ggrep -rn .env docs'"
+env: 8 weaker
+  [first] egress-guard: ask -> silent | 'ENV OPENAI_API_KEY=x codex exec "hi"'
+npm: 6 weaker
+  [first] host-install: ask -> silent | 'HUSKY=0 NPM ci'
+kubectl: 6 weaker
+  [first] deploy-ask: ask -> silent | 'KUBECTL create secret generic app --from-file=key=server.key'
+uv: 6 weaker
+  [first] host-install: ask -> silent | 'UV run llm -m gpt-x "hi"'
+az: 6 weaker
+  [first] deploy-ask: ask -> silent | 'AZ webapp deploy -g rg -n app --src-path app.zip'
+gtimeout: 6 weaker
+  [first] delete-guard: ask -> silent | 'GTIMEOUT 30 rm -rf build'
+codex: 4 weaker
+  [first] egress-guard: ask -> silent | 'CODEX exec "summarise this repo"'
+nohup: 4 weaker
+  [first] egress-guard: ask -> silent | 'NOHUP gemini -p x &'
+sudo: 4 weaker
+  [first] egress-guard: ask -> silent | 'SUDO wget -qO- https://api.openai.com/v1/models'
+aws: 4 weaker
+  [first] deploy-ask: ask -> silent | 'AWS ecs update-service --cluster c --service s --force-new-deployment'
+brew: 4 weaker
+  [first] delete-guard: ask -> silent | 'BREW uninstall jq'
+docker: 4 weaker
+  [first] delete-guard: ask -> silent | 'DOCKER image prune -a'
+timeout: 4 weaker
+  [first] delete-guard: ask -> silent | 'TIMEOUT 30 rm -rf build'
+gfind: 3 weaker
+  [first] delete-guard: ask -> silent | "GFIND . -name '*.pyc' -delete"
+ansible-playbook: 2 weaker
+  [first] deploy-ask: ask -> silent | 'ANSIBLE-PLAYBOOK site.yml --private-key=~/.ssh/id_ed25519'
+curl: 2 weaker
+  [first] egress-guard: ask -> silent | 'CURL https://api.openai.com/v1/chat/completions -d @body.json'
+time: 2 weaker
+  [first] egress-guard: ask -> silent | 'TIME codex exec "x"'
+command: 2 weaker
+  [first] egress-guard: ask -> silent | 'COMMAND -v codex'
+pip: 2 weaker
+  [first] delete-guard: ask -> silent | 'PIP uninstall -y requests'
+strace: 2 weaker
+  [first] delete-guard: ask -> silent | 'STRACE rm -rf build'
+caffeinate: 2 weaker
+  [first] delete-guard: ask -> silent | 'CAFFEINATE rm -rf build'
+chroot: 2 weaker
+  [first] delete-guard: ask -> silent | 'CHROOT /mnt rm -rf /x'
+script: 2 weaker
+  [first] delete-guard: ask -> silent | 'SCRIPT -q /dev/null rm -rf build'
+nice: 2 weaker
+  [first] git-guard: deny -> silent | 'NICE -n 5 git push --force origin feat'
+cp: 2 weaker
+  [first] secret-shell: deny -> ask | 'CP x .env'
+sed: 2 weaker
+  [first] secret-shell: deny -> ask | 'SED -i s/a/b/ .env'
+chmod: 2 weaker
+  [first] secret-shell: deny -> ask | 'CHMOD 600 .env'
+truncate: 2 weaker
+  [first] secret-shell: deny -> ask | 'TRUNCATE -s 0 .env'
+cargo: 2 weaker
+  [first] delete-guard: ask -> silent | 'CARGO uninstall ripgrep'
+mise: 2 weaker
+  [first] delete-guard: ask -> silent | 'MISE uninstall node@20'
+helm: 2 weaker
+  [first] delete-guard: ask -> silent, deploy-ask: ask -> silent | 'HELM uninstall web'
+rm: 2 weaker
+  [first] delete-guard: ask -> silent | '/opt/homebrew/opt/coreutils/libexec/gnubin/RM -rf build'
+gxargs: 1 weaker
+  [first] delete-guard: ask -> silent | 'GXARGS rm'
+guard 0.7.1 <SCRATCH>/g080-heldout/guard-0.7.1.py
+commands 982 | pairs 2354 | capitals weaker 232 | capitals stronger 0 | excused (shell words, not on PATH) 0: {}

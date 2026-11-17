@@ -1,0 +1,137 @@
+== is this file system case-sensitive?
+no: /USR/BIN/ENV exists
+
+== tool names in capitals
+$ GIT --version
+git version 2.55.0
+-> exit 0
+$ Git --version
+git version 2.55.0
+-> exit 0
+$ GH --version
+gh version 2.92.0 (2026-04-28)
+https://github.com/cli/cli/releases/tag/v2.92.0
+-> exit 0
+$ CURL --version
+curl 8.7.1 (x86_64-apple-darwin25.0) libcurl/8.7.1 (SecureTransport) LibreSSL/3.3.6 zlib/1.2.12 nghttp2/1.68.1
+Release-Date: 2024-03-27
+-> exit 0
+
+== git verbs in capitals
+$ git STATUS --short
+fatal: cannot handle STATUS as a builtin
+-> exit 128
+$ git Status --short
+fatal: cannot handle Status as a builtin
+-> exit 128
+$ git LOG --oneline -1
+fatal: cannot handle LOG as a builtin
+-> exit 128
+$ git COMMIT --allow-empty -m caps-probe
+fatal: cannot handle COMMIT as a builtin
+-> exit 128
+$ git PUSH --dry-run origin feat
+fatal: cannot handle PUSH as a builtin
+-> exit 128
+$ git CONFIG --get user.name
+fatal: cannot handle CONFIG as a builtin
+-> exit 128
+
+== wrappers and shells in capitals
+$ ENV true
+-> exit 0
+$ BASH -c echo ran-bash
+ran-bash
+-> exit 0
+$ SH -c echo ran-sh
+ran-sh
+-> exit 0
+$ ZSH -c echo ran-zsh
+ran-zsh
+-> exit 0
+$ COMMAND echo ran-command
+ran-command
+-> exit 0
+$ TIME true
+        0.00 real         0.00 user         0.00 sys
+-> exit 0
+$ NOHUP true
+-> exit 0
+$ NICE true
+-> exit 0
+$ FIND . -maxdepth 0
+.
+-> exit 0
+$ XARGS echo ran-xargs
+-> exit 0
+$ TIMEOUT 1 true
+-> exit 0
+$ EXEC true
+<SCRATCH>/g080/semantics4.sh: line 10: EXEC: command not found
+-> exit 127
+$ EVAL true
+<SCRATCH>/g080/semantics4.sh: line 10: EVAL: command not found
+-> exit 127
+$ NOGLOB true
+<SCRATCH>/g080/semantics4.sh: line 10: NOGLOB: command not found
+-> exit 127
+
+== verbs of other tools in capitals (help, version and listings only)
+$ gh ISSUE list --help
+unknown command "ISSUE" for "gh"
+
+-> exit 1
+$ gh API --help
+unknown command "API" for "gh"
+
+-> exit 1
+$ brew LIST --help
+Usage: brew list, ls [options] [installed_formula|installed_cask ...]
+
+-> exit 0
+$ brew Config
+Error: Unknown command: brew Config
+-> exit 1
+$ npm VERSION
+Unknown command: "VERSION"
+
+-> exit 1
+$ npm LS --help
+Unknown command: "LS"
+
+-> exit 1
+$ pnpm LS --help
+[ERR_PNPM_NO_PKG_MANIFEST] No package.json found in <SCRATCH>/g080/sem-run-1/work
+[ERROR] Command failed with exit code 1: pnpm install
+-> exit 1
+$ uv PIP --help
+error: unrecognized subcommand 'PIP'
+
+-> exit 2
+$ uv REMOVE --help
+error: unrecognized subcommand 'REMOVE'
+
+-> exit 2
+$ poetry SHOW --help
+The requested command SHOW does not exist.
+
+-> exit 1
+$ gem LIST --help
+Usage: gem list [REGEXP ...] [options]
+
+-> exit 0
+$ go VERSION
+go VERSION: unknown command
+Run 'go help' for usage.
+-> exit 2
+$ kubectl VERSION --client
+error: unknown command "VERSION" for "kubectl"
+
+-> exit 1
+$ docker PS --help
+Usage:  docker [OPTIONS] COMMAND
+
+-> exit 0
+$ python3 -m pip LIST --help
+ERROR: unknown command "LIST" - maybe you meant "list"
+-> exit 1

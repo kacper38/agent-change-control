@@ -1,0 +1,329 @@
+# guard 0.8.0 group B (tables): acceptance rows, written before the build
+# id | branch[@client] | rule | expected | command        (rule `shell` = all eight shell rules, only with `silent`)
+# R1, R2, R3, T1-T4, U1-U4 are due at 0.8.0; Rs, Ts, Us hold at 0.7.0 and must keep holding.
+#
+# --- R1: the cloud CLI runs a command on a live host or container, or deploys (item r and its twins)
+R1 | feat/x | deploy-ask | ask | aws ssm send-command --instance-ids i-1 --document-name AWS-RunShellScript --parameters commands=uptime
+R1 | feat/x | deploy-ask | ask | aws --profile prod --region eu-central-1 ssm send-command --instance-ids i-1 --document-name AWS-RunShellScript
+R1 | feat/x | deploy-ask | ask | aws ecs execute-command --cluster c --task t --command sh --interactive
+R1 | feat/x | deploy-ask | ask | az aks command invoke -g rg -n aks --command "kubectl get pods"
+R1 | feat/x | deploy-ask | ask | az vm run-command invoke -g rg -n vm --command-id RunShellScript --scripts "uptime"
+R1 | feat/x | deploy-ask | ask | az vmss run-command invoke -g rg -n vmss --command-id RunShellScript --scripts uptime
+R1 | feat/x | deploy-ask | ask | az functionapp deployment source config-zip -g rg -n app --src app.zip
+R1 | feat/x | deploy-ask | ask | az webapp deployment source config-zip -g rg -n app --src app.zip
+R1 | feat/x | deploy-ask | ask | az webapp deployment slot swap -g rg -n app --slot staging
+R1 | feat/x | deploy-ask | ask | az functionapp deployment slot swap -g rg -n app --slot staging
+R1 | feat/x | deploy-ask | ask | az container exec -g rg -n c --exec-command sh
+R1 | feat/x | deploy-ask | ask | az containerapp exec -g rg -n app --command sh
+R1 | feat/x | deploy-ask | ask | timeout 60 aws ssm send-command --instance-ids i-1 --document-name AWS-RunShellScript
+R1 | feat/x | deploy-ask | ask | bash -c 'az aks command invoke -g rg -n aks --command "kubectl get pods"'
+#
+# --- R2: a package or a tool version is removed (item r and the same verb of the other tools the guard knows)
+R2 | feat/x | delete-guard | ask | uv remove requests
+R2 | feat/x | delete-guard | ask | uv remove --dev pytest
+R2 | feat/x | delete-guard | ask | poetry remove requests
+R2 | feat/x | delete-guard | ask | yarn global remove typescript
+R2 | feat/x | delete-guard | ask | conda env remove -n old
+R2 | feat/x | delete-guard | ask | conda remove numpy
+R2 | feat/x | delete-guard | ask | mamba remove numpy
+R2 | feat/x | delete-guard | ask | gem uninstall rake
+R2 | feat/x | delete-guard | ask | bun remove lodash
+R2 | feat/x | delete-guard | ask | pdm remove requests
+R2 | feat/x | delete-guard | ask | pipenv uninstall requests
+R2 | feat/x | delete-guard | ask | cargo remove serde
+R2 | feat/x | delete-guard | ask | bundle remove rake
+R2 | feat/x | delete-guard | ask | uv python uninstall 3.11
+R2 | feat/x | delete-guard | ask | poetry env remove python3.11
+R2 | feat/x | delete-guard | ask | pyenv uninstall 3.11
+R2 | feat/x | delete-guard | ask | nvm uninstall 20
+R2 | feat/x | delete-guard | ask | fnm uninstall 20
+R2 | feat/x | delete-guard | ask | volta uninstall node
+R2 | feat/x | delete-guard | ask | asdf uninstall nodejs 20
+R2 | feat/x | delete-guard | ask | rustup toolchain uninstall stable
+R2 | feat/x | delete-guard | ask | rustup self uninstall
+R2 | feat/x | delete-guard | ask | apt-get remove -y curl
+R2 | feat/x | delete-guard | ask | sudo apt-get purge curl
+R2 | feat/x | delete-guard | ask | apt autoremove
+R2 | feat/x | delete-guard | ask | dnf remove curl
+R2 | feat/x | delete-guard | ask | yum remove curl
+R2 | feat/x | delete-guard | ask | apk del curl
+R2 | feat/x | delete-guard | ask | snap remove x
+R2 | feat/x | delete-guard | ask | brew untap homebrew/cask
+R2 | feat/x | delete-guard | ask | bash -c 'uv remove requests'
+R2 | feat/x | delete-guard | ask | timeout 60 poetry remove requests
+#
+# --- R3: a download cache or the installed set is emptied (the offline checks run from these caches)
+R3 | feat/x | delete-guard | ask | uv cache clean
+R3 | feat/x | delete-guard | ask | uv cache prune
+R3 | feat/x | delete-guard | ask | npm cache clean --force
+R3 | feat/x | delete-guard | ask | pip cache purge
+R3 | feat/x | delete-guard | ask | go clean -modcache
+R3 | feat/x | delete-guard | ask | yarn cache clean
+R3 | feat/x | delete-guard | ask | pnpm store prune
+R3 | feat/x | delete-guard | ask | poetry cache clear pypi --all
+R3 | feat/x | delete-guard | ask | conda clean --all
+R3 | feat/x | delete-guard | ask | brew cleanup
+R3 | feat/x | delete-guard | ask | brew autoremove
+R3 | feat/x | delete-guard | ask | npm prune
+R3 | feat/x | delete-guard | ask | pnpm prune
+R3 | feat/x | delete-guard | ask | gem cleanup
+R3 | feat/x | delete-guard | ask | bundle clean --force
+#
+# --- Rs: holds
+Rs | feat/x | deploy-ask | silent | aws ssm list-commands
+Rs | feat/x | deploy-ask | silent | aws ssm get-command-invocation --command-id c --instance-id i-1
+Rs | feat/x | deploy-ask | silent | aws ssm describe-instance-information
+Rs | feat/x | deploy-ask | silent | aws ecs describe-tasks --cluster c --tasks t
+Rs | feat/x | deploy-ask | silent | az aks command invoke --help
+Rs | feat/x | deploy-ask | silent | az aks command result -g rg -n aks --command-id 1
+Rs | feat/x | deploy-ask | silent | az aks show -g rg -n aks
+Rs | feat/x | deploy-ask | silent | az vm show -g rg -n vm
+Rs | feat/x | deploy-ask | silent | az vm run-command list -l westeurope
+Rs | feat/x | deploy-ask | silent | az webapp deployment source show -g rg -n app
+Rs | feat/x | deploy-ask | silent | az webapp deployment slot list -g rg -n app
+Rs | feat/x | deploy-ask | silent | az containerapp list
+Rs | feat/x | deploy-ask | silent | az repos pr create --title x
+Rs | feat/x | deploy-ask | ask | az webapp deploy -g rg -n app --src-path app.zip
+Rs | feat/x | deploy-ask | ask | az deployment group create -g rg -f main.bicep
+Rs | feat/x | deploy-ask | ask | aws ecs update-service --cluster c --service s --force-new-deployment
+Rs | feat/x | deploy-ask | ask | aws ec2 terminate-instances --instance-ids i-1
+Rs | feat/x | deploy-ask | ask | kubectl exec web -- ls
+Rs | feat/x | shell | silent | aws s3 ls
+Rs | feat/x | shell | silent | aws sts get-caller-identity
+Rs | feat/x | shell | silent | az group list
+Rs | feat/x | shell | silent | az account show
+Rs | feat/x | delete-guard | ask | npm uninstall lodash
+Rs | feat/x | delete-guard | ask | pip uninstall -y requests
+Rs | feat/x | delete-guard | ask | uv tool uninstall ruff
+Rs | feat/x | delete-guard | ask | brew uninstall jq
+Rs | feat/x | delete-guard | ask | docker image prune -a
+Rs | feat/x | host-install | ask | uv add requests
+Rs | feat/x | delete-guard | silent | uv add requests
+Rs | feat/x | shell | silent | uv tree
+Rs | feat/x | shell | silent | uv pip list
+Rs | feat/x | shell | silent | uv cache dir
+Rs | feat/x | shell | silent | uv python list
+Rs | feat/x | shell | silent | poetry show
+Rs | feat/x | shell | silent | conda env list
+Rs | feat/x | shell | silent | gem list
+Rs | feat/x | shell | silent | pip cache list
+Rs | feat/x | shell | silent | go clean
+Rs | feat/x | shell | silent | cargo clean
+Rs | feat/x | shell | silent | brew list
+Rs | feat/x | shell | silent | apt list --installed
+Rs | feat/x | shell | silent | grep -rn "uv remove" docs
+Rs | feat/x | shell | silent | echo "run poetry remove requests to drop it"
+#
+# --- T1: a tool that runs the command after it, which the reader's tables do not name (item t; delete-guard)
+T1 | feat/x | delete-guard | ask | unshare -n rm -rf build
+T1 | feat/x | delete-guard | ask | ltrace rm -rf build
+T1 | feat/x | delete-guard | ask | gdb --args rm -rf build
+T1 | feat/x | delete-guard | ask | gdb -batch -ex run --args rm -rf build
+T1 | feat/x | delete-guard | ask | lldb -b -o run -- rm -rf build
+T1 | feat/x | delete-guard | ask | valgrind rm -rf build
+T1 | feat/x | delete-guard | ask | noglob rm -rf build
+T1 | feat/x | delete-guard | ask | nocorrect rm -rf build
+T1 | feat/x | delete-guard | ask | - rm -rf build
+T1 | feat/x | delete-guard | ask | noglob nocorrect rm -rf build
+T1 | feat/x | delete-guard | ask | lockf /tmp/l rm -rf build
+T1 | feat/x | delete-guard | ask | lockf -t 0 /tmp/l rm -rf build
+T1 | feat/x | delete-guard | ask | ssh-agent rm -rf build
+T1 | feat/x | delete-guard | ask | fakeroot rm -rf build
+T1 | feat/x | delete-guard | ask | faketime '2020-01-01' rm -rf build
+T1 | feat/x | delete-guard | ask | unbuffer rm -rf build
+T1 | feat/x | delete-guard | ask | taskset -c 0 rm -rf build
+T1 | feat/x | delete-guard | ask | chrt 10 rm -rf build
+T1 | feat/x | delete-guard | ask | nsenter -t 1 -m rm -rf build
+T1 | feat/x | delete-guard | ask | runuser -u ci -- rm -rf build
+T1 | feat/x | delete-guard | ask | pkexec rm -rf build
+T1 | feat/x | delete-guard | ask | gosu ci rm -rf build
+T1 | feat/x | delete-guard | ask | systemd-run --user rm -rf build
+T1 | feat/x | delete-guard | ask | firejail rm -rf build
+T1 | feat/x | delete-guard | ask | watchexec -- rm -rf build
+T1 | feat/x | delete-guard | ask | hyperfine 'rm -rf build'
+T1 | feat/x | delete-guard | ask | hyperfine --runs 3 'rm -rf build'
+T1 | feat/x | delete-guard | ask | entr -s 'rm -rf build'
+T1 | feat/x | delete-guard | ask | op run -- rm -rf build
+T1 | feat/x | delete-guard | ask | aws-vault exec prod -- rm -rf build
+T1 | feat/x | delete-guard | ask | doppler run -- rm -rf build
+T1 | feat/x | delete-guard | ask | dotenv run -- rm -rf build
+T1 | feat/x | delete-guard | ask | launchctl submit -l x -- rm -rf build
+T1 | feat/x | delete-guard | ask | sshpass -e rm -rf build
+T1 | feat/x | delete-guard | ask | sudo unshare -n rm -rf build
+T1 | feat/x | delete-guard | ask | bash -c 'noglob rm -rf build'
+#
+# --- T2: the same tools in front of git (git-guard)
+T2 | feat/x | git-guard | deny | noglob git push --force origin feat
+T2 | feat/x | git-guard | deny | nocorrect git commit --no-verify -m x
+T2 | feat/x | git-guard | deny | noglob git push origin HEAD:main
+T2 | main | git-guard | deny | noglob git push
+T2 | feat/x | git-guard | deny | xcrun git push --force origin feat
+T2 | feat/x | git-guard | deny | ssh-agent git push --force origin feat
+T2 | feat/x | git-guard | deny | unshare -n git push --force origin feat
+T2 | feat/x | git-guard | deny | ltrace git push --force origin feat
+T2 | feat/x | git-guard | deny | valgrind git push --force origin feat
+T2 | feat/x | git-guard | deny | fakeroot git push --force origin feat
+T2 | feat/x | git-guard | deny | lockf -t 0 /tmp/l git push --force origin feat
+T2 | feat/x | git-guard | deny | op run -- git push --force origin feat
+T2 | feat/x | git-guard | deny | runuser -u ci -- git push --force origin feat
+T2 | feat/x | git-guard | deny | watchexec -e py -- git push --force origin feat
+T2 | feat/x | git-guard | deny | hyperfine 'git push --force origin feat'
+T2 | feat/x | git-guard | deny | gdb -batch -ex run --args git push --force origin feat
+T2 | feat/x | git-guard | deny | sshpass -p x git push --force origin feat
+#
+# --- T3: … in front of an install on this machine (host-install)
+T3 | feat/x | host-install | ask | noglob npm install -g x
+T3 | feat/x | host-install | ask | nocorrect brew install jq
+T3 | feat/x | host-install | ask | unshare -n npm install -g x
+T3 | feat/x | host-install | ask | op run -- npm install -g x
+T3 | feat/x | host-install | ask | hyperfine 'npm install -g x'
+T3 | feat/x | host-install | ask | lockf /tmp/l npm install -g x
+T3 | feat/x | host-install | ask | ssh-agent npm install -g x
+#
+# --- T4: … in front of the other guarded tools
+T4 | feat/x | tracker-guard | deny | noglob gh issue close 3
+T4 | feat/x | tracker-guard | deny | op run -- gh issue close 3
+T4 | feat/x | deploy-ask | ask | hyperfine --runs 3 'terraform apply -auto-approve'
+T4 | main | protected-branch | deny | noglob git commit -m x
+T4 | main | protected-branch | deny | nocorrect git commit -m x
+T4 | feat/x@client | egress-guard | ask | noglob gemini -p hi
+T4 | feat/x@client | egress-guard | ask | op run -- codex exec hi
+#
+# --- Ts: holds
+Ts | feat/x | delete-guard | ask | strace rm -rf build
+Ts | feat/x | delete-guard | ask | caffeinate rm -rf build
+Ts | feat/x | delete-guard | ask | timeout 30 rm -rf build
+Ts | feat/x | delete-guard | ask | chroot /mnt rm -rf /x
+Ts | feat/x | delete-guard | ask | env FOO=1 rm -rf build
+Ts | feat/x | delete-guard | ask | script -q /dev/null rm -rf build
+Ts | feat/x | delete-guard | ask | sshpass -p x ssh host 'rm -rf build'
+Ts | feat/x | git-guard | deny | nice -n 5 git push --force origin feat
+Ts | feat/x | git-guard | deny | timeout 30 git push --force origin feat
+Ts | feat/x | git-guard | deny | ssh-agent bash -c 'git push --force origin feat'
+Ts | feat/x | deploy-ask | ask | op run -- terraform apply -auto-approve
+Ts | feat/x | deploy-ask | ask | noglob terraform apply -auto-approve
+Ts | feat/x | deploy-ask | ask | unbuffer terraform apply -auto-approve
+Ts | feat/x | secret-shell | ask | noglob cat .env
+Ts | feat/x | shell | silent | noglob ls
+Ts | feat/x | shell | silent | noglob git status
+Ts | feat/x | shell | silent | noglob find . -name '*.py'
+Ts | feat/x | shell | silent | nocorrect mkdir build
+Ts | feat/x | shell | silent | hyperfine 'sleep 0.1'
+Ts | feat/x | shell | silent | hyperfine --warmup 3 'pytest -q'
+Ts | feat/x | shell | silent | hyperfine --help
+Ts | feat/x | shell | silent | lldb --version
+Ts | feat/x | shell | silent | gdb --version
+Ts | feat/x | shell | silent | valgrind --version
+Ts | feat/x | shell | silent | xcrun --find git
+Ts | feat/x | shell | silent | xcrun --show-sdk-path
+Ts | feat/x | shell | silent | xcrun git status
+Ts | feat/x | shell | silent | ssh-agent -s
+Ts | feat/x | shell | silent | lockf -k /tmp/l true
+Ts | feat/x | shell | silent | watchexec --version
+Ts | feat/x | shell | silent | watchexec -e py -- pytest -q
+Ts | feat/x | shell | silent | op --version
+Ts | feat/x | shell | silent | op whoami
+Ts | feat/x | shell | silent | aws-vault list
+Ts | feat/x | shell | silent | doppler --version
+Ts | feat/x | shell | silent | taskset -c 0 python3 bench.py
+Ts | feat/x | shell | silent | unshare -n true
+Ts | feat/x | shell | silent | grep -- rm notes.txt
+Ts | feat/x | shell | silent | git log --oneline -- rm
+Ts | feat/x | shell | silent | cargo test -- --nocapture
+Ts | feat/x | shell | silent | npm run build -- --watch
+Ts | feat/x | shell | silent | printf -- '-x\n'
+Ts | feat/x | shell | silent | echo noglob rm -rf build
+Ts | feat/x | shell | silent | echo "- rm -rf build"
+Ts | feat/x | shell | silent | cd -
+Ts | feat/x | shell | silent | cat - notes.txt
+Ts | feat/x | shell | silent | tar czf - src
+#
+# --- U1: the Homebrew names of the GNU tools are the same tools (item u; delete-guard)
+U1 | feat/x | delete-guard | ask | grm -rf build
+U1 | feat/x | delete-guard | ask | grmdir build
+U1 | feat/x | delete-guard | ask | gunlink f
+U1 | feat/x | delete-guard | ask | gshred -u f
+U1 | feat/x | delete-guard | ask | sudo grm -rf build
+U1 | feat/x | delete-guard | ask | /opt/homebrew/bin/grm -rf build
+U1 | feat/x | delete-guard | ask | bash -c 'grm -rf build'
+U1 | feat/x | delete-guard | ask | find . -name '*.pyc' -exec grm {} \;
+U1 | feat/x | delete-guard | ask | xargs grm < files.txt
+U1 | feat/x | delete-guard | ask | gtimeout 30 grm -rf build
+U1 | feat/x | delete-guard | ask | genv FOO=1 rm -rf build
+U1 | feat/x | delete-guard | ask | gnice -n 5 rm -rf build
+U1 | feat/x | delete-guard | ask | gnohup rm -rf build
+U1 | feat/x | delete-guard | ask | gstdbuf -oL rm -rf build
+U1 | feat/x | delete-guard | ask | gchroot /mnt rm -rf /x
+U1 | feat/x | delete-guard | ask | gtime -v rm -rf build
+#
+# --- U2: … as writers of a secret file (deny, as under the plain names)
+U2 | feat/x | secret-shell | deny | gcp x .env
+U2 | feat/x | secret-shell | deny | gmv .env.bak .env
+U2 | feat/x | secret-shell | deny | gtee .env
+U2 | feat/x | secret-shell | deny | gtouch .env
+U2 | feat/x | secret-shell | deny | gchmod 600 .env
+U2 | feat/x | secret-shell | deny | gchown me .env
+U2 | feat/x | secret-shell | deny | ginstall -m 600 x .env
+U2 | feat/x | secret-shell | deny | gsed -i s/a/b/ .env
+U2 | feat/x | secret-shell | deny | gln -sf other .env
+U2 | feat/x | secret-shell | deny | gtruncate -s 0 .env
+#
+# --- U3: … as wrappers in front of git and of an install
+U3 | feat/x | git-guard | deny | gnice -n 5 git push --force origin feat
+U3 | feat/x | git-guard | deny | genv FOO=1 git push --force origin feat
+U3 | feat/x | git-guard | deny | gnohup git commit --no-verify -m x
+U3 | feat/x | git-guard | deny | gstdbuf -oL git push --force origin feat
+U3 | feat/x | host-install | ask | genv FOO=1 npm install -g x
+U3 | feat/x | host-install | ask | gnice npm install -g x
+U3 | feat/x | host-install | ask | gnohup npm install -g x
+U3 | feat/x | host-install | ask | gstdbuf -oL npm install -g x
+#
+# --- U4: … as search tools: the pattern is no path
+U4 | feat/x | secret-shell | silent | bash -c 'ggrep -rn .env docs'
+U4 | feat/x | secret-shell | silent | bash -c 'gegrep -n ".env|.pem" notes.txt'
+#
+# --- Us: holds
+Us | feat/x | delete-guard | ask | gtruncate -s 0 f
+Us | feat/x | delete-guard | ask | gfind . -name '*.pyc' -delete
+Us | feat/x | delete-guard | ask | gfind . -name x -exec rm {} \;
+Us | feat/x | delete-guard | ask | gxargs rm
+Us | feat/x | delete-guard | ask | gtimeout 30 rm -rf build
+Us | feat/x | secret-shell | ask | gcat .env
+Us | feat/x | secret-shell | ask | ghead -3 .env
+Us | feat/x | secret-shell | ask | gawk '{print}' .env
+Us | feat/x | secret-shell | ask | ggrep -n TOKEN .env
+Us | feat/x | secret-shell | deny | cp x .env
+Us | feat/x | secret-shell | deny | sed -i s/a/b/ .env
+Us | feat/x | secret-shell | deny | chmod 600 .env
+Us | feat/x | secret-shell | deny | truncate -s 0 .env
+Us | feat/x | secret-shell | silent | bash -c 'grep -rn .env docs'
+Us | feat/x | host-install | ask | gtimeout 30 npm install -g x
+Us | feat/x | git-guard | deny | gtimeout 30 git push --force origin feat
+Us | feat/x | deploy-ask | ask | gnohup terraform apply -auto-approve
+Us | feat/x | shell | silent | gls -la
+Us | feat/x | shell | silent | gcat README.md
+Us | feat/x | shell | silent | gdate +%s
+Us | feat/x | shell | silent | gmake test
+Us | feat/x | shell | silent | gzip -d x.gz
+Us | feat/x | shell | silent | gunzip x.gz
+Us | feat/x | shell | silent | gdd if=/dev/zero of=disk.img bs=1m count=1
+Us | feat/x | shell | silent | gsed -n 1,3p README.md
+Us | feat/x | shell | silent | gsed -i s/a/b/ notes.txt
+Us | feat/x | shell | silent | ggrep -rn TODO docs
+Us | feat/x | shell | silent | gtimeout 30 pytest -q
+Us | feat/x | shell | silent | gstat -c %s f
+Us | feat/x | shell | silent | gsort a.txt
+Us | feat/x | shell | silent | gcp a.txt b.txt
+Us | feat/x | shell | silent | gmv a.txt b.txt
+Us | feat/x | shell | silent | gtouch notes.txt
+Us | feat/x | shell | silent | gchmod +x run.sh
+Us | feat/x | shell | silent | gmktemp -d
+Us | feat/x | shell | silent | greadlink -f x
+Us | feat/x | shell | silent | gradle build
+Us | feat/x | shell | silent | go build ./...
+Us | feat/x | shell | silent | gh pr view 3
+Us | feat/x | shell | silent | gpg --version
+Us | feat/x | shell | silent | gem list
+Us | feat/x | shell | silent | git status
+Us | feat/x | shell | silent | grep -rn grm docs
+Us | feat/x | shell | silent | echo grm -rf build

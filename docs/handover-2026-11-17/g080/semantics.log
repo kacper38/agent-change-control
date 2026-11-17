@@ -1,0 +1,164 @@
+== versions
+git version 2.55.0
+curl 8.7.1 (x86_64-apple-darwin25.0) libcurl/8.7.1 (SecureTransport) LibreSSL/3.3.6 zlib/1.2.12 nghttp2/1.68.1
+gh version 2.92.0 (2026-04-28)
+
+== curl: is --option=value accepted? (--version would print and stop before any transfer)
+$ curl --upload-file=x.txt --version
+curl: option --upload-file=x.txt: is unknown
+curl: try 'curl --help' or 'curl --manual' for more information
+-> exit 2
+$ curl -Tx.txt --version
+curl 8.7.1 (x86_64-apple-darwin25.0) libcurl/8.7.1 (SecureTransport) LibreSSL/3.3.6 zlib/1.2.12 nghttp2/1.68.1
+Release-Date: 2024-03-27
+Protocols: dict file ftp ftps gopher gophers http https imap imaps ipfs ipns ldap ldaps mqtt pop3 pop3s rtsp smb smbs smtp smtps telnet tftp
+Features: alt-svc AsynchDNS GSS-API HSTS HTTP2 HTTPS-proxy IPv6 Kerberos Largefile libz MultiSSL NTLM SPNEGO SSL threadsafe UnixSockets
+-> exit 0
+
+== gh: -R before the command group (help only, no API call)
+$ gh -R o/r issue list --help
+List issues in a GitHub repository. By default, this only lists open issues.
+
+The search query syntax is documented here:
+<https://docs.github.com/en/search-github/searching-on-github/searching-issues-and-pull-requests>
+
+On supported GitHub hosts, advanced issue search syntax can be used in the
+-> exit 0
+$ gh issue -R o/r list --help
+List issues in a GitHub repository. By default, this only lists open issues.
+
+The search query syntax is documented here:
+<https://docs.github.com/en/search-github/searching-on-github/searching-issues-and-pull-requests>
+
+On supported GitHub hosts, advanced issue search syntax can be used in the
+-> exit 0
+$ gh api --help | grep -c -- --repo
+0
+$ gh issue close --help | grep -- --repo
+  -R, --repo [HOST/]OWNER/REPO   Select another repository using the [HOST/]OWNER/REPO format
+
+== git push: what the manual says
+       --prune
+	   Remove remote branches that don’t have a local counterpart. For
+	   example a remote branch tmp will be removed if a local branch with
+	   the same name doesn’t exist any more. This also respects refspecs,
+--
+       --mirror
+	   Instead of naming each ref to push, specifies that all refs under
+	   refs/ (which includes but is not limited to refs/heads/,
+	   refs/remotes/, and refs/tags/) be mirrored to the remote
+--
+       --repo=<repository>
+	   This option is equivalent to the <repository> argument. If both are
+	   specified, the command-line argument takes precedence.
+
+
+== scratch repository with a pre-commit hook that always fails
+$ git commit --allow-empty -m plain
+HOOK-RAN
+-> exit 1
+$ git commit --allow-empty --no-verify -m full-option
+[feat (root-commit) 08ccbf6] full-option
+-> exit 0
+$ git commit --allow-empty --no-verif -m prefix-verif
+[feat 1fbf898] prefix-verif
+-> exit 0
+$ git commit --allow-empty --no-veri -m prefix-veri
+[feat c77b1c0] prefix-veri
+-> exit 0
+$ git commit --allow-empty --no-ver -m prefix-ver
+error: ambiguous option: no-ver (could be --no-verbose or --no-verify)
+usage: git commit [-a | --interactive | --patch] [-s] [-v] [-u[<mode>]] [--amend]
+                  [--dry-run] [(-c | -C | --squash) <commit> | --fixup [(amend|reword):]<commit>]
+                  [-F <file> | -m <msg>] [--reset-author] [--allow-empty]
+                  [--allow-empty-message] [--no-verify] [-e] [--author=<author>]
+                  [--date=<date>] [--cleanup=<mode>] [--[no-]status]
+-> exit 129
+$ git commit --allow-empty -nm cluster-nm
+[feat 589bbde] cluster-nm
+-> exit 0
+$ git commit --allow-empty -qnm cluster-qnm
+-> exit 0
+$ git commit --allow-empty -uno -m untracked-no
+HOOK-RAN
+-> exit 1
+$ git commit --allow-empty -mn
+HOOK-RAN
+-> exit 1
+$ git -c core.hooksPath=/dev/null commit --allow-empty -m dash-c
+[feat fd44495] dash-c
+-> exit 0
+$ git -c core.hookspath=/dev/null commit --allow-empty -m dash-c-lowercase
+[feat 5ae4904] dash-c-lowercase
+-> exit 0
+$ env GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.hooksPath GIT_CONFIG_VALUE_0=/dev/null git commit --allow-empty -m config-env-vars
+[feat 35609f9] config-env-vars
+-> exit 0
+$ env NOHOOKS=/dev/null git --config-env=core.hooksPath=NOHOOKS commit --allow-empty -m config-env-option
+[feat d38ede0] config-env-option
+-> exit 0
+$ git log --oneline
+d38ede0 config-env-option
+35609f9 config-env-vars
+5ae4904 dash-c-lowercase
+fd44495 dash-c
+8dbd12f cluster-qnm
+589bbde cluster-nm
+c77b1c0 prefix-veri
+1fbf898 prefix-verif
+08ccbf6 full-option
+
+== git push forms against the local bare repository
+$ git push -u origin feat
+To ../remote.git
+ * [new branch]      feat -> feat
+branch 'feat' set up to track 'origin/feat'.
+-> exit 0
+$ git push -uf origin feat
+Everything up-to-date
+branch 'feat' set up to track 'origin/feat'.
+-> exit 0
+$ git push --delet origin tmp1
+To ../remote.git
+ - [deleted]         tmp1
+-> exit 0
+$ git push -d origin tmp2
+To ../remote.git
+ - [deleted]         tmp2
+-> exit 0
+$ git push --prune origin refs/heads/*
+To ../remote.git
+ - [deleted]         tmp3
+ * [new branch]      tmp1 -> tmp1
+ * [new branch]      tmp2 -> tmp2
+-> exit 0
+$ git ls-remote --heads origin
+refs/heads/feat
+refs/heads/tmp1
+refs/heads/tmp2
+$ git push --repo origin feat:main
+fatal: protocol error: bad line length character: SSH-
+-> exit 128
+$ git push --repo=origin
+Everything up-to-date
+-> exit 0
+$ git push --force-with-leas origin feat
+Everything up-to-date
+-> exit 0
+$ git push --forc origin feat
+error: ambiguous option: forc (could be --force-with-lease or --force-if-includes)
+usage: git push [<options>] [<repository> [<refspec>...]]
+
+    -v, --[no-]verbose    be more verbose
+    -q, --[no-]quiet      be more quiet
+    --[no-]repo <repository>
+-> exit 129
+$ git push --mirro origin
+To ../remote.git
+ * [new reference]   origin/feat -> origin/feat
+ * [new reference]   origin/tmp1 -> origin/tmp1
+ * [new reference]   origin/tmp2 -> origin/tmp2
+-> exit 0
+$ git push --no-verif origin feat
+Everything up-to-date
+-> exit 0

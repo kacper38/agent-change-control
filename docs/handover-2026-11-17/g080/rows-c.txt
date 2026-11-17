@@ -1,0 +1,170 @@
+# Guard 0.8.0, group C: asks that go away (the owner's "do decisions as recommmended", 2026-11-17, on the take
+# and keep list of the report of that day). Draft: counts are frozen when the tracker item names them.
+#
+# Ids: K1 find's pattern operand; K2 git restore --staged; K3 a search pattern; K4 previews; K5 a help probe as
+#      the sole argument; K6 ls, stat, test on a secret path; K7 git commands that report names; K8 the word
+#      after an exclude option; K9 text of echo and printf; K10 command -v (all ask today, silent afterwards).
+#      Ks the neighbours that keep today's verdict, the keep list among them.
+# One condition on K6, K7 and K9 that the list did not spell out: the command is silent only at the top level
+# of the line and when its output is not piped onward. `ls .env | xargs cat` and `cat $(echo .env)` read the
+# file, so they keep asking.
+# Row: id | branch[@client] | rule | expected | command
+
+# ---------------------------------------------------------------- K1: find's pattern operand (host-install)
+K1 | feat/x | shell | silent | find . -name yarn
+K1 | feat/x | shell | silent | find . -iname yarn -print
+K1 | feat/x | shell | silent | find node_modules -type d -name yarn
+K1 | feat/x | shell | silent | find . -path ./vendor -prune -o -name yarn
+Ks | feat/x | host-install | ask | find . -name package.json -execdir yarn \;
+Ks | feat/x | host-install | ask | yarn
+Ks | feat/x | shell | silent | find / -name npm -type f
+
+# ---------------------------------------------------------------- K2: git restore --staged (delete-guard)
+K2 | feat/x | shell | silent | git restore --staged f
+K2 | feat/x | shell | silent | git restore --staged .
+K2 | feat/x | shell | silent | git restore -S f
+K2 | feat/x | shell | silent | git -C sub restore --staged a b
+K2 | feat/x | shell | silent | git restore --staged --source=HEAD~1 f
+Ks | feat/x | delete-guard | ask | git restore f
+Ks | feat/x | delete-guard | ask | git restore .
+Ks | feat/x | delete-guard | ask | git restore --staged --worktree f
+Ks | feat/x | delete-guard | ask | git restore --worktree --staged f
+Ks | feat/x | delete-guard | ask | git restore -SW f
+Ks | feat/x | delete-guard | ask | git restore --source HEAD~1 f
+Ks | feat/x | delete-guard | ask | git reset f
+Ks | feat/x | delete-guard | ask | git rm --cached f
+Ks | feat/x | delete-guard | ask | git branch -d merged-feat
+
+# ---------------------------------------------------------------- K3: a search pattern (secret-shell)
+K3 | feat/x | shell | silent | grep -rn .env docs
+K3 | feat/x | shell | silent | grep -n id_rsa README.md
+K3 | feat/x | shell | silent | grep -c .env .gitignore
+K3 | feat/x | shell | silent | grep -rn -- .env docs
+K3 | feat/x | shell | silent | rg .env
+K3 | feat/x | shell | silent | rg -n server.pem src
+K3 | feat/x | shell | silent | git grep .env
+K3 | feat/x | shell | silent | git grep -n .env -- docs
+Ks | feat/x | secret-shell | ask | grep -rn password .env
+Ks | feat/x | secret-shell | ask | grep TOKEN .env.local
+Ks | feat/x | secret-shell | ask | grep -f .env notes.txt
+Ks | feat/x | secret-shell | ask | rg x ~/.aws/credentials
+Ks | feat/x | secret-shell | ask | find . -name .env
+Ks | feat/x | secret-shell | ask | find . -name '*.pem'
+Ks | feat/x | secret-shell | ask | cat ca.pem
+Ks | feat/x | secret-shell | ask | cat fullchain.pem
+Ks | feat/x | secret-shell | ask | wc -c .env
+Ks | feat/x | secret-shell | ask | ssh-add ~/.ssh/id_ed25519
+
+# ---------------------------------------------------------------- K4: previews (delete-guard)
+K4 | feat/x | shell | silent | git clean -n
+K4 | feat/x | shell | silent | git clean -nd
+K4 | feat/x | shell | silent | git clean -fdn
+K4 | feat/x | shell | silent | git clean -ndx
+K4 | feat/x | shell | silent | git clean --dry-run -fd
+K4 | feat/x | shell | silent | git clean -f -d --dry-run
+K4 | feat/x | shell | silent | kubectl delete --dry-run=client -f x.yaml
+K4 | feat/x | shell | silent | kubectl delete pod x --dry-run=server
+K4 | feat/x | shell | silent | git worktree prune --dry-run
+K4 | feat/x | shell | silent | git worktree prune -n
+K4 | feat/x | shell | silent | git worktree prune -n -v
+Ks | feat/x | delete-guard | ask | git clean -f
+Ks | feat/x | delete-guard | ask | git clean -fd
+Ks | feat/x | delete-guard | ask | git clean -fdx
+Ks | feat/x | delete-guard | ask | git clean -f -e -n
+Ks | feat/x | delete-guard | ask | git clean -n; git clean -f
+Ks | feat/x | delete-guard | ask | git clean -n && rm -rf build
+Ks | feat/x | delete-guard | ask | kubectl delete pod x
+Ks | feat/x | delete-guard | ask | kubectl delete pod x --dry-run=none
+Ks | feat/x | delete-guard | ask | git worktree prune
+Ks | feat/x | delete-guard | ask | git worktree remove ../wt
+
+# ---------------------------------------------------------------- K5: a help probe as the sole argument (delete-guard)
+K5 | feat/x | shell | silent | rm --help
+K5 | feat/x | shell | silent | rmdir --help
+K5 | feat/x | shell | silent | shred --help
+K5 | feat/x | shell | silent | truncate --help
+K5 | feat/x | shell | silent | rm --version
+K5 | feat/x | shell | silent | git clean --help
+K5 | feat/x | shell | silent | git clean -h
+K5 | feat/x | shell | silent | docker system prune --help
+K5 | feat/x | shell | silent | kubectl delete --help
+K5 | feat/x | shell | silent | brew uninstall --help
+Ks | feat/x | delete-guard | ask | rm -rf build --help
+Ks | feat/x | delete-guard | ask | rm --help build
+Ks | feat/x | delete-guard | ask | rm -- --help
+Ks | feat/x | delete-guard | ask | git clean -f --help
+Ks | feat/x | delete-guard | ask | docker system prune -f --help
+
+# ---------------------------------------------------------------- K6: ls, stat and test on a secret path (secret-shell)
+K6 | feat/x | shell | silent | ls -la .env
+K6 | feat/x | shell | silent | ls -l ~/.ssh/id_ed25519
+K6 | feat/x | shell | silent | ls ~/.aws/credentials
+K6 | feat/x | shell | silent | stat .env
+K6 | feat/x | shell | silent | stat -f %z .env
+K6 | feat/x | shell | silent | test -f .env
+K6 | feat/x | shell | silent | [ -f .env ]
+K6 | feat/x | shell | silent | [[ -e .env ]] && echo yes
+K6 | feat/x | shell | silent | test -f .env && echo yes
+K6 | feat/x | shell | silent | [ -s certs/server.key ] || echo missing
+K6 | feat/x | shell | silent | if [ -f .env ]; then echo present; fi
+K6 | feat/x | shell | silent | ls -la .env; echo done
+Ks | feat/x | secret-shell | ask | ls .env | xargs cat
+Ks | feat/x | secret-shell | ask | ls -la .env | head -1
+Ks | feat/x | secret-shell | ask | cat $(ls .env)
+Ks | feat/x | secret-shell | ask | test -f .env && cat .env
+Ks | feat/x | secret-shell | ask | [ -f .env ] && source .env
+Ks | feat/x | secret-shell | ask | stat .env; cp .env /tmp/x
+Ks | feat/x | secret-shell | ask | file .env
+Ks | feat/x | secret-shell | ask | sha256sum .env
+Ks | feat/x | secret-shell | ask | diff .env.example .env
+Ks | feat/x | secret-shell | deny | chmod 600 .env
+Ks | feat/x | secret-shell | deny | cp .env.example .env
+Ks | feat/x | secret-shell | deny | touch .env
+
+# ---------------------------------------------------------------- K7: git commands that report names (secret-shell)
+K7 | feat/x | shell | silent | git check-ignore .env
+K7 | feat/x | shell | silent | git check-ignore -v .env
+K7 | feat/x | shell | silent | git ls-files .env
+K7 | feat/x | shell | silent | git ls-files --error-unmatch .env
+K7 | feat/x | shell | silent | git status .env
+K7 | feat/x | shell | silent | git status --short -- .env
+K7 | feat/x | shell | silent | git -C sub check-ignore .env
+Ks | feat/x | secret-shell | ask | git diff .env
+Ks | feat/x | secret-shell | ask | git log -p -- .env
+Ks | feat/x | secret-shell | ask | git log --oneline -- .env
+Ks | feat/x | secret-shell | ask | git blame .env
+Ks | feat/x | secret-shell | deny | git add .env
+Ks | feat/x | secret-shell | ask | git ls-files .env | xargs cat
+Ks | feat/x | secret-shell | ask | git rm --cached .env
+
+# ---------------------------------------------------------------- K8: the word after an exclude option (secret-shell)
+K8 | feat/x | shell | silent | tar --exclude .env -czf out.tgz .
+K8 | feat/x | shell | silent | tar -czf out.tgz --exclude .env --exclude '*.pem' .
+K8 | feat/x | shell | silent | rsync -a --exclude .env src/ dst/
+K8 | feat/x | shell | silent | grep -r --exclude .env TODO .
+K8 | feat/x | shell | silent | grep -r --exclude-dir .git --exclude .env TODO .
+Ks | feat/x | secret-shell | ask | tar -czf out.tgz .env
+Ks | feat/x | secret-shell | ask | tar --exclude node_modules -czf out.tgz .env
+Ks | feat/x | secret-shell | ask | rsync -a .env host:/tmp/
+Ks | feat/x | secret-shell | ask | tar --exclude .git -czf out.tgz . .env.local
+
+# ---------------------------------------------------------------- K9: text of echo and printf (secret-shell)
+K9 | feat/x | shell | silent | echo .env >> .gitignore
+K9 | feat/x | shell | silent | echo ".env" >> .gitignore
+K9 | feat/x | shell | silent | echo "*.pem" >> .gitignore
+K9 | feat/x | shell | silent | echo .env
+K9 | feat/x | shell | silent | printf '%s\n' .env .env.local >> .gitignore
+Ks | feat/x | secret-shell | deny | echo X=1 > .env
+Ks | feat/x | secret-shell | deny | echo X=1 >> .env
+Ks | feat/x | secret-shell | ask | echo .env | xargs cat
+Ks | feat/x | secret-shell | ask | cat $(echo .env)
+Ks | feat/x | secret-shell | ask | echo .env | xargs -I{} cp {} /tmp/
+
+# ---------------------------------------------------------------- K10: command -v (egress-guard, client boundary)
+K10 | feat/x@client | shell | silent | command -v codex
+K10 | feat/x@client | shell | silent | command -V gemini
+K10 | feat/x@client | shell | silent | command -v codex >/dev/null 2>&1 && echo yes
+Ks | feat/x@client | egress-guard | ask | command codex exec hi
+Ks | feat/x@client | egress-guard | ask | command -p codex exec hi
+Ks | feat/x@client | shell | silent | which codex
+Ks | feat/x@client | shell | silent | type codex

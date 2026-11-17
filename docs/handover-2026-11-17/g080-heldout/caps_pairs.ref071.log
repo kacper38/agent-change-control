@@ -1,0 +1,8 @@
+gfind: 3 weaker
+  [first] delete-guard: ask -> silent | "GFIND . -name '*.pyc' -delete"
+  [first] delete-guard: ask -> silent | 'GFIND . -name x -exec rm {} \\;'
+  [first] delete-guard: ask -> silent | 'GFIND . -delete'
+gxargs: 1 weaker
+  [first] delete-guard: ask -> silent | 'GXARGS rm'
+guard 0.7.1 <SCRATCH>/g080-heldout/guard-0.7.1.py
+commands 982 | pairs 2354 | capitals weaker 4 | capitals stronger 0 | excused (shell words, not on PATH) 0: {}

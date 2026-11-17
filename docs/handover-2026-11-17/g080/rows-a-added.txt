@@ -1,0 +1,16 @@
+# Rows added after tracker item #50 was opened (its text counts the 229 rows of rows-a.txt), before the build.
+# Same format. Each block says why it was added. All are inside the item's second criterion: "a script for another
+# host or a container is judged as `ssh host '…'` is".
+
+# `ssh host` with no command hands its standard input to the remote login shell: the here-document or the echo
+# is a script that runs on the other host (a common way to run a remote script).
+N3 | feat/x | git-guard | ask | "ssh build <<'EOF'\ngit push\nEOF"
+N3 | feat/x | secret-shell | ask | "ssh build <<'EOF'\ncat .env\nEOF"
+N3 | feat/x | delete-guard | ask | echo 'rm -rf build' | ssh build
+N3 | feat/x | deploy-ask | ask | "ssh -p 2222 build <<'EOF'\nterraform apply -auto-approve\nEOF"
+N3 | feat/x | deploy-ask | ask | "docker exec -i web sh <<'EOF'\nterraform apply -auto-approve\nEOF"
+Ns | feat/x | delete-guard | ask | "ssh build <<'EOF'\nrm -rf /srv/app\nEOF"
+Ns | feat/x | host-install | silent | "ssh build <<'EOF'\nnpm install -g x\nEOF"
+Ns | main | protected-branch | silent | "ssh build <<'EOF'\ngit commit -m x\nEOF"
+Ns | feat/x | git-guard | silent | "ssh build cat <<'EOF'\ngit push\nEOF"
+Ns | feat/x | host-install | silent | "docker exec -i web sh <<'EOF'\nnpm install -g x\nEOF"

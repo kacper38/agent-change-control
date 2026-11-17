@@ -1,0 +1,78 @@
+# Guard 0.8.0, group A: rows added after `owner ready` by the owner's word of 2026-11-17 ("yes": a secret file
+# name in capitals is read like the plain name). The file tools; the shell forms are the C4 rows of
+# rows-a-caps.txt. On the owner's machine the file system ignores case: `.ENV` opens `.env`.
+#
+# Ids: F1 a secret file name in capitals (red at 0.7.1).
+#      Ft the plain form of the rows that follow it (holds at 0.7.1 and keeps holding).
+#      Fs names that keep today's verdict.
+# Row: id | tool | rule | expected | path        checker: expect_files.py
+
+Ft | Read | secret-read | ask | .env
+F1 | Read | secret-read | ask | .ENV
+F1 | Read | secret-read | ask | .Env
+F1 | Read | secret-read | ask | .Env.local
+F1 | Read | secret-read | ask | .ENV.PRODUCTION
+Ft | Read | secret-read | ask | certs/server.pem
+F1 | Read | secret-read | ask | certs/server.PEM
+F1 | Read | secret-read | ask | certs/SERVER.PEM
+F1 | Read | secret-read | ask | CERTS/Server.Pem
+Ft | Read | secret-read | ask | certs/server.key
+F1 | Read | secret-read | ask | certs/server.KEY
+Ft | Read | secret-read | ask | /Users/dev/.ssh/id_ed25519
+F1 | Read | secret-read | ask | /Users/dev/.ssh/ID_ED25519
+F1 | Read | secret-read | ask | /Users/dev/.SSH/Id_Rsa
+Ft | Read | secret-read | ask | /Users/dev/.aws/credentials
+F1 | Read | secret-read | ask | /Users/dev/.AWS/credentials
+F1 | Read | secret-read | ask | /Users/dev/.aws/Credentials
+Ft | Read | secret-read | ask | /Users/dev/.kube/config
+F1 | Read | secret-read | ask | /Users/dev/.KUBE/config
+F1 | Read | secret-read | ask | /Users/dev/.kube/CONFIG
+Ft | Read | secret-read | ask | /Users/dev/.config/gh/hosts.yml
+F1 | Read | secret-read | ask | /Users/dev/.config/GH/hosts.yml
+F1 | Read | secret-read | ask | /Users/dev/.config/gh/Hosts.YML
+Ft | Read | secret-read | ask | /Users/dev/.docker/config.json
+F1 | Read | secret-read | ask | /Users/dev/.DOCKER/config.json
+Ft | Read | secret-read | ask | /Users/dev/.azure/msal_token_cache.json
+F1 | Read | secret-read | ask | /Users/dev/.AZURE/msal_token_cache.json
+F1 | Read | secret-read | ask | /Users/dev/.Azure/az.sess
+Ft | Read | secret-read | ask | infra/terraform.tfstate
+F1 | Read | secret-read | ask | infra/terraform.TFSTATE
+F1 | Read | secret-read | ask | infra/Terraform.tfstate.BACKUP
+Ft | Read | secret-read | ask | /Users/dev/.netrc
+F1 | Read | secret-read | ask | /Users/dev/.NETRC
+Ft | Read | secret-read | ask | /Users/dev/.git-credentials
+F1 | Read | secret-read | ask | /Users/dev/.Git-Credentials
+Ft | Read | secret-read | ask | store/release.p12
+F1 | Read | secret-read | ask | store/release.P12
+F1 | Read | secret-read | ask | store/release.JKS
+
+Ft | Write | secret-write | deny | .env
+F1 | Write | secret-write | deny | .ENV
+F1 | Write | secret-write | deny | .Env.local
+Ft | Write | secret-write | deny | certs/server.key
+F1 | Write | secret-write | deny | certs/server.KEY
+F1 | Write | secret-write | deny | /Users/dev/.AWS/credentials
+Ft | Edit | secret-write | deny | .env
+F1 | Edit | secret-write | deny | .Env
+F1 | Edit | secret-write | deny | .ENV
+F1 | Edit | secret-write | deny | infra/terraform.TFSTATE
+Ft | Write | secret-write | ask | prod.tfvars
+F1 | Write | secret-write | ask | prod.TFVARS
+F1 | Edit | secret-write | ask | env/Prod.TfVars
+
+# names that keep today's verdict
+Fs | Read | secret-read | silent | .env.example
+Fs | Read | secret-read | silent | .ENV.EXAMPLE
+Fs | Read | secret-read | silent | .Env.Sample
+Fs | Read | secret-read | ask | .env.EXAMPLE
+Fs | Read | secret-read | silent | README.md
+Fs | Read | secret-read | silent | docs/ENV.md
+Fs | Read | secret-read | silent | docs/KEY
+Fs | Read | secret-read | silent | src/Keys.py
+Fs | Read | secret-read | silent | /Users/dev/Project/config.json
+Fs | Read | secret-read | silent | /Users/dev/.config/GH/config.yml
+Fs | Write | secret-write | silent | .env.example
+Fs | Write | secret-write | silent | .ENV.EXAMPLE
+Fs | Write | secret-write | silent | prod.TFVARS.EXAMPLE
+Fs | Write | secret-write | silent | docs/SECRETS.md
+Fs | Edit | secret-write | silent | src/Credentials.py

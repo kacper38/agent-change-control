@@ -1,0 +1,48 @@
+# on a protected branch (run with --branch main): the net, and ways to move the branch that are no commit
+mytool run git commit -m x
+mytool git push
+mytool git merge feat
+man git commit
+tldr git commit
+echo git commit -m x
+brew install git
+git update-ref refs/heads/main abc123
+git update-ref refs/heads/main abc123 def456
+git update-ref -m "move" refs/heads/main abc123
+git update-ref HEAD abc123
+git update-ref -d refs/heads/main
+git update-ref --stdin
+git update-ref refs/heads/feat abc123
+git update-ref refs/tags/v1 abc123
+git -C sub update-ref refs/heads/main abc123
+git branch -f main abc123
+git branch -f main
+git branch --force main HEAD~1
+git branch -M main
+git branch -m main old-main
+git branch -D main
+git push . feat:main
+git push . HEAD:main
+git fetch . feat:main
+git fetch origin feat:main
+git fetch origin +feat:main
+git checkout -B main abc123
+git switch -C main abc123
+git reset --hard HEAD~1
+git reset --soft HEAD~1
+git reset HEAD~1
+git symbolic-ref HEAD refs/heads/main
+git commit-tree abc -m x
+git merge feat
+git pull
+git pull --rebase
+git rebase feat
+git cherry-pick abc
+git revert abc
+git am x.patch
+git stash pop
+git commit -m x
+git push
+git status
+git log --oneline -3
+git fetch origin

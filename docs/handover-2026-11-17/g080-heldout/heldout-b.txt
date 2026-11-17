@@ -1,0 +1,307 @@
+# guard 0.8.0 group B: forms the engineer never sees. Same format as the rows files.
+# HR = due at 0.8.0 (other spellings and arrangements of what the rows name)
+# HS = must answer as at 0.7.0
+# HO = observed only (a neighbour of the class; reported, not required)
+#
+# --- R1: the cloud CLI runs a command on a host or deploys
+HR | feat/x | deploy-ask | ask | aws ssm send-command --targets Key=tag:env,Values=prod --document-name AWS-RunShellScript --parameters commands=uptime
+HR | feat/x | deploy-ask | ask | aws --region eu-west-1 ecs execute-command --cluster c --task t --command ls --interactive
+HR | feat/x | deploy-ask | ask | env AWS_PROFILE=prod aws ssm send-command --instance-ids i-1 --document-name AWS-RunShellScript
+HR | feat/x | deploy-ask | ask | az aks command invoke --resource-group rg --name aks --command "kubectl delete pod x"
+HR | feat/x | deploy-ask | ask | az vm run-command invoke --command-id RunPowerShellScript -g rg -n vm --scripts hostname
+HR | feat/x | deploy-ask | ask | az functionapp deployment source config-zip --src app.zip -g rg -n app
+HR | feat/x | deploy-ask | ask | az webapp deployment slot swap --slot staging --target-slot production -g rg -n app
+HR | feat/x | deploy-ask | ask | nohup az aks command invoke -g rg -n aks --command "helm ls" &
+HR | feat/x | deploy-ask | ask | ssh build 'aws ssm send-command --instance-ids i-1 --document-name AWS-RunShellScript'
+HR | feat/x | deploy-ask | ask | sh -c "az containerapp exec -g rg -n app --command sh"
+HR | feat/x | deploy-ask | ask | az container exec --resource-group rg --name c --exec-command "/bin/sh"
+HS | feat/x | deploy-ask | silent | aws ssm describe-document --name AWS-RunShellScript
+HS | feat/x | deploy-ask | silent | aws ssm list-command-invocations --command-id c
+HS | feat/x | deploy-ask | silent | aws ecs list-tasks --cluster c
+HS | feat/x | deploy-ask | silent | az aks command invoke -h
+HS | feat/x | deploy-ask | silent | az vm run-command show -g rg -n vm --run-command-name x
+HS | feat/x | deploy-ask | silent | az webapp log tail -g rg -n app
+HS | feat/x | deploy-ask | silent | az functionapp list
+HS | feat/x | deploy-ask | silent | az containerapp show -g rg -n app
+HS | feat/x | deploy-ask | silent | az containerapp logs show -g rg -n app
+HS | feat/x | deploy-ask | silent | az webapp deployment list-publishing-profiles -g rg -n app
+HS | feat/x | deploy-ask | silent | grep -rn "send-command" docs
+HO | feat/x | deploy-ask | ask | aws ssm start-session --target i-1
+HO | feat/x | deploy-ask | ask | aws ecs run-task --cluster c --task-definition t
+HO | feat/x | deploy-ask | ask | aws lambda invoke --function-name f out.json
+HO | feat/x | deploy-ask | ask | aws ec2 run-instances --image-id ami-1 --instance-type t3.micro
+HO | feat/x | deploy-ask | ask | aws iam attach-role-policy --role-name r --policy-arn arn:aws:iam::aws:policy/AdministratorAccess
+HO | feat/x | deploy-ask | ask | az webapp restart -g rg -n app
+HO | feat/x | deploy-ask | ask | az vm start -g rg -n vm
+HO | feat/x | deploy-ask | ask | az keyvault secret set --vault-name kv --name db --value x
+HO | feat/x | deploy-ask | ask | az webapp ssh -g rg -n app
+HO | feat/x | deploy-ask | ask | gcloud run deploy svc --image img
+HO | feat/x | deploy-ask | ask | gcloud compute instances delete vm
+HO | feat/x | deploy-ask | ask | gcloud compute ssh vm --command uptime
+#
+# --- R2, R3: removals and cache clean-ups
+HR | feat/x | delete-guard | ask | uv remove requests httpx
+HR | feat/x | delete-guard | ask | uv remove --group dev ruff
+HR | feat/x | delete-guard | ask | poetry remove --group dev pytest
+HR | feat/x | delete-guard | ask | yarn global remove a b
+HR | feat/x | delete-guard | ask | conda env remove --name old
+HR | feat/x | delete-guard | ask | micromamba remove numpy
+HR | feat/x | delete-guard | ask | conda uninstall numpy
+HR | feat/x | delete-guard | ask | sudo gem uninstall rake
+HR | feat/x | delete-guard | ask | gem uninstall -x rake
+HR | feat/x | delete-guard | ask | pdm remove -G test pytest
+HR | feat/x | delete-guard | ask | pipenv uninstall --all
+HR | feat/x | delete-guard | ask | cargo remove --dev serde
+HR | feat/x | delete-guard | ask | bundle remove rake rspec
+HR | feat/x | delete-guard | ask | uv python uninstall --all
+HR | feat/x | delete-guard | ask | poetry env remove --all
+HR | feat/x | delete-guard | ask | pyenv uninstall -f 3.11.9
+HR | feat/x | delete-guard | ask | asdf uninstall python 3.11.9
+HR | feat/x | delete-guard | ask | apt-get -y remove curl
+HR | feat/x | delete-guard | ask | apt purge -y curl
+HR | feat/x | delete-guard | ask | apt-get autoremove --purge
+HR | feat/x | delete-guard | ask | dnf -y remove curl
+HR | feat/x | delete-guard | ask | apk del --purge curl
+HR | feat/x | delete-guard | ask | snap remove --purge x
+HR | feat/x | delete-guard | ask | brew untap user/repo
+HR | feat/x | delete-guard | ask | env X=1 uv remove requests
+HR | feat/x | delete-guard | ask | sh -c 'poetry remove requests'
+HR | feat/x | delete-guard | ask | timeout 60 gem uninstall rake
+HR | feat/x | delete-guard | ask | uv cache clean ruff
+HR | feat/x | delete-guard | ask | uv cache prune --ci
+HR | feat/x | delete-guard | ask | pip3 cache purge
+HR | feat/x | delete-guard | ask | go clean -modcache -cache
+HR | feat/x | delete-guard | ask | yarn cache clean --all
+HR | feat/x | delete-guard | ask | pnpm store prune --force
+HR | feat/x | delete-guard | ask | poetry cache clear --all pypi
+HR | feat/x | delete-guard | ask | conda clean -a -y
+HR | feat/x | delete-guard | ask | brew cleanup -s
+HR | feat/x | delete-guard | ask | brew cleanup --prune=all
+HR | feat/x | delete-guard | ask | npm prune --production
+HR | feat/x | delete-guard | ask | pnpm prune --prod
+HR | feat/x | delete-guard | ask | gem cleanup rake
+HR | feat/x | delete-guard | ask | bundle clean
+HR | feat/x | delete-guard | ask | npm cache clean -f
+HS | feat/x | shell | silent | uv lock
+HS | feat/x | shell | silent | uv python find
+HS | feat/x | shell | silent | poetry env info
+HS | feat/x | shell | silent | poetry env list
+HS | feat/x | shell | silent | poetry cache list
+HS | feat/x | shell | silent | conda list
+HS | feat/x | shell | silent | conda info --envs
+HS | feat/x | shell | silent | gem env
+HS | feat/x | shell | silent | bun pm ls
+HS | feat/x | shell | silent | pdm list
+HS | feat/x | shell | silent | pipenv graph
+HS | feat/x | shell | silent | cargo tree
+HS | feat/x | shell | silent | bundle list
+HS | feat/x | shell | silent | pyenv versions
+HS | feat/x | shell | silent | nvm ls
+HS | feat/x | shell | silent | asdf list
+HS | feat/x | shell | silent | rustup toolchain list
+HS | feat/x | shell | silent | apt-cache policy curl
+HS | feat/x | shell | silent | dnf list installed
+HS | feat/x | shell | silent | apk info
+HS | feat/x | shell | silent | snap list
+HO | feat/x | shell | silent | brew tap
+HS | feat/x | shell | silent | npm cache ls
+HS | feat/x | shell | silent | go clean -testcache
+HS | feat/x | shell | silent | go env GOMODCACHE
+HS | feat/x | shell | silent | yarn cache dir
+HS | feat/x | shell | silent | pnpm store path
+HS | feat/x | shell | silent | pnpm store status
+HS | feat/x | shell | silent | cargo build --release
+HS | feat/x | shell | silent | make clean
+HS | feat/x | delete-guard | ask | cargo uninstall ripgrep
+HS | feat/x | delete-guard | ask | mise uninstall node@20
+HS | feat/x | delete-guard | ask | helm uninstall web
+HO | feat/x | delete-guard | ask | bun rm lodash
+HO | feat/x | delete-guard | ask | yum erase curl
+HO | feat/x | delete-guard | ask | rustup toolchain remove stable
+HO | feat/x | delete-guard | ask | rustup component remove clippy
+HO | feat/x | delete-guard | ask | pip cache remove 'requests*'
+HO | feat/x | delete-guard | ask | python3 -m pip cache purge
+HO | feat/x | delete-guard | ask | python3 -m pip uninstall -y requests
+HO | feat/x | delete-guard | ask | npm cache clear --force
+HO | feat/x | delete-guard | ask | go clean -cache
+HO | feat/x | delete-guard | ask | pipenv --rm
+HO | feat/x | delete-guard | ask | pipenv clean
+HO | feat/x | delete-guard | ask | uv venv --clear
+HO | feat/x | delete-guard | ask | docker builder prune -af
+HO | feat/x | delete-guard | silent | uv remove --help
+HO | feat/x | delete-guard | silent | brew cleanup --dry-run
+HO | feat/x | delete-guard | silent | poetry remove --dry-run requests
+#
+# --- T: tools that run a command, other arrangements
+HR | feat/x | git-guard | deny | nocorrect noglob git push --force origin feat
+HR | feat/x | delete-guard | ask | noglob sudo rm -rf build
+HR | feat/x | delete-guard | ask | time noglob rm -rf build
+HR | feat/x | git-guard | deny | - git push --force origin feat
+HR | feat/x | delete-guard | ask | cd build && noglob rm -rf out
+HR | feat/x | delete-guard | ask | unshare --net --pid rm -rf build
+HR | feat/x | delete-guard | ask | unshare -r -- rm -rf build
+HR | feat/x | delete-guard | ask | ltrace -f -o out.txt rm -rf build
+HR | feat/x | delete-guard | ask | gdb -q --args rm -rf build
+HR | feat/x | git-guard | deny | gdb -ex run -ex quit --args git push --force origin feat
+HR | feat/x | git-guard | deny | lldb -o run -- git push --force origin feat
+HR | feat/x | delete-guard | ask | lldb --batch --one-line run -- rm -rf build
+HR | feat/x | delete-guard | ask | valgrind --leak-check=full rm -rf build
+HR | feat/x | git-guard | deny | lockf -s -t 5 /tmp/l git push --force origin feat
+HR | feat/x | delete-guard | ask | fakeroot -- rm -rf build
+HR | feat/x | delete-guard | ask | faketime -f '+1d' rm -rf build
+HR | feat/x | delete-guard | ask | unbuffer -p rm -rf build
+HR | feat/x | delete-guard | ask | taskset 0x1 rm -rf build
+HR | feat/x | delete-guard | ask | chrt -f 10 rm -rf build
+HR | feat/x | delete-guard | ask | nsenter --target 1 --mount -- rm -rf build
+HR | feat/x | delete-guard | ask | pkexec --user ci rm -rf build
+HR | feat/x | delete-guard | ask | gosu ci:ci rm -rf build
+HR | feat/x | delete-guard | ask | systemd-run --scope -p MemoryMax=1G rm -rf build
+HR | feat/x | delete-guard | ask | firejail --net=none rm -rf build
+HR | feat/x | delete-guard | ask | watchexec -w src rm -rf build
+HR | feat/x | git-guard | deny | hyperfine -w 2 'git push --force origin feat' 'true'
+HR | feat/x | delete-guard | ask | hyperfine --prepare 'rm -rf build' 'make'
+HR | feat/x | delete-guard | ask | entr -c -s 'rm -rf build'
+HR | feat/x | delete-guard | ask | entr rm -rf build
+HR | feat/x | git-guard | deny | ls *.py | entr -s 'git push --force origin feat'
+HR | feat/x | delete-guard | ask | op run --env-file=prod.env -- rm -rf build
+HR | feat/x | git-guard | deny | aws-vault exec prod --no-session -- git push --force origin feat
+HR | feat/x | delete-guard | ask | dotenv -f prod.env run -- rm -rf build
+HR | feat/x | delete-guard | ask | launchctl submit -l x -o out.log -- rm -rf build
+HR | feat/x | git-guard | deny | xcrun --sdk macosx git push --force origin feat
+HR | feat/x | git-guard | deny | ssh-agent -a /tmp/sock git push --force origin feat
+HR | feat/x | host-install | ask | nocorrect pip install requests
+HR | feat/x | host-install | ask | valgrind npm install -g x
+HR | feat/x | tracker-guard | deny | nocorrect gh issue edit 3 --add-label bug
+HR | feat/x | tracker-guard | deny | unshare -n gh issue close 3
+HR | main | protected-branch | deny | - git commit -m x
+HR | feat/x | deploy-ask | ask | hyperfine 'kubectl apply -f x.yaml'
+HR | feat/x | secret-shell | ask | hyperfine 'cat .env'
+HS | feat/x | shell | silent | noglob echo *
+HS | feat/x | shell | silent | noglob curl https://example.org/?a=b
+HS | feat/x | shell | silent | nocorrect mv a.txt b.txt
+HS | feat/x | shell | silent | hyperfine --version
+HS | feat/x | shell | silent | hyperfine 'python3 bench.py'
+HS | feat/x | shell | silent | hyperfine -N 'git status'
+HS | feat/x | shell | silent | lldb -b -o 'bt all' -c core
+HS | feat/x | shell | silent | gdb -batch -ex bt -p 123
+HS | feat/x | shell | silent | valgrind ./a.out
+HS | feat/x | shell | silent | ltrace ./a.out
+HS | feat/x | shell | silent | unshare -r id
+HS | feat/x | shell | silent | lockf /tmp/l python3 job.py
+HS | feat/x | shell | silent | taskset -p 123
+HS | feat/x | shell | silent | chrt -p 123
+HS | feat/x | shell | silent | nsenter -t 1 -n ip addr
+HS | feat/x | shell | silent | runuser -u ci -- id
+HS | feat/x | shell | silent | systemd-run --user sleep 10
+HS | feat/x | shell | silent | watchexec -r python3 app.py
+HS | feat/x | shell | silent | entr -c pytest -q
+HS | feat/x | shell | silent | op run -- python3 app.py
+HS | feat/x | shell | silent | op item list
+HS | feat/x | shell | silent | aws-vault exec prod -- aws s3 ls
+HS | feat/x | shell | silent | doppler run -- npm test
+HS | feat/x | shell | silent | dotenv run -- pytest -q
+HS | feat/x | shell | silent | launchctl list
+HS | feat/x | shell | silent | xcrun simctl list
+HS | feat/x | shell | silent | xcrun --sdk macosx --show-sdk-version
+HS | feat/x | shell | silent | ssh-agent
+HS | feat/x | shell | silent | fakeroot dpkg-deb --build pkg
+HS | feat/x | shell | silent | faketime '2020-01-01' date
+HS | feat/x | shell | silent | unbuffer pytest -q
+HS | feat/x | shell | silent | git diff -- README.md
+HS | feat/x | shell | silent | ls -- -weird-name
+HS | feat/x | shell | silent | python3 script.py -- rm
+HS | feat/x | delete-guard | ask | sudo -u ci rm -rf build
+HS | feat/x | delete-guard | ask | nohup rm -rf build
+HS | feat/x | git-guard | deny | env X=1 git push --force origin feat
+HO | feat/x | delete-guard | ask | runuser -l ci -c 'rm -rf build'
+HO | feat/x | delete-guard | ask | watchexec -e py 'rm -rf build'
+HO | feat/x | delete-guard | ask | doppler run --command 'rm -rf build'
+HO | feat/x | delete-guard | ask | sshpass -p x rm -rf build
+HO | feat/x | delete-guard | ask | osascript -e 'do shell script "rm -rf build"'
+HO | feat/x | delete-guard | ask | expect -c 'spawn rm -rf build'
+HO | feat/x | delete-guard | ask | sandbox-exec -f p.sb rm -rf build
+HO | feat/x | delete-guard | ask | setpriv --reuid ci rm -rf build
+HO | feat/x | delete-guard | ask | prlimit --nofile=1024 rm -rf build
+HO | feat/x | delete-guard | ask | numactl -N 0 rm -rf build
+HO | feat/x | delete-guard | ask | perf stat rm -rf build
+HO | feat/x | delete-guard | ask | dtruss rm -rf build
+HO | feat/x | delete-guard | ask | bear -- rm -rf build
+HO | feat/x | delete-guard | ask | screen -dm rm -rf build
+HO | feat/x | delete-guard | ask | proxychains4 rm -rf build
+HO | feat/x | delete-guard | ask | rlwrap rm -rf build
+HO | feat/x | delete-guard | ask | wsl -e rm -rf build
+HO | feat/x | delete-guard | ask | cmd /c rmdir /s /q build
+HO | feat/x | git-guard | deny | pwsh -Command "git push --force origin feat"
+HO | feat/x | git-guard | deny | powershell -c "git commit --no-verify -m x"
+HO | feat/x | delete-guard | ask | multipass exec vm -- rm -rf build
+HO | feat/x | delete-guard | ask | limactl shell default rm -rf build
+HO | feat/x | delete-guard | ask | python3 -c "import os; os.system('rm -rf build')"
+HO | feat/x | git-guard | deny | python3 -c "import subprocess; subprocess.run(['git', 'push', '--force', 'origin', 'main'])"
+#
+# --- U: the Homebrew names of the GNU tools, other arrangements
+HR | feat/x | secret-shell | deny | gcp -r x .env
+HR | feat/x | secret-shell | deny | gmv -f a .env
+HR | feat/x | secret-shell | deny | gtee -a .env
+HR | feat/x | secret-shell | deny | ginstall x .env
+HR | feat/x | secret-shell | deny | gsed -i.bak s/a/b/ .env
+HR | feat/x | secret-shell | deny | gln other .env
+HR | feat/x | secret-shell | deny | bash -c 'gcp x .env'
+HR | feat/x | delete-guard | ask | gshred f
+HR | feat/x | delete-guard | ask | grm f
+HR | feat/x | delete-guard | ask | grm -- -f
+HR | feat/x | delete-guard | ask | gunlink -- f
+HR | feat/x | delete-guard | ask | genv -i rm -rf build
+HR | feat/x | delete-guard | ask | genv -S 'rm -rf build'
+HR | feat/x | delete-guard | ask | gnice rm -rf build
+HR | feat/x | delete-guard | ask | gstdbuf -o0 rm -rf build
+HR | feat/x | delete-guard | ask | gchroot /mnt /bin/rm -rf /x
+HR | feat/x | delete-guard | ask | gxargs -0 grm
+HR | feat/x | delete-guard | ask | gfind . -name x -exec grm {} +
+HR | feat/x | delete-guard | ask | sudo -u ci grm -rf build
+HR | feat/x | delete-guard | ask | gtimeout -s KILL 30 grm -rf build
+HR | feat/x | delete-guard | ask | echo x | gxargs grm
+HR | feat/x | git-guard | deny | gnohup git push --force origin feat
+HR | feat/x | git-guard | deny | genv -u X git commit --no-verify -m x
+HR | feat/x | git-guard | deny | gtime git push --force origin feat
+HR | feat/x | host-install | ask | genv npm install -g x
+HR | feat/x | tracker-guard | deny | genv GH_PAGER= gh issue close 3
+HR | feat/x | secret-shell | silent | bash -c 'ggrep -n ".env" notes.txt'
+HR | feat/x | secret-shell | silent | bash -c 'gfgrep -rn .pem docs'
+HS | feat/x | shell | silent | gcp -r src dst
+HS | feat/x | shell | silent | grealpath .
+HS | feat/x | shell | silent | gdu -sh .
+HS | feat/x | shell | silent | gdf -h
+HS | feat/x | shell | silent | gwc -l f
+HS | feat/x | shell | silent | gsha256sum f
+HS | feat/x | shell | silent | gbase64 f
+HS | feat/x | shell | silent | gnproc
+HS | feat/x | shell | silent | gtee out.log
+HS | feat/x | shell | silent | gtouch build/.stamp
+HS | feat/x | shell | silent | gln -s a b
+HS | feat/x | shell | silent | ginstall -d build/out
+HS | feat/x | shell | silent | gsed -i s/a/b/ src/app.py
+HS | feat/x | shell | silent | gsed -E 's/a/b/' f
+HS | feat/x | shell | silent | gawk '{print $1}' f
+HS | feat/x | shell | silent | ggrep -c TODO f
+HS | feat/x | shell | silent | gfind . -name '*.py'
+HS | feat/x | shell | silent | gxargs -n1 echo
+HS | feat/x | shell | silent | gtimeout 5 curl https://example.org
+HS | feat/x | shell | silent | gnice -n 10 make
+HS | feat/x | shell | silent | gnohup python3 app.py
+HS | feat/x | shell | silent | gstdbuf -oL python3 app.py
+HS | feat/x | shell | silent | genv FOO=1 python3 app.py
+HS | feat/x | shell | silent | gradle clean build
+HS | feat/x | shell | silent | gofmt -l .
+HS | feat/x | shell | silent | gzip -k f
+HS | feat/x | shell | silent | gcc -o a a.c
+HS | feat/x | shell | silent | git grep -n grm
+HS | feat/x | delete-guard | ask | /opt/homebrew/opt/coreutils/libexec/gnubin/rm -rf build
+HS | feat/x | delete-guard | ask | gfind . -delete
+HS | feat/x | secret-shell | ask | gsort .env
+HS | feat/x | secret-shell | ask | gbase64 .env
+HO | feat/x | secret-shell | deny | gsed --in-place s/a/b/ .env
+HO | feat/x | secret-shell | deny | sed --in-place s/a/b/ .env
+HO | feat/x | secret-shell | deny | gdd if=/dev/zero of=.env
+HO | feat/x | secret-shell | deny | dd if=/dev/zero of=.env
+HO | feat/x | shell | silent | genv
+HO | feat/x | shell | silent | gprintenv HOME

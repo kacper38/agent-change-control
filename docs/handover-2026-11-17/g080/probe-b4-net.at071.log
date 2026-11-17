@@ -1,0 +1,51 @@
+guards: 0.7.1 | branch feat/x | boundary own
+"sandbox-exec -f p.sb git push --force origin feat"                              delete-guard=ask
+"mytool run git commit --no-verify -m x"                                         silent
+"./with-env.sh prod git push --force origin feat"                                delete-guard=ask
+"proxychains4 git push -f origin feat"                                           delete-guard=ask
+"retry 3 git push --force origin feat"                                           delete-guard=ask
+"sudo mytool git push --force origin feat"                                       delete-guard=ask
+"FOO=1 mytool git push --force origin feat"                                      delete-guard=ask
+"bash -c 'mytool git push --force origin feat'"                                  delete-guard=ask
+"mytool /usr/bin/git push --force origin feat"                                   delete-guard=ask
+"mytool git push origin HEAD:main"                                               silent
+"mytool git push origin +feat"                                                   silent
+"mytool git -c core.hooksPath=/dev/null commit -m x"                             silent
+"mytool gh issue close 3"                                                        silent
+"sandbox-exec -f p.sb gh issue edit 3 --add-label status/done"                   silent
+"mytool gh label create x"                                                       silent
+"mytool gh api -X PATCH repos/o/r/issues/3 -f state=closed"                      silent
+"mytool az boards work-item update --id 3 --state Done"                          deploy-ask=ask
+"mytool az devops invoke --area wit --resource workitems"                        silent
+"mytool python3 tools/tracker/tracker.py owner done 3"                           silent
+"echo git commit --no-verify -m x"                                               silent
+"printf '%s\\n' git push --force"                                                delete-guard=ask
+"mytool git status"                                                              silent
+"mytool git push origin feat"                                                    silent
+"mytool gh issue list"                                                           silent
+"mytool gh pr view 3"                                                            silent
+"brew install git gh"                                                            host-install=ask
+"which git gh az"                                                                silent
+"man git push"                                                                   silent
+"mytool rm -rf build"                                                            silent
+"grep -rn git push --force docs"                                                 delete-guard=ask
+"npm exec -- git push --force origin feat"                                       delete-guard=ask, git-guard=deny, host-install=ask
+"npx git push --force"                                                           delete-guard=ask, host-install=ask
+"pnpm exec git push --force origin feat"                                         delete-guard=ask, git-guard=deny
+"yarn exec git push --force origin feat"                                         delete-guard=ask, git-guard=deny
+"bundle exec git push --force origin feat"                                       delete-guard=ask, git-guard=deny
+"poetry run git push --force origin feat"                                        delete-guard=ask, git-guard=deny
+"uv run git push --force origin feat"                                            delete-guard=ask, git-guard=deny, host-install=ask
+"mise exec -- git push --force origin feat"                                      delete-guard=ask, git-guard=deny
+"direnv exec . git push --force origin feat"                                     delete-guard=ask, git-guard=deny
+"docker run --rm -v \"$PWD\":/git alpine/git push --force"                       delete-guard=ask, git-guard=deny
+"ssh host git push --force origin main"                                          delete-guard=ask, git-guard=deny
+"kubectl exec pod -- git push --force"                                           delete-guard=ask, git-guard=deny, deploy-ask=ask
+"watch -n 5 git push --force origin feat"                                        delete-guard=ask, git-guard=deny
+"parallel git push --force origin ::: a b"                                       delete-guard=ask, git-guard=deny
+"flock /tmp/l git push --force origin feat"                                      delete-guard=ask, git-guard=deny
+"gh pr merge 3"                                                                  silent
+"gh pr merge 3 --admin"                                                          silent
+"mytool gh pr merge 3"                                                           silent
+"git commit --no-verify -m x"                                                    git-guard=deny
+"git push --force origin feat"                                                   delete-guard=ask, git-guard=deny

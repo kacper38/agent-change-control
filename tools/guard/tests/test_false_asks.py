@@ -143,6 +143,8 @@ REVIEW_CASES = [
     ("command", "silent", "logs --no-truncate"),
     ("command", "silent", "echo truncate"),
     ("command", "silent", "git grep -n truncate"),
+    # asked for by the review of that commit: the \r row above has a \n beside it and holds without the \r rule
+    ("command", "ask", "printf 'begin;\\rtruncate users;' | pgcli"),
 ]
 ALL_CASES = CASES + REVIEW_CASES
 

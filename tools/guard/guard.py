@@ -32,7 +32,7 @@ import time
 from collections.abc import Mapping
 from typing import Callable, Optional
 
-VERSION = "0.7.0"
+VERSION = "0.7.1"
 
 # ----------------------------------------------------------------------------
 # Harness normalization
@@ -1110,9 +1110,16 @@ def rule_deploy_ask(ev: Event, cfg: dict) -> Optional[Decision]:
 # egress-guard: inside a client boundary, other-vendor LLM tools need a yes
 # ----------------------------------------------------------------------------
 
-_OTHER_LLM_CLIS = {"agy", "gemini", "codex", "llm", "openai", "ollama", "aider", "cursor-agent"}
+_OTHER_LLM_CLIS = {"agy", "gemini", "codex", "llm", "openai", "ollama", "aider", "cursor-agent",
+                   "hf", "huggingface-cli"}  # 0.7.1: every call of the Hugging Face CLI, a download too
 _LLM_HOSTS_RE = re.compile(
     r"api\.openai\.com|generativelanguage\.googleapis\.com|openrouter\.ai|api\.mistral\.ai|api\.together\.xyz|api\.anthropic\.com"
+    # 0.7.1, Hugging Face: the inference router, dedicated endpoints, Spaces. The bare huggingface.co serves
+    # downloads and stays out
+    r"|router\.huggingface\.co|\.endpoints\.huggingface\.cloud|\.hf\.space"
+    # 0.7.1: ten more inference APIs, each host read in the vendor's own docs on 2026-11-17
+    r"|api\.together\.ai|api\.groq\.com|api\.deepseek\.com|api\.x\.ai|api\.cohere\.com|api\.fireworks\.ai"
+    r"|api\.cerebras\.ai|api\.perplexity\.ai|api\.replicate\.com|api\.deepinfra\.com"
 )
 EGRESS_MSG = (
     "Client boundary (KZ_BOUNDARY=client): {what} would send material to another vendor's endpoint. "

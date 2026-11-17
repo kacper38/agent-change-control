@@ -279,9 +279,30 @@ CASES: dict = {
         ("ask", "shell", {"command": "gemini -p 'summarize this'"}, CLIENT),
         ("ask", "shell", {"command": "curl https://api.openai.com/v1/chat/completions -d @req.json"}, CLIENT),
         ("ask", "shell", {"command": "ollama run llama3 < notes.txt"}, CLIENT),
+        # guard 0.7.1: Hugging Face. Every call of its CLI asks, a download too, as for the other vendors' tools
+        ("ask", "shell", {"command": "hf upload my-org/notes ./docs"}, CLIENT),
+        ("ask", "shell", {"command": "huggingface-cli upload my-org/notes ./docs"}, CLIENT),
+        ("ask", "shell", {"command": "hf download BAAI/bge-m3"}, CLIENT),
+        ("ask", "shell", {"command": "curl https://router.huggingface.co/v1/chat/completions -d @req.json"}, CLIENT),
+        ("ask", "shell", {"command": "curl https://abc123.eu-west-1.aws.endpoints.huggingface.cloud/v1/chat/completions"
+                                     " --json @req.json"}, CLIENT),
+        ("ask", "shell", {"command": "curl https://someone-demo.hf.space/api/predict -d @req.json"}, CLIENT),
+        # guard 0.7.1: ten more inference API hosts, each read in the vendor's own docs on 2026-11-17
+        *[("ask", "shell", {"command": f"curl https://{url} -d @req.json"}, CLIENT) for url in (
+            "api.together.ai/v1/chat/completions", "api.groq.com/openai/v1/chat/completions",
+            "api.deepseek.com/chat/completions", "api.x.ai/v1/responses", "api.cohere.com/v2/chat",
+            "api.fireworks.ai/inference/v1/chat/completions", "api.cerebras.ai/v1/chat/completions",
+            "api.perplexity.ai/v1/agent", "api.replicate.com/v1/predictions",
+            "api.deepinfra.com/v1/openai/chat/completions")],
         ("allow", "shell", {"command": "agy review plan.md"}),
         ("allow", "shell", {"command": "curl https://api.github.com/repos/x/y"}, CLIENT),
         ("allow", "shell", {"command": "git status"}, CLIENT),
+        ("allow", "shell", {"command": "hf upload my-org/notes ./docs"}),
+        # the bare domain serves downloads and stays out of the host list
+        ("allow", "shell", {"command": "curl -L https://huggingface.co/BAAI/bge-m3/resolve/main/model.safetensors"
+                                       " -o model.safetensors"}, CLIENT),
+        # a vendor's documentation host is no API host
+        ("allow", "shell", {"command": "curl https://docs.together.ai/docs/quickstart"}, CLIENT),
     ],
     # blocking cases need a real git tree and live in test_scratch_md.py
     "scratch-md": [

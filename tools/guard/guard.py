@@ -13,6 +13,7 @@ Usage:
   guard.py hook pre [--wrapper claude|github]   run every PreToolUse rule
   guard.py hook <rule> [--wrapper ...]          run one rule (tests, debugging, SubagentStart -> fan-out)
   guard.py hook capture [--wrapper ...]         record redacted raw input, never blocks
+  guard.py hook post [--wrapper claude]         after a call (PostToolUse[Failure]): log that an asked call ran
   guard.py rules | help | version
 """
 
@@ -2122,7 +2123,66 @@ def _disarm_budget(armed: Optional[tuple]) -> None:
     signal.signal(signal.SIGALRM, signal.SIG_DFL if previous is None else previous)  # None: set outside Python
 
 
+POST_TAIL_BYTES = 128 * 1024  # the post hook reads this much of the log's end: an asked call is a recent line
+
+
+def _call_id(ev: Event) -> Optional[str]:
+    """The harness's id of this tool call: Claude Code sends tool_use_id before and after the call, Copilot none."""
+    call = ev.raw.get("tool_use_id")
+    return call if isinstance(call, str) and call else None
+
+
+def _asked_rules(path: str, session: str, call: str) -> Optional[dict]:
+    """The rules that asked about this call, from the tail of the log; None when it was not asked or already ran."""
+    with open(path, "rb") as fh:
+        fh.seek(0, os.SEEK_END)
+        start = max(0, fh.tell() - POST_TAIL_BYTES)
+        fh.seek(start)
+        lines = fh.read().split(b"\n")
+    if start:
+        lines = lines[1:]  # the first line is cut by the seek
+    asked = None
+    for line in lines:
+        try:
+            row = json.loads(line.decode("utf-8"))
+        except ValueError:  # a broken or half-written line (UnicodeDecodeError is one too): not the call's
+            continue
+        if not isinstance(row, dict) or row.get("session") != session or row.get("call") != call:
+            continue
+        if row.get("verdict") == "ran":
+            return None  # recorded already: a repeated event writes no second line
+        rules = row.get("rules")
+        if row.get("verdict") == "ask" and isinstance(rules, dict):
+            asked = {name: "ran" for name, verdict in rules.items() if verdict == "ask"}
+    return asked or None
+
+
+def run_post() -> int:
+    """PostToolUse and PostToolUseFailure: append a `ran` line when the guard asked about this call. Prints
+    nothing and exits 0 in every case: the call has already happened, so there is nothing left to block."""
+    try:
+        raw = _read_event()
+    except ValueError:  # empty, not JSON or not an object (JSONDecodeError is a ValueError): no call to record
+        return 0
+    ev = Event(raw)
+    if ev.harness == "copilot":  # Copilot sends no call id, so no line of its log can be tied to this event
+        return 0
+    call = _call_id(ev)
+    if call is None:  # without the id the ask cannot be tied to this call; guessing would invent evidence
+        return 0
+    cfg = load_config(str(raw.get("cwd") or os.getcwd()))
+    try:
+        rules = _asked_rules(os.path.join(telemetry_dir(cfg), "decisions.jsonl"), ev.session, call)
+    except OSError:  # no log yet, or not readable: nothing was asked that this hook could find
+        return 0
+    if rules:
+        log_decision(("ran", ""), rules, ev, cfg)
+    return 0
+
+
 def run_hook(target: str, wrapper: Optional[str]) -> int:
+    if target == "post":  # never blocks, so it runs without the budget
+        return run_post()
     raw = _read_event()
     cfg = load_config(str(raw.get("cwd") or os.getcwd()))
     if target == "capture":  # never blocks, so it runs without the budget
@@ -2179,6 +2239,8 @@ def log_decision(decision: Decision, fired: dict[str, str], ev: Event, cfg: dict
     `rules` maps each rule that spoke to its own verdict; `verdict` is the combined one. A rule that would have
     spoken but is in `rules_off`, or host-install silenced by its knob (`off`, or `auto` in a disposable
     environment), is logged as `skipped` (its own line), so a month-long override stays visible.
+    `guard` names the version that judged; `call` is the harness's tool_use_id when it sends one, and the post
+    hook's `ran` line carries the same id, so an ask can be tied to the call that went ahead.
     No command text or paths: the rule names and the tool are enough to tune thresholds."""
     entry = {
         "ts": _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -2188,7 +2250,11 @@ def log_decision(decision: Decision, fired: dict[str, str], ev: Event, cfg: dict
         "event": ev.event,
         "harness": ev.harness,
         "session": ev.session,
+        "guard": VERSION,
     }
+    call = _call_id(ev)
+    if call:
+        entry["call"] = call
     path = os.path.join(telemetry_dir(cfg), "decisions.jsonl")
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)

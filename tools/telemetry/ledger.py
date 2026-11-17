@@ -19,7 +19,7 @@
                                  cost_basis; the rest counted as left out), sessions per cost basis and
                                  marked sessions, sessions with unpriced
                                  requests (their own count is too low), and hook prompts per rule from
-                                 <telemetry>/decisions.jsonl.
+                                 <telemetry>/decisions.jsonl (with how many asked calls ran, guard >= 0.7.0).
   ledger.py recount [--write]    one-off for lines written before 2026-11-15 (no cost_basis, no recount key):
                                  rebuild each from its transcript under <CLAUDE_CONFIG_DIR or ~/.claude>/
                                  projects/*/<session>.jsonl, keeping its ts, or label it transcript: missing;
@@ -433,7 +433,7 @@ def load_sessions(tdir: str, since: _dt.datetime) -> list:
 
 
 def load_decisions(tdir: str, since: _dt.datetime) -> dict:
-    """{rule: {ask: n, deny: n}} from decisions.jsonl written by the guard."""
+    """{rule: {ask: n, deny: n, and any other verdict seen: skipped, ran}} from decisions.jsonl written by the guard."""
     out: dict = {}
     path = os.path.join(tdir, "decisions.jsonl")
     if not os.path.exists(path):
@@ -526,7 +526,9 @@ def cost_report(tdir: str, days: int, out, now: Optional[_dt.datetime] = None) -
     decisions = load_decisions(tdir, since)
     if decisions:
         out.write("hook prompts per rule (ask/deny): " + ", ".join(
-            f"{rule} {v['ask']}/{v['deny']}" + (f" skipped {v['skipped']}" if v.get("skipped") else "")
+            f"{rule} {v['ask']}/{v['deny']}"
+            + (f" ran {v['ran']}" if v.get("ran") else "")  # guard >= 0.7.0: asked calls that went ahead
+            + (f" skipped {v['skipped']}" if v.get("skipped") else "")
             for rule, v in sorted(decisions.items())) + "\n")
     return 0
 

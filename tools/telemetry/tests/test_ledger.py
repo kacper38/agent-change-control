@@ -213,6 +213,28 @@ def test_cost_report(ledger, tdir):
     assert "no sessions" in out.getvalue()
 
 
+def test_cost_report_shows_how_many_asked_calls_ran(ledger, tdir):
+    """guard >= 0.7.0: the post hook writes a `ran` line per asked call that went ahead (prompt fatigue)."""
+    tdir.mkdir()
+    now = dt.datetime(2026, 10, 29, 12, 0, tzinfo=dt.timezone.utc)
+    row = {"ts": "2026-10-28T10:00:00Z", "session": "s1", "project": "/Users/t/alpha", "spawns": [],
+           "subagents": {"flag": False}, "models": {}}
+    (tdir / "sessions-2026-10.jsonl").write_text(json.dumps(row) + "\n")
+    lines = []
+    for i in range(3):
+        lines.append({"ts": "2026-10-28T11:00:00Z", "verdict": "ask", "rules": {"delete-guard": "ask"},
+                      "call": f"c{i}", "guard": "0.7.0"})
+    for i in range(2):
+        lines.append({"ts": "2026-10-28T11:00:01Z", "verdict": "ran", "rules": {"delete-guard": "ran"},
+                      "call": f"c{i}", "guard": "0.7.0"})
+    lines.append({"ts": "2026-10-28T11:00:00Z", "verdict": "deny", "rules": {"git-guard": "deny"}})
+    (tdir / "decisions.jsonl").write_text("\n".join(json.dumps(r) for r in lines) + "\n")
+    out = io.StringIO()
+    ledger.cost_report(str(tdir), 7, out, now=now)
+    line = next(ln for ln in out.getvalue().splitlines() if ln.startswith("hook prompts per rule"))
+    assert line == "hook prompts per rule (ask/deny): delete-guard 3/0 ran 2, git-guard 0/1"
+
+
 def test_prices_file_is_well_formed(ledger):
     prices = ledger.load_prices()
     assert "claude-opus-4-5" in prices

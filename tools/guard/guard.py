@@ -316,10 +316,12 @@ CODE_RE = (
 )
 DELETE_RE = re.compile("|".join([SHELL_RE, FIND_RE, GIT_RE, TOOL_RE, CODE_RE]), re.MULTILINE)
 # on a command line that names one of these clients, the lower-case word is SQL wherever it stands
-# (`echo truncate audit | psql`); the list holds the clients whose TRUNCATE needs no TABLE keyword
+# (`echo truncate audit | psql`); the list holds the clients whose TRUNCATE needs no TABLE keyword. The name counts
+# as a word of its own, whatever stands next to it (`"… | psql"`, `psql;`, `\psql`, `psql.exe`), not inside
+# another word (`mysqldump`, `pymysql`, `.psqlrc`)
 _SQL_TRUNCATE_RE = re.compile(r"truncate\s")
 _SQL_CLIENT_RE = re.compile(
-    r"(?:^|[\s;&|(`\"'/])(?:psql|mysql|mariadb|cqlsh|snowsql|duckdb|cockroach|hbase|clickhouse(?:-client)?)(?:\s|$)"
+    r"(?<![A-Za-z0-9_])(?:psql|mysql|mariadb|cqlsh|snowsql|duckdb|cockroach|hbase|clickhouse)(?![A-Za-z0-9_])"
 )
 SCRIPT_RE = re.compile(
     r"(python3?|node|bun|deno|bash|sh|zsh|tsx|ts-node|ruby|perl|php)\s+(-\S+\s+)*(\S+\.(py|js|mjs|cjs|ts|sh|zsh|bash|rb|pl|php))"

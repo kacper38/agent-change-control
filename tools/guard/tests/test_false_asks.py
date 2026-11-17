@@ -63,6 +63,32 @@ REVIEW_CASES = [
     ("script", "silent", "result = remodel(x)\nprint(result)"),
     # the price of the client rule, as at 0.6.1: prose on a line that names a SQL client asks
     ("command", "ask", "psql -c \"select 1 -- then truncate later\""),
+    # found by the review of the commits after that one: the client name counted only with a space or the end
+    # of the line behind it; it counts as a word of its own, whatever stands behind it or in front of it
+    ("command", "ask", "bash -c \"echo truncate audit | psql\""),
+    ("command", "ask", "sh -c 'echo truncate audit | mysql'"),
+    ("command", "ask", "x=$(echo truncate audit | psql)"),
+    ("command", "ask", "echo truncate audit | psql;"),
+    ("command", "ask", "echo truncate audit | psql<conn"),
+    ("command", "ask", "(echo truncate audit | psql)"),
+    ("command", "ask", "echo truncate audit | psql&"),
+    ("command", "ask", "echo truncate audit | psql>out.txt"),
+    ("command", "ask", "echo truncate audit | psql|tee log"),
+    ("command", "ask", "echo truncate audit | `which psql`"),
+    ("command", "ask", "echo truncate audit | \"psql\""),
+    ("command", "ask", "echo truncate audit | psql.exe -d app"),
+    ("command", "ask", "echo truncate audit | clickhouse-client"),
+    ("command", "ask", "echo truncate audit | clickhouse-local"),
+    ("command", "ask", "echo truncate t1 | hbase;"),
+    ("command", "ask", "echo truncate audit | \\psql"),
+    ("command", "ask", "echo truncate audit | bin\\psql.exe"),
+    ("command", "ask", "echo truncate audit | {psql,cat}"),
+    ("command", "ask", "echo truncate audit | $HOME/bin/psql"),
+    ("command", "ask", "echo truncate audit |psql"),
+    ("command", "silent", "pip show pymysql; echo \"may truncate the list\""),
+    ("command", "silent", "cat ~/.psqlrc; echo \"will truncate output\""),
+    ("command", "silent", "echo \"we will truncate the log\" > notes-mysql_old.txt"),
+    ("command", "silent", "mysqladmin status; echo \"may truncate rows\""),
 ]
 ALL_CASES = CASES + REVIEW_CASES
 

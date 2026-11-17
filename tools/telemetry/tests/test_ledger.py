@@ -44,6 +44,7 @@ def test_parse_transcript_dedups_and_counts_errors(ledger, tmp_path):
     usage, errors = ledger.parse_transcript(str(main))
     assert errors == 2  # one unparsable line, one non-numeric usage
     assert usage["claude-fable-5-1"] == {"input": 112, "output": 57, "cache_read": 1000, "cache_write": 200,
+                                         "cache_write_1h": 0,  # no 5m/1h breakdown in these lines
                                          "turns": 4}  # the half-numeric turn added nothing, not even its 5 input
     assert usage["<synthetic>"]["turns"] == 1
 
@@ -74,7 +75,25 @@ def test_build_entry_joins_subagents_spawns_and_prices(ledger, tmp_path, tdir):
     assert opus["cost_usd"] == round((2000 * 5 + 4000 * 25 + 6000 * 0.5 + 800 * 6.25) / 1e6, 6)
     assert e["cost_usd"] is None  # one model unpriced → the session total stays honest
     assert e["subagents"]["transcripts"] == 2 and e["subagents"]["flag"] is True
+    assert e["subagents"]["workflow_transcripts"] == 0
     assert e["spawns"] == [{"agent": "python-engineer", "model": "opus"}]
+
+
+def test_build_entry_reads_workflow_agents_and_skips_the_journal(ledger, tmp_path, tdir):
+    main = write_transcript(tmp_path, subagents=1)
+    wf = main.parent / "s1" / "subagents" / "workflows" / "wf_abc"
+    wf.mkdir(parents=True)
+    (wf / "agent-def.jsonl").write_text(line("claude-opus-4-5", 7, 3, req="w1") + "\n")
+    (wf / "journal.jsonl").write_text(line("claude-opus-4-5", 500000, 500000, req="j1") + "\n")  # never counted
+    (wf / "agent-def.meta.json").write_text(json.dumps({"agentType": "workflow-subagent"}) + "\n")
+    (wf / "agent-def.json").write_text("{}\n")
+    raw = {"session_id": "s1", "transcript_path": str(main), "cwd": "/Users/t/x", "reason": "exit"}
+    e = ledger.build_entry(raw, str(tdir), PRICES)
+    opus = e["models"]["claude-opus-4-5"]
+    assert opus["input"] == 1000 + 7 and opus["output"] == 2000 + 3 and opus["turns"] == 2
+    assert e["subagents"]["transcripts"] == 2 and e["subagents"]["workflow_transcripts"] == 1
+    assert e["subagents"]["tokens"] == 1000 + 2000 + 3000 + 400 + 7 + 3
+    assert e["parse_errors"] == 2  # the main transcript's two, nothing from the journal or the meta files
 
 
 def test_hook_appends_monthly_file_and_never_fails(ledger, tmp_path, tdir):
@@ -151,6 +170,12 @@ def test_hook_writes_an_error_line_when_the_builder_raises(ledger, tdir, monkeyp
     month = next(f for f in os.listdir(tdir) if f.startswith("sessions-"))
     row = json.loads((tdir / month).read_text().splitlines()[0])
     assert row["session"] == "s9" and row["parse_errors"] == 1 and row["error"].startswith("KeyError")
+    assert row["cost_check"] == "error" and row["cost_basis"] == "own"
+    assert row["cost_usd_own"] is None and row["cost_usd_cc"] is None
+    out = io.StringIO()
+    ledger.cost_report(str(tdir), 7, out)
+    basis_line = next(ln for ln in out.getvalue().splitlines() if ln.startswith("sessions by cost basis"))
+    assert basis_line == "sessions by cost basis: own 1; marked 1 (error 1)", "a failed run is marked, not legacy"
 
 
 def test_cost_report(ledger, tdir):
@@ -191,5 +216,199 @@ def test_cost_report(ledger, tdir):
 def test_prices_file_is_well_formed(ledger):
     prices = ledger.load_prices()
     assert "claude-opus-4-5" in prices
+    rates = {"input", "output", "cache_read", "cache_write", "cache_write_1h"}
     for name, table in prices.items():
-        assert table is None or set(table) == {"input", "output", "cache_read", "cache_write"}, name
+        assert table is None or set(table) - {"long_prompt"} == rates, name
+        if table and "long_prompt" in table:
+            assert set(table["long_prompt"]) == rates | {"over_tokens"}, name
+    assert set(prices["claude-haiku-5-5"]) == rates | {"long_prompt"}
+    for model in ("claude-opus-5-5", "claude-sonnet-5", "claude-sonnet-5-5", "claude-haiku-5-5", "claude-fable-5-1",
+                  "claude-fable-5-2", "claude-haiku-4-5-20251001"):  # every model id seen in the last 30 days
+        assert ledger.price_for(model, prices) is not None, model
+
+
+def usage_line(model, inp, out, cr=0, cw=0, split=None, req=None):
+    usage = {"input_tokens": inp, "output_tokens": out, "cache_read_input_tokens": cr,
+             "cache_creation_input_tokens": cw}
+    if split is not None:
+        usage["cache_creation"] = {"ephemeral_5m_input_tokens": split[0], "ephemeral_1h_input_tokens": split[1]}
+    return json.dumps({"type": "assistant", "requestId": req, "message": {"model": model, "usage": usage}})
+
+
+def priced_models(ledger, tmp_path, lines):
+    path = tmp_path / "t.jsonl"
+    path.write_text("\n".join(lines) + "\n")
+    prices = ledger.load_prices()
+    usage, errors = ledger.parse_transcript(str(path), prices)
+    return {m: (u, ledger.usage_cost(u, ledger.price_for(m, prices))) for m, u in usage.items()}, errors
+
+
+def test_a_5m_1h_split_prices_each_part_at_its_rate(ledger, tmp_path):
+    got, errors = priced_models(ledger, tmp_path, [usage_line("claude-opus-5-5", 10, 20, cr=1000, cw=3000,
+                                                              split=(1000, 2000), req="r1")])
+    u, cost = got["claude-opus-5-5"]
+    assert errors == 0 and u["cache_write"] == 3000 and u["cache_write_1h"] == 2000
+    assert cost == round((10 * 4 + 20 * 20 + 1000 * 0.2 + 1000 * 5 + 2000 * 8) / 1e6, 6)
+
+
+def test_a_write_without_a_split_is_priced_at_the_5m_rate(ledger, tmp_path):
+    got, _ = priced_models(ledger, tmp_path, [usage_line("claude-opus-5-5", 0, 0, cw=3000, req="r1")])
+    u, cost = got["claude-opus-5-5"]
+    assert u["cache_write_1h"] == 0 and cost == round(3000 * 5 / 1e6, 6)
+
+
+def test_a_non_integer_split_makes_the_request_a_parse_error(ledger, tmp_path):
+    got, errors = priced_models(ledger, tmp_path, [usage_line("claude-opus-5-5", 5, 5, cw=10, split=(0, "x"),
+                                                              req="r1")])
+    assert errors == 1 and got == {}
+
+
+def test_haiku_5_5_pays_the_higher_row_per_request_over_100k(ledger, tmp_path):
+    under = usage_line("claude-haiku-5-5", 1000, 100, cr=99000, cw=0, req="r1")  # prompt 100,000: not over
+    over = usage_line("claude-haiku-5-5", 1000, 100, cr=99000, cw=1, split=(0, 1), req="r2")  # prompt 100,001
+    got, _ = priced_models(ledger, tmp_path, [under])
+    u, cost = got["claude-haiku-5-5"]
+    assert "long" not in u and cost == round((1000 * 0.1 + 100 * 0.5 + 99000 * 0.01) / 1e6, 6)
+    got, _ = priced_models(ledger, tmp_path, [under, over])
+    u, cost = got["claude-haiku-5-5"]
+    assert u["turns"] == 2 and u["long"]["turns"] == 1 and u["long"]["cache_write_1h"] == 1
+    assert cost == round((1000 * 0.1 + 100 * 0.5 + 99000 * 0.01
+                          + 1000 * 0.5 + 100 * 2.5 + 99000 * 0.05 + 1 * 1.0) / 1e6, 6)
+
+
+def test_sonnet_5_5_has_its_own_row(ledger):
+    prices = ledger.load_prices()
+    assert ledger.price_for("claude-sonnet-5-5-20261101", prices) is prices["claude-sonnet-5-5"]
+    assert ledger.price_for("claude-sonnet-5-20260801", prices) is prices["claude-sonnet-5"]
+    assert prices["claude-sonnet-5-5"]["cache_read"] != prices["claude-sonnet-5"]["cache_read"]
+
+
+def test_build_entry_prices_1h_writes_of_every_transcript(ledger, tmp_path, tdir):
+    proj = tmp_path / "projects" / "-p"
+    wf = proj / "s1" / "subagents" / "workflows" / "wf_1"
+    wf.mkdir(parents=True)
+    (proj / "s1.jsonl").write_text(usage_line("claude-opus-5-5", 0, 0, cw=1000, split=(0, 1000), req="m1") + "\n")
+    (wf / "agent-a.jsonl").write_text(usage_line("claude-opus-5-5", 0, 0, cw=1000, split=(0, 1000), req="w1") + "\n")
+    e = ledger.build_entry({"session_id": "s1", "transcript_path": str(proj / "s1.jsonl")}, str(tdir),
+                           ledger.load_prices())
+    assert e["models"]["claude-opus-5-5"]["cache_write_1h"] == 2000
+    assert e["cost_usd"] == round(2000 * 8 / 1e6, 4)
+
+
+def test_an_old_format_row_in_a_month_file_still_reports(ledger, tdir):
+    tdir.mkdir()
+    old = {"ts": "2026-10-28T10:00:00Z", "session": "old1", "project": "/Users/t/beta", "spawns": [],
+           "subagents": {"transcripts": 0, "tokens": 0, "share": 0.0, "flag": False}, "cost_usd": 1.25,
+           "parse_errors": 0,
+           "models": {"claude-opus-4-5": {"input": 10, "output": 20, "cache_read": 0, "cache_write": 0, "turns": 1,
+                                          "cost_usd": 1.25}}}
+    (tdir / "sessions-2026-10.jsonl").write_text(json.dumps(old) + "\n")
+    out = io.StringIO()
+    assert ledger.cost_report(str(tdir), 7, out, now=dt.datetime(2026, 10, 29, tzinfo=dt.timezone.utc)) == 0
+    assert "beta" in out.getvalue() and "$1.25" in out.getvalue()
+    assert ledger.usage_cost(old["models"]["claude-opus-4-5"], PRICES["claude-opus-4-5"]) == round(
+        (10 * 5 + 20 * 25) / 1e6, 6)
+
+
+def cost_state(usd, start="2026-11-15T10:00:00.000Z", unknown=False):
+    return json.dumps({"type": "cost-state", "sessionId": "s1", "totalCostUSD": usd, "startTime": start,
+                       "hasUnknownModelCost": unknown, "modelUsage": {}, "totalDuration": 1})
+
+
+def cc_entry(ledger, tmp_path, tdir, states, own_tokens=1_000_000):
+    """A session whose own count is own_tokens output tokens of claude-opus-4-5 ($25 per million) plus states."""
+    proj = tmp_path / "projects" / "-p"
+    proj.mkdir(parents=True, exist_ok=True)
+    main = proj / "s1.jsonl"
+    main.write_text("\n".join([line("claude-opus-4-5", 0, own_tokens, req="r1"), *states]) + "\n")
+    return ledger.build_entry({"session_id": "s1", "transcript_path": str(main)}, str(tdir), PRICES)
+
+
+def test_no_cost_state_line_uses_the_own_count_and_marks_it(ledger, tmp_path, tdir):
+    e = cc_entry(ledger, tmp_path, tdir, [])
+    assert e["cost_usd_own"] == 25.0 and e["cost_usd_cc"] is None
+    assert (e["cost_usd"], e["cost_basis"], e["cost_check"]) == (25.0, "own", "missing")
+
+
+def test_snapshots_with_one_start_time_count_the_last(ledger, tmp_path, tdir):
+    e = cc_entry(ledger, tmp_path, tdir, [cost_state(5.0), cost_state(20.0), cost_state(30.0)])
+    assert e["cost_usd_cc"] == 30.0 and e["cost_usd_own"] == 25.0
+    assert (e["cost_usd"], e["cost_basis"], e["cost_check"]) == (30.0, "claude-code", "ok")
+
+
+def test_two_start_times_are_summed(ledger, tmp_path, tdir):
+    e = cc_entry(ledger, tmp_path, tdir, [cost_state(10.0, "t1"), cost_state(15.0, "t1"),
+                                          cost_state(3.0, "t2"), cost_state(12.0, "t2")])
+    assert e["cost_usd_cc"] == 27.0 and e["cost_basis"] == "claude-code" and e["cost_usd"] == 27.0
+
+
+def test_a_carried_over_figure_far_above_the_own_count_is_not_used(ledger, tmp_path, tdir):
+    e = cc_entry(ledger, tmp_path, tdir, [cost_state(62.68)], own_tokens=48_400)  # own $1.21
+    assert e["cost_usd_own"] == 1.21 and e["cost_usd_cc"] == 62.68
+    assert (e["cost_usd"], e["cost_basis"], e["cost_check"]) == (1.21, "own", "out-of-range")
+
+
+def test_a_figure_1_percent_below_the_own_count_is_used(ledger, tmp_path, tdir):
+    e = cc_entry(ledger, tmp_path, tdir, [cost_state(24.75)])
+    assert (e["cost_usd"], e["cost_basis"], e["cost_check"]) == (24.75, "claude-code", "ok")
+    e = cc_entry(ledger, tmp_path, tdir, [cost_state(24.0)])  # 4 % below: out of range
+    assert (e["cost_usd"], e["cost_basis"], e["cost_check"]) == (25.0, "own", "out-of-range")
+    e = cc_entry(ledger, tmp_path, tdir, [cost_state(37.5)])  # exactly 1.5 times: still in range
+    assert e["cost_basis"] == "claude-code"
+
+
+def test_unknown_model_cost_falls_back_to_the_own_count(ledger, tmp_path, tdir):
+    e = cc_entry(ledger, tmp_path, tdir, [cost_state(30.0, unknown=True)])
+    assert e["cost_usd_cc"] == 30.0
+    assert (e["cost_usd"], e["cost_basis"], e["cost_check"]) == (25.0, "own", "unknown-model-cost")
+
+
+def test_an_unpriced_own_count_leaves_claude_codes_figure_unchecked(ledger, tmp_path, tdir):
+    proj = tmp_path / "projects" / "-p"
+    proj.mkdir(parents=True)
+    main = proj / "s1.jsonl"
+    main.write_text("\n".join([line("claude-opus-4-5", 0, 10, req="r1"), line("claude-fable-5-1", 0, 10, req="r2"),
+                               cost_state(2.0)]) + "\n")
+    e = ledger.build_entry({"session_id": "s1", "transcript_path": str(main)}, str(tdir), PRICES)
+    assert e["cost_usd_own"] is None, "one unpriced model: no partial sum"
+    assert (e["cost_usd"], e["cost_basis"], e["cost_check"]) == (2.0, "claude-code", "unchecked")
+
+
+def test_bad_cost_state_lines_are_ignored_and_counted(ledger, tmp_path, tdir):
+    states = [cost_state(None), cost_state("12"), cost_state(True),
+              json.dumps({"type": "cost-state", "startTime": "t"}), json.dumps({"type": "cost-state"})[:-1],
+              cost_state(26.0)]
+    e = cc_entry(ledger, tmp_path, tdir, states)
+    assert e["cost_usd_cc"] == 26.0 and e["cost_check"] == "ok"
+    assert e["parse_errors"] == 5  # four ignored lines and one that is not JSON
+
+
+def test_hook_never_raises_on_an_odd_cost_state(ledger, tmp_path, tdir):
+    proj = tmp_path / "projects" / "-p"
+    proj.mkdir(parents=True)
+    main = proj / "s1.jsonl"
+    main.write_text(json.dumps({"type": "cost-state", "totalCostUSD": 1.0, "startTime": {"a": [1]}}) + "\n"
+                    + json.dumps({"type": "cost-state", "totalCostUSD": float("inf")}) + "\n")
+    err = io.StringIO()
+    raw = json.dumps({"session_id": "s1", "transcript_path": str(main)})
+    assert ledger.main(["hook"], stdin=io.StringIO(raw), out=io.StringIO(), err=err) == 0
+    assert err.getvalue() == ""
+    month = next(f for f in os.listdir(tdir) if f.startswith("sessions-"))
+    row = json.loads((tdir / month).read_text().splitlines()[0])
+    assert "error" not in row and row["cost_usd_cc"] == 1.0 and row["cost_check"] == "unchecked"
+    assert row["parse_errors"] == 1
+
+
+def test_cost_report_counts_sessions_by_basis_and_marks(ledger, tdir):
+    tdir.mkdir()
+    base = {"ts": "2026-10-28T10:00:00Z", "project": "/Users/t/alpha", "spawns": [], "subagents": {}, "models": {}}
+    rows = [dict(base, session="a", cost_basis="claude-code", cost_check="ok"),
+            dict(base, session="b", cost_basis="own", cost_check="missing"),
+            dict(base, session="c", cost_basis="own", cost_check="out-of-range"),
+            dict(base, session="d", cost_basis="claude-code", cost_check="unchecked"),
+            dict(base, session="e")]  # written before the basis existed
+    (tdir / "sessions-2026-10.jsonl").write_text("\n".join(json.dumps(r) for r in rows) + "\n")
+    out = io.StringIO()
+    ledger.cost_report(str(tdir), 7, out, now=dt.datetime(2026, 10, 29, tzinfo=dt.timezone.utc))
+    assert ("sessions by cost basis: claude-code 2, own 2, unrecorded 1; marked 3 "
+            "(missing 1, out-of-range 1, unchecked 1)") in out.getvalue()

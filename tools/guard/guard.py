@@ -1311,7 +1311,8 @@ _LLM_HOSTS_RE = re.compile(
     r"|router\.huggingface\.co|\.endpoints\.huggingface\.cloud|\.hf\.space"
     # 0.7.1: ten more inference APIs, each host read in the vendor's own docs on 2026-11-17
     r"|api\.together\.ai|api\.groq\.com|api\.deepseek\.com|api\.x\.ai|api\.cohere\.com|api\.fireworks\.ai"
-    r"|api\.cerebras\.ai|api\.perplexity\.ai|api\.replicate\.com|api\.deepinfra\.com"
+    r"|api\.cerebras\.ai|api\.perplexity\.ai|api\.replicate\.com|api\.deepinfra\.com",
+    re.IGNORECASE,  # 0.8.0: a host name is never case-sensitive (`API.OPENAI.COM`)
 )
 EGRESS_MSG = (
     "Client boundary (KZ_BOUNDARY=client): {what} would send material to another vendor's endpoint. "

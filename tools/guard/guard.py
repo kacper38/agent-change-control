@@ -1133,8 +1133,15 @@ _DEPLOY_ADDED: dict = {
 _PUSH_ONLY = frozenset({"build", "buildx build", "buildx bake"})  # these count only with --push
 # aws: an operation under any service that starts so, and these pairs (_aws_hit)
 _AWS_DESTROY = ("delete-", "terminate-", "batch-delete-")
-_AWS_UPDATES = {"ecs": _verbs("update-service"),
-                "lambda": _verbs("update-function-code update-function-configuration update-alias")}
+_AWS_UPDATES = {"ecs": _verbs("update-service execute-command"),
+                "lambda": _verbs("update-function-code update-function-configuration update-alias"),
+                # 0.9.0: run a command on a live host or container (AWS CLI v2 reference: `aws ssm send-command`,
+                # `aws ssm start-session`, `aws ecs execute-command`)
+                "ssm": _verbs("send-command start-session")}
+# 0.9.0: az verbs that run a command on a live host or container, or deploy past the table above (Azure CLI 2.6x
+# reference: `az vm|vmss run-command invoke`, `az aks command invoke`, `az container|containerapp exec`,
+# `az webapp|functionapp deployment source config-zip`, `… deployment slot swap`); the verb is the last leading word
+_AZ_RUNS = frozenset({"invoke", "exec", "config-zip", "swap"})
 _DRY_VALUES = frozenset({"client", "server", "true"})  # --dry-run=<these> previews; any other value applies
 # the 0.6.0 text pass, kept as it was (fix brief 1: nothing that asked at 0.6.0 may stop asking)
 _DEPLOY_PATTERNS = [
@@ -1224,6 +1231,8 @@ def _az_changes(args: list[str]) -> Optional[str]:
         return None  # an install on this machine: host-install judges it
     if {"deploy", "update", "up"} & set(lead[1:]) and not _help_probe(args):  # 0.7.0 words, where the verb stands
         return "az changes resources"
+    if len(lead) > 1 and lead[-1] in _AZ_RUNS and not _help_probe(args):
+        return "az runs a command on a live resource or deploys"
     return None
 
 

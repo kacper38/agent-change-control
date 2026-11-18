@@ -14,6 +14,20 @@ SHELL_RULES = ("delete-guard", "secret-shell", "git-guard", "deploy-ask", "egres
 # File rows: id | tool | rule | expected | path.
 # --- row tables: begin (generated from the brief's row files) ---
 ROWS_B = r"""
+R1 | feat/x | deploy-ask | ask | aws ssm send-command --instance-ids i-1 --document-name AWS-RunShellScript --parameters commands=uptime
+R1 | feat/x | deploy-ask | ask | aws --profile prod --region eu-central-1 ssm send-command --instance-ids i-1 --document-name AWS-RunShellScript
+R1 | feat/x | deploy-ask | ask | aws ecs execute-command --cluster c --task t --command sh --interactive
+R1 | feat/x | deploy-ask | ask | az aks command invoke -g rg -n aks --command "kubectl get pods"
+R1 | feat/x | deploy-ask | ask | az vm run-command invoke -g rg -n vm --command-id RunShellScript --scripts "uptime"
+R1 | feat/x | deploy-ask | ask | az vmss run-command invoke -g rg -n vmss --command-id RunShellScript --scripts uptime
+R1 | feat/x | deploy-ask | ask | az functionapp deployment source config-zip -g rg -n app --src app.zip
+R1 | feat/x | deploy-ask | ask | az webapp deployment source config-zip -g rg -n app --src app.zip
+R1 | feat/x | deploy-ask | ask | az webapp deployment slot swap -g rg -n app --slot staging
+R1 | feat/x | deploy-ask | ask | az functionapp deployment slot swap -g rg -n app --slot staging
+R1 | feat/x | deploy-ask | ask | az container exec -g rg -n c --exec-command sh
+R1 | feat/x | deploy-ask | ask | az containerapp exec -g rg -n app --command sh
+R1 | feat/x | deploy-ask | ask | timeout 60 aws ssm send-command --instance-ids i-1 --document-name AWS-RunShellScript
+R1 | feat/x | deploy-ask | ask | bash -c 'az aks command invoke -g rg -n aks --command "kubectl get pods"'
 Rs | feat/x | deploy-ask | silent | aws ssm list-commands
 Rs | feat/x | deploy-ask | silent | aws ssm get-command-invocation --command-id c --instance-id i-1
 Rs | feat/x | deploy-ask | silent | aws ssm describe-instance-information

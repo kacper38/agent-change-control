@@ -97,6 +97,8 @@ CASES: dict = {
         # guard 0.7.0, review fixes: `git checkout <ref> <path>` without `--`
         *shell("ask", "git checkout HEAD src/app.py"),
         *shell("allow", "git checkout -b feat origin/feat"),
+        # guard 0.8.0: a script fed to a shell on standard input is read as a script
+        *shell("ask", "echo 'rm -rf build' | bash"),
     ],
     "secret-write": [
         ("deny", "write", {"path": ".env", "content": "TOKEN=abc"}),
@@ -189,6 +191,8 @@ CASES: dict = {
         # guard 0.7.0, review fixes: a push without a refspec elsewhere: the branch there is not known
         *shell("ask", "docker exec dev git push"),
         *shell("allow", "docker exec dev git push origin feat/x"),
+        # guard 0.8.0: a tool's name in capitals runs the real tool on a file system that ignores case
+        *shell("deny", "GIT commit --no-verify -m x"),
     ],
     "deploy-ask": [
         *shell(

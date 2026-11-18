@@ -155,7 +155,7 @@ def parse_transcript(path: str, prices: Optional[dict] = None, unpriced: Optiona
                 continue
             try:
                 d = json.loads(line)
-            except ValueError:
+            except (ValueError, RecursionError):  # no JSON, or nested deeper than Python follows
                 errors += 1
                 continue
             if not isinstance(d, dict) or d.get("type") != "assistant":
@@ -165,6 +165,8 @@ def parse_transcript(path: str, prices: Optional[dict] = None, unpriced: Optiona
             if not isinstance(usage, dict):
                 continue
             key = d.get("requestId") or msg.get("id") or d.get("uuid") or ("line", n)  # no id: count the line
+            if isinstance(key, (list, dict)):  # an id that cannot be a key is no id either
+                key = ("line", n)
             seen[key] = (str(msg.get("model") or "unknown"), usage)
     for model, usage in seen.values():
         if unpriced is not None:
@@ -175,7 +177,10 @@ def parse_transcript(path: str, prices: Optional[dict] = None, unpriced: Optiona
                     ("input_tokens", "output_tokens", "cache_read_input_tokens", "cache_creation_input_tokens")]
             split = usage.get("cache_creation")
             w1h = int(split.get("ephemeral_1h_input_tokens") or 0) if isinstance(split, dict) else 0
-        except (TypeError, ValueError):  # all or nothing: a half-counted turn is worse than a parse error
+            if any(abs(v) >= 2 ** 63 for v in vals + [w1h]):  # no real counter is that large, and usage_cost
+                raise ValueError("count out of range")  # would overflow multiplying it by a float price
+        except (TypeError, ValueError, OverflowError):  # int(Infinity) overflows; all or nothing: a half-counted
+            # turn is worse than a parse error
             errors += 1
             continue
         req = dict(zip(COUNTERS, vals + [min(w1h, vals[3]), 1]))  # no split: every write at the 5-minute rate
@@ -733,7 +738,7 @@ def scan_transcript(path: str) -> Optional[dict]:
         for line in fh:
             try:
                 d = json.loads(line) if line.strip() else None
-            except ValueError:
+            except (ValueError, RecursionError):  # no JSON or nested too deep: parse_transcript counts it
                 continue
             if not isinstance(d, dict):
                 continue
@@ -803,7 +808,8 @@ def _read_meta(path: str) -> tuple:
             meta = json.load(fh)
     except FileNotFoundError:  # most agents have one, an older one may not: normal, nothing to count
         return {}, 0
-    except (OSError, ValueError):  # there but unreadable or cut off: the row goes on without it, counted
+    except (OSError, ValueError, RecursionError):  # there but unreadable, cut off or nested too deep: counted,
+        # the row goes on without it
         return {}, 1
     return (meta, 0) if isinstance(meta, dict) else ({}, 1)
 
@@ -826,7 +832,7 @@ def _spawn_log(session: str, tdir: str) -> tuple:
                 continue
             try:
                 row = json.loads(line)
-            except ValueError:
+            except (ValueError, RecursionError):  # no JSON or nested too deep: counted as a line not read
                 bad += 1
                 continue
             if not isinstance(row, dict) or row.get("event") != "SubagentStart" or row.get("session") != session:

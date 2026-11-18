@@ -621,3 +621,53 @@ def test_watch_error_in_the_session_leaves_the_terminal_alone(ledger, live):
 def test_watch_on_a_stream_that_is_no_terminal(ledger, fixture_env, fixture_prices):
     for sid in SESSIONS.values():
         assert run(ledger, ["agents", "--session", sid, "--watch"]) == run(ledger, ["agents", "--session", sid])
+
+
+# fix pass A: JSON lines of a shape the old reader raised on
+def usage_line(usage_text='{"input_tokens": 100, "output_tokens": 10}', ids='"requestId": "r-ok"'):
+    return ('{"type": "assistant", "timestamp": "2026-01-05T10:00:00Z", ' + ids
+            + ', "message": {"model": "claude-opus-5-5", "usage": ' + usage_text + '}}')
+
+
+UNHASHABLE_IDS = [usage_line(ids='"requestId": ["r", 1]'),
+                  usage_line(ids='"requestId": "", "message_id": 0, "uuid": {"a": 1}'),
+                  '{"type": "assistant", "message": {"id": {"x": [1]}, "model": "claude-opus-5-5", '
+                  '"usage": {"input_tokens": 100, "output_tokens": 10}}}']
+ODD_ERRORS = [usage_line('{"input_tokens": Infinity, "output_tokens": 10}', '"requestId": "r-inf"'),
+              usage_line(f'{{"input_tokens": {10 ** 400}, "output_tokens": 10}}', '"requestId": "r-big"'),
+              "[" * 100_000]
+
+
+def test_parse_transcript_on_the_odd_shapes(ledger, tmp_path):
+    for i, text in enumerate(UNHASHABLE_IDS):  # counted by line number, as a line without an id
+        usage, errors = ledger.parse_transcript(str(write_lines(tmp_path / f"id{i}.jsonl", [text, text])), OPUS)
+        assert errors == 0 and usage["claude-opus-5-5"]["turns"] == 2
+    for i, text in enumerate(ODD_ERRORS):
+        usage, errors = ledger.parse_transcript(str(write_lines(tmp_path / f"e{i}.jsonl", [text, usage_line()])),
+                                                OPUS)
+        assert errors == 1 and usage["claude-opus-5-5"]["turns"] == 1
+
+
+def test_the_view_counts_odd_lines_and_still_adds_up(ledger, tmp_path, monkeypatch):
+    odd = UNHASHABLE_IDS + ODD_ERRORS
+    t = make_session(tmp_path, [user("p", 1), asst(sec=2)] + odd, [("", "a1", [user("b", 3), asst(sec=4)] + odd,
+                                                                    None)])
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("KZ_TELEMETRY_DIR", str(tmp_path / "telemetry"))
+    monkeypatch.setattr(ledger, "load_prices", lambda *a, **k: OPUS)
+    code, out, err = run(ledger, ["agents", "--session", "s-1"])
+    assert (code, err) == (0, "")
+    assert out.splitlines()[-1] == "not read: files 0, lines 6 (what they held is missing above)"
+    data = tree(ledger, t, tmp_path / "telemetry")
+    entry = ledger.build_entry({"session_id": "s-1", "transcript_path": t}, str(tmp_path / "telemetry"), OPUS)
+    rows = [r["cost"] for r in data["rows"] if r["kind"] in ("session", "agent")]
+    assert sum(rows) == pytest.approx(entry["cost_usd_own"], abs=0.00005)
+
+
+def test_a_deep_line_in_a_meta_file_and_in_the_spawn_log(ledger, tmp_path):
+    t = make_session(tmp_path, [asst()], [("", "a1", [user("b")], "[" * 100_000)], sid="s-2")
+    write_lines(tmp_path / "telemetry" / "spawns.jsonl",
+                ["[" * 100_000, {"event": "SubagentStart", "session": "s-2", "agent_id": "a1", "agent": "logged"}])
+    data = tree(ledger, t, tmp_path / "telemetry")
+    assert (data["files_not_read"], data["lines_not_read"]) == (1, 1)
+    assert data["rows"][1]["label"] == "logged"

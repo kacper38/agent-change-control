@@ -1245,6 +1245,23 @@ Fs | feat/x | tracker-guard | deny | gh api graphql -f query='mutation { closeIs
 #     `secret.v1` names the version, `--template` prints through a Go template, `--raw` asks the API path, and
 #     `config view --flatten` prints the token like `--raw` (measured, kubectl 1.36). Doppler: the bare
 #     `doppler secrets` prints names and values (Doppler's docs, "Names and values")
+F06 | feat/x | secret-shell | ask | op item get GitHub
+F06 | feat/x | secret-shell | ask | op item get GitHub --format json
+F06 | feat/x | secret-shell | ask | op item get GitHub --share-link
+F06 | feat/x | secret-shell | ask | op item get GitHub --account my
+F06 | feat/x | secret-shell | ask | security find-generic-password -ws svc
+F06 | feat/x | secret-shell | ask | security find-internet-password -gs example.org
+F06 | feat/x | secret-shell | ask | aws configure get default.aws_secret_access_key
+F06 | feat/x | secret-shell | ask | aws configure get profile.p.aws_secret_access_key
+F06 | feat/x | secret-shell | ask | aws secretsmanager batch-get-secret-value --secret-id-list x
+F06 | feat/x | secret-shell | ask | kubectl get Secret app -o yaml
+F06 | feat/x | secret-shell | ask | kubectl get SECRETS -o yaml
+F06 | feat/x | secret-shell | ask | kubectl get secret.v1 app -o yaml
+F06 | feat/x | secret-shell | ask | kubectl get secret app --template='{{.data}}'
+F06 | feat/x | secret-shell | ask | kubectl get --raw /api/v1/namespaces/default/secrets
+F06 | feat/x | secret-shell | ask | kubectl config view --flatten
+F06 | feat/x | secret-shell | ask | doppler secrets
+F06 | feat/x | secret-shell | ask | doppler secrets --json
 Fs | feat/x | secret-shell | ask | op item get GitHub --fields password
 Fs | feat/x | secret-shell | ask | op item get GitHub --reveal
 Fs | feat/x | secret-shell | ask | op item get GitHub --vault Private --otp

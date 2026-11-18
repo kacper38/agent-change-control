@@ -1084,9 +1084,44 @@ def _has(*names: str) -> Callable[[list[str]], bool]:
     return lambda args: any(t in names or t.split("=", 1)[0] in names for t in args)
 
 
+def _short_has(letters: str) -> Callable[[list[str]], bool]:
+    """A condition: one of these short options is given, alone or in a cluster (`-w`, `-ws`: security(1), macOS
+    15, takes its short options in one word; F06)."""
+    return lambda args: any(t.startswith("-") and not t.startswith("--") and any(c in letters for c in t[1:])
+                            for t in args)
+
+
+def _kubectl_raw_secrets(args: list[str]) -> bool:
+    """`kubectl get --raw PATH` with a path of the secrets API (F06: `--raw` asks the API path; kubectl 1.36)."""
+    for k, t in enumerate(args):
+        if t == "--raw":
+            value = args[k + 1] if k + 1 < len(args) else ""
+        elif t.startswith("--raw="):
+            value = t[len("--raw=") :]
+        else:
+            continue
+        return "secret" in value.lower()
+    return False
+
+
+# Doppler CLI 3 (`doppler secrets --help`): the verbs under `secrets`; with none, `doppler secrets` prints the
+# names and values (Doppler's docs, "Names and values"), with --only-names the names only (F06)
+_DOPPLER_SECRETS_VERBS = frozenset("get set upload download delete substitute notes".split())
+
+
+def _doppler_secrets_bare(args: list[str]) -> bool:
+    """`doppler secrets` with no verb after it (an option's value is no verb) and without --only-names."""
+    if _has("--only-names")(args):
+        return False
+    rest = args[args.index("secrets") + 1 :] if "secrets" in args else []
+    return not any(t in _DOPPLER_SECRETS_VERBS for t in rest if not t.startswith("-"))
+
+
 def _kubectl_output(args: list[str]) -> bool:
     """kubectl prints the data of the objects: an output format other than name and wide (`-o yaml`, `-ojson`,
-    `--output=jsonpath=…`)."""
+    `--output=jsonpath=…`), or a Go template (`--template=…`, F06)."""
+    if _has("--template")(args):
+        return True
     for k, t in enumerate(args):
         if t in ("-o", "--output"):
             value = args[k + 1] if k + 1 < len(args) else ""
@@ -1101,29 +1136,34 @@ def _kubectl_output(args: list[str]) -> bool:
 
 
 def _names_secret(word: str) -> bool:
-    """A kubectl resource word that names secrets: `secret`, `secrets/app`, `pods,secrets`."""
-    return any(r.split("/", 1)[0] in ("secret", "secrets") for r in word.split(","))
+    """A kubectl resource word that names secrets: `secret`, `secrets/app`, `pods,secrets`; F06: in any case
+    (`Secret`, `SECRETS`) and with its version or group (`secret.v1`), as kubectl 1.36 reads them."""
+    return any(r.split("/", 1)[0].lower().split(".", 1)[0] in ("secret", "secrets") for r in word.split(","))
 
 
 _SECRET_STORES: dict = {
     "vault": [(("kv", "get"), None), (("read",), None)],
-    "op": [(("read",), None), (("inject",), None), (("item", "get"), _has("--fields", "--reveal", "--otp"))],
-    "kubectl": [(("get", _names_secret), _kubectl_output), (("config", "view"), _has("--raw"))],
+    # F06: every `op item get` of an item asks (the table of docs/HANDOVER-2026-11-17.md)
+    "op": [(("read",), None), (("inject",), None), (("item", "get"), None)],
+    "kubectl": [(("get", _names_secret), _kubectl_output), (("get",), _kubectl_raw_secrets),
+                (("config", "view"), _has("--raw", "--flatten"))],
     "gh": [(("auth", "token"), None), (("auth", "status"), _has("--show-token", "-t"))],
-    "aws": [(("secretsmanager", "get-secret-value"), None),
+    "aws": [(("secretsmanager", "get-secret-value"), None), (("secretsmanager", "batch-get-secret-value"), None),
             (("ssm", "get-parameter"), _has("--with-decryption")),
             (("ssm", "get-parameters"), _has("--with-decryption")),
             (("ssm", "get-parameters-by-path"), _has("--with-decryption")),
             (("configure", "export-credentials"), None),
-            (("configure", "get", lambda w: w.lower() in ("aws_secret_access_key", "aws_session_token")), None),
+            # F06: also the dotted names of the same value (`default.aws_secret_access_key`, `profile.p.…`)
+            (("configure", "get", lambda w: w.lower().rsplit(".", 1)[-1] in ("aws_secret_access_key",
+                                                                          "aws_session_token")), None),
             (("ecr", "get-login-password"), None), (("sts", "get-session-token"), None)],
     "gcloud": [(("secrets", "versions", "access"), None), (("auth", "print-access-token"), None),
                (("auth", "print-identity-token"), None),
                (("auth", "application-default", "print-access-token"), None)],
-    "security": [(("find-generic-password",), _has("-w", "-g")), (("find-internet-password",), _has("-w", "-g")),
-                 (("dump-keychain",), _has("-d"))],
+    "security": [(("find-generic-password",), _short_has("wg")), (("find-internet-password",), _short_has("wg")),
+                 (("dump-keychain",), _short_has("d"))],
     "pass": [(("show",), None), (("otp",), None), (("grep",), None)],
-    "doppler": [(("secrets", "get"), None), (("secrets", "download"), None)],
+    "doppler": [(("secrets", "get"), None), (("secrets", "download"), None), (("secrets",), _doppler_secrets_bare)],
     "sops": [(("decrypt",), None)],
     "ansible-vault": [(("view",), None), (("decrypt",), None)],
 }

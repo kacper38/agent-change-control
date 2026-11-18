@@ -1334,6 +1334,9 @@ Fs | feat/x | shell | silent | git update-ref refs/heads/feature abc123
 Fs | feat/x | shell | silent | git update-ref refs/tags/v1 abc123
 
 # --- F19: the hook switch exported in another spelling
+F19 | feat/x | git-guard | deny | builtin eval 'export HUSKY=0'; git commit -m x
+F19 | feat/x | git-guard | deny | command eval 'export HUSKY=0'; git commit -m x
+F19 | feat/x | git-guard | deny | export HUSKY; HUSKY=0; git commit -m x
 Fs | feat/x | git-guard | deny | eval 'export HUSKY=0'; git commit -m x
 Fs | feat/x | shell | silent | export FOO; FOO=0; git commit -m x
 Fs | feat/x | shell | silent | builtin eval 'echo hi'; git commit -m x

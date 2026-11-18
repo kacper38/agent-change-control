@@ -1503,21 +1503,29 @@ def _git_env_gate(command: str) -> Optional[Decision]:
     try:
         exported: list[str] = []
         assigned: dict = {}  # NAME -> `NAME=value` of a plain assignment, which an `export NAME` exports later
+        export_names: set = set()  # F19: a name exported before it is assigned; a later assignment is exported
         allexport = [False]  # `set -a`: every later assignment is exported
 
         def environment(toks) -> bool:
             """Take an assignment, export or `set -a` line into the state; False for any other command."""
+            # F19: `builtin eval …`, `command export …` run the builtin itself (bash(1), "builtin", "command");
+            # `command -v` is a lookup and stays
+            while len(toks) > 1 and toks[0] in ("builtin", "command") and not toks[1].startswith("-"):
+                toks = toks[1:]
             if all(_ASSIGN_RE.match(t) for t in toks):
                 for t in toks:
                     assigned[t.partition("=")[0]] = t
                 if allexport[0]:
                     exported.extend(toks)
+                else:
+                    exported.extend(t for t in toks if t.partition("=")[0] in export_names)
                 return True
             if toks[0] in ("export", "declare", "typeset"):
                 flags = "".join(t[1:] for t in toks[1:] if t.startswith("-"))
                 if toks[0] == "export" or "x" in flags:  # `declare -x`, `typeset -x` export as well
                     exported.extend(t for t in toks[1:] if _ASSIGN_RE.match(t))
                     exported.extend(assigned[t] for t in toks[1:] if t in assigned)
+                    export_names.update(t.partition("=")[0] for t in toks[1:] if not t.startswith("-"))
                 return True
             if toks[0] == "set":
                 for t in toks[1:]:

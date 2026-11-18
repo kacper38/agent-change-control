@@ -1,6 +1,7 @@
-# guard 0.8.0 group B: forms the engineer never sees. Same format as the rows files.
-# HR = due at 0.8.0 (other spellings and arrangements of what the rows name)
-# HS = must answer as at 0.7.0
+# guard 0.9.0 group B: forms the engineer never sees. Same format as the rows files. (Written on 2026-11-17,
+# when groups A, B and C were planned as one version; group A took 0.8.0 to `main`.)
+# HR = due at 0.9.0 (other spellings and arrangements of what the rows name)
+# HS = must answer as at 0.8.0
 # HO = observed only (a neighbour of the class; reported, not required)
 #
 # --- R1: the cloud CLI runs a command on a host or deploys

@@ -1,15 +1,14 @@
-# Brief: guard 0.9.0, groups B and C — what the tables do not name, and ten false asks (DRAFT of 2026-11-18)
+# Brief: guard 0.9.0, groups B and C — what the tables do not name, and eleven false asks
 
-**Draft, not to be handed to an engineer as it is.** Written by a cloud session from the owner's decisions of
-2026-11-17, the design notes in `docs/HANDOVER-2026-11-17.md` and the row files. Before it is used:
+**Not to be handed to an engineer before two things are done.** The tracker item exists and the owner has run
+`owner ready`; and the orchestrating session has filled the item number (`#NN`), the paths (`<REPO>`,
+`<SCRATCH>`) and the commit the worktree starts from (`<BASE>`), and has struck this box.
 
-- the owner answers open questions 1, 2, 3, 5 and 6 and looks at the calls in the heads of `rows-b4.txt` and
-  `rows-b5.txt`; the marks **[Q1]** … **[Q6]**, **[A-left]**, **[calls]** and **[version]** below say what
-  each answer touches (the same marks as in `item-b.md`);
-- the tracker item exists and he has run `owner ready`;
-- the orchestrating session reads section 4 against the code once more, fills the item number, the paths and
-  the baseline, and strikes this box. Section 4 was written from the notes and the rows, not from a full
-  reading of `guard.py`; the line numbers are those of guard 0.8.0.
+Written by a cloud session on 2026-11-18 from the owner's decisions of 2026-11-17, the design notes in
+`docs/HANDOVER-2026-11-17.md` and the row files. The owner's answers of 2026-11-18 are worked in: open
+questions 1, 2, 3, 5 and 6 as recommended, the forms the reviews of group A left, the eleven calls of the row
+files, version 0.9.0, and an eleventh kind for group C. Section 4 was read against `guard.py` 0.8.0 on the
+owner's machine that day: every function and table it names stands at the line given.
 
 Repository: `agent-change-control`, a public kit of guard hooks and tools for AI-assisted platform work in
 regulated environments. `tools/guard/guard.py` (0.8.0 on `main`) is the hook engine: standard library only,
@@ -19,26 +18,26 @@ Python >= 3.9. It judges every tool call of the sessions in this repository, inc
 push, a tracker bypass, a secret, a deploy and an install, but only when the tool, the verb or the wrapper is
 in one of the guard's tables. You add what the tables miss, a net for `git`, `gh` and `az` behind an unknown
 word, and four things nothing reads today (GraphQL mutations, `git update-ref`, a shell fed by a pipe the
-guard cannot read, commands that print a stored secret). Group C: ten kinds of ask that fire on harmless
+guard cannot read, commands that print a stored secret). Group C: eleven kinds of ask that fire on harmless
 commands go away. Nothing else changes.
 
-The owner (Kacper) decided this scope on 2026-11-17; the tracker item is #NN. The design below is decided: do
+The owner (Kacper) decided this scope on 2026-11-17 and 2026-11-18; the tracker item is #NN. The design below is decided: do
 not reopen it. If a decided point cannot work, stop that point, finish the rest, and say so in your report.
 
 ## 1. Where you work (read twice)
 
 - Main checkout: `<REPO>`. Your shell starts there and returns there after every call. **You change nothing
   in it**: no edit, no staging, no commit, no branch switch. Its guard is the one that judges this session.
-- Your worktree `WT`: `<REPO>/.claude/worktrees/g090-bc`, branch `feat/guard-0.9.0` **[version]**, at
-  `origin/main` `6ff07cf` (guard 0.8.0), no commit of its own yet. Every file you read or edit has a path that
+- Your worktree `WT`: `<REPO>/.claude/worktrees/g090-bc`, branch `feat/guard-0.9.0`, at `origin/main`
+  `<BASE>` (guard 0.8.0), no commit of its own yet. Every file you read or edit has a path that
   starts with `WT`. Every command names it; do not `cd`:
   - whole suite, both Pythons, lint (prints the final lines): `sh <SCRATCH>/g070/suite.sh <WT>`
   - one test file: `uv run --directory <WT> --offline --no-project --with pytest --python 3.13 python -m pytest -q -p no:cacheprovider -o addopts= tools/guard/tests/<file>`
     (the same with `--python 3.9`)
   - lint: `ruff check <WT>/tools`
   - git: `git -C <WT> status --short`, `git -C <WT> diff`, `git -C <WT> add <paths>`, `git -C <WT> commit …`
-- Baseline at `6ff07cf`: `5271 passed, 9 skipped` on Python 3.13 (measured 2026-11-18); `ruff` clean. The
-  session fills in the 3.9 figure of the machine you run on.
+- Baseline, measured on the owner's machine on 2026-11-18 at `ec23d5d` (guard 0.8.0): `5271 passed, 9 skipped`
+  on Python 3.13 and on Python 3.9; `ruff` clean. The session measures again when `<BASE>` is a later commit.
 - Scratch folder `SC` (data files of this brief; yours to write under `SC/eng/`): `<SCRATCH>/g080/`. Never
   write temporary files into a checkout. Read nothing else in the scratchpad: only `SC` and the suite script
   named above.
@@ -50,16 +49,16 @@ not reopen it. If a decided point cannot work, stop that point, finish the rest,
 - Format, one row per line: `id | branch[@client] | rule | expected | command`. `rule` is one rule name, or
   `shell` for all eight shell rules together (then `expected` is `silent`). A command that starts with `"` is
   a JSON string (line breaks). An id that ends in `s` (or `t`) holds at 0.8.0 and must keep holding; every
-  other id is red at 0.8.0. Counts measured at `6ff07cf`:
+  other id is red at 0.8.0. Counts measured on guard 0.8.0 on the owner's machine on 2026-11-18:
 
   | File | Rows | Red | Ids |
   |---|---|---|---|
   | `SC/rows-b.txt` | 298 | 164 | R1 R2 R3 (verbs), T1 to T4 (tools that run a command), U1 to U4 (Homebrew names); Rs Ts Us |
   | `SC/rows-b4.txt` | 255 | 136 | G1 G2 G3 (the net), L1 L2 L3 (GraphQL), D1 D2 (`git update-ref`), I1 (a shell fed by a pipe), V1 V2 V3 (secret stores); Gs Ls Ds Is Vs |
-  | `SC/rows-b4-az.txt` | 123 | 61 | Z1 Z2 (`az` writes) **[Q5]**; Zs |
-  | `SC/rows-b5.txt` | 119 | 62 | W1 (API host in capitals) **[Q2]**, W2 (`brew`, `gem` verbs) **[Q3]**, W3 W4 (merge) **[Q6]**, X1 to X5 **[A-left]**; Ws Xs |
-  | `SC/rows-c.txt` | 139 | 70 | K1 to K10: asks that go away; Ks |
-  | `SC/rows-b5-files.txt` | 36 | 14 | Y1 (the guard's own path in capitals) **[Q1]**; Yt Ys. Format: `id | tool | rule | expected | path` |
+  | `SC/rows-b4-az.txt` | 123 | 61 | Z1 Z2 (`az` writes); Zs |
+  | `SC/rows-b5.txt` | 119 | 62 | W1 (API host in capitals), W2 (`brew`, `gem` verbs), W3 W4 (merge), X1 to X5 (what the reviews of group A left); Ws Xs |
+  | `SC/rows-c.txt` | 173 | 86 | K1 to K11: asks that go away; Ks |
+  | `SC/rows-b5-files.txt` | 36 | 14 | Y1 (the guard's own path in capitals); Yt Ys. Format: `id | tool | rule | expected | path` |
 
 - Checkers; each prints every row that does not hold and a total, exit 0 when all hold. They call the rule
   functions through `RULES[...]` with the command or the path as a string. Nothing runs, no file is opened.
@@ -145,7 +144,9 @@ Two properties hold for every part. (1) A new name or verb is judged in the firs
 pass, so it is found behind a wrapper, in a nested script and in a fed script, like the names the tables hold
 today. (2) Capitals: what you add to a table is a known name for `fold_names`, so `UNSHARE`, `GRM` and `GFIND`
 are read like the plain names (the four pairs of group A's check that are still weaker are `GFIND` and
-`GXARGS`).
+`GXARGS`). `fold_names` folds only the names of `_FOLD_NAMES` (3102), which is built from a tuple of the
+tables and from `_NAMES_IN_CODE` (3095): a table you add goes into that tuple, and a name that stands only in
+an expression or a comparison of the code goes into `_NAMES_IN_CODE`. A name in neither passes in capitals.
 
 **4.1 Verbs the tables miss** (rows R). The owner's item (r) and its twins in the tools the guard already
 knows.
@@ -172,8 +173,9 @@ modifier `-`, `lockf`, `ssh-agent`, `fakeroot`, `faketime`, `unbuffer`, `taskset
 `aws-vault exec … --`, `doppler run --`, `dotenv`, `launchctl`, `sshpass`, `xcrun`. For each: where its
 command starts (which of its options take a value, whether `--` is needed, whether the command is one quoted
 word that is a script, as with `hyperfine '…'` and `watchexec '…'`), from its manual, in the reader's tables
-(`_nc_wrapped`, `_nc_sub_wrapped`, `_nc_option_wrapped`, `_nc_scripts`) and, where the first pass needs it, in
-`_WRAPPERS`. Then every shell rule answers for the command behind it as for the plain command: T1
+(`_NC_WRAPPERS` 2385, `_NC_SUB_WRAPPERS` 2395, `_NC_OPTION_RUNNERS` 2408, `_NC_SCRIPT_OPTIONS` 2411,
+`_NC_SCRIPT_WORDS` 2422; read by `_nc_wrapped`, `_nc_sub_wrapped`, `_nc_option_wrapped` and `_nc_scripts`)
+and, where the first pass needs it, in `_WRAPPERS`. Then every shell rule answers for the command behind it as for the plain command: T1
 `delete-guard`, T2 `git-guard`, T3 `host-install`, T4 the others.
 
 **4.3 The Homebrew names of the GNU tools** (rows U). Homebrew installs coreutils, findutils, grep and
@@ -186,7 +188,7 @@ table entries. A name that only looks like one (`gh`, `git`, `go`, `gem`, `grep`
 mapped: only `g` + a name the mapping lists.
 
 **4.4 The net for `git`, `gh` and `az`** (rows G; decision 3b). In a simple command whose command word no
-table knows and which is no text tool (`echo`, `printf`, `man`, `which`, `type`, `tldr` **[calls]**), a later
+table knows and which is no text tool (`echo`, `printf`, `man`, `which`, `type`, `tldr`), a later
 word that is `git`, `gh` or `az` (also with a path in front) is taken as the start of that tool's command,
 and `git-guard`, `protected-branch` and `tracker-guard` judge the words from there. Whatever they would answer
 for the plain command, ask or deny, the net answers **ask**: the guard does not know what the word in front
@@ -198,42 +200,44 @@ stands as today (`npm exec -- git push --force` denies).
 **4.5 GraphQL** (rows L; decision aa). `gh api graphql` with a query that holds the word `mutation`:
 `tracker-guard` denies when the mutation's field name holds `Issue` or `Label` (`closeIssue`, `updateIssue`,
 `reopenIssue`, `createIssue`, `deleteIssue`, `addLabelsToLabelable`, `removeLabelsFromLabelable`,
-`createLabel`, `deleteLabel` **[calls]**), asks for any other mutation (`addComment`, `mergePullRequest`, …)
+`createLabel`, `deleteLabel`), asks for any other mutation (`addComment`, `mergePullRequest`, …)
 and when the query cannot be read from the line (`-F query=@file`, `--input file`, a value that is only a
 variable); a query stays silent. The same for `curl`, `wget` and httpie to `api.github.com/graphql`. The REST
 twins deny today and keep denying.
 
 **4.6 `git update-ref`** (rows D; decision ab). `protected-branch` denies it when the ref is
 `refs/heads/<protected>`, whatever branch is checked out, or `HEAD` while a protected branch is checked out;
-the deleting form `-d` of such a ref is denied too **[calls]**; `--stdin` asks. Silent: other branches, tags,
+the deleting form `-d` of such a ref is denied too; `--stdin` asks. Silent: other branches, tags,
 `refs/remotes/…`, `git commit-tree`.
 
 **4.7 A shell fed by a pipe the guard cannot read** (rows I; decision ad). A shell (`sh`, `bash`, `zsh`,
 `dash`, `ksh`) as a command word behind a pipe, with no script operand and no `-c`, fed by anything but a
 literal `echo` or `printf` (group A reads those) or a `cat` here-document: the reader cannot read the program,
 so the rules that read through it ask through its "could not read" path (`CommandNotRead`). The rows pin
-`delete-guard` and `git-guard` **[calls]**; the other rules that read through the reader may ask too. Silent
+`delete-guard` and `git-guard`; the other rules that read through the reader may ask too. Silent
 stays: `bash run.sh`, `. ./run.sh`, `cat data.txt | bash process.sh`, `yes | bash install.sh`,
 `cat run.sh | grep bash`. Not decided, leave as it is: `bash < run.sh`, `bash <(cat run.sh)`,
 `eval "$(cat run.sh)"`, `echo "$X" | bash`, a shell on another host fed by a pipe.
 
 **4.8 Commands that print a stored secret** (rows V; decision af). `secret-shell` asks. V1 is what the owner
 named (`vault kv get`, `op read`, `kubectl get secret -o yaml`, `gh auth token`), V2 the rest of the table of
-the handover's note with its spellings, V3 five forms the session added **[calls]**. The table and its silent
+the handover's note with its spellings, V3 five forms the drafting session added. The table and its silent
 side (list, status and metadata calls; `kubectl get secret app` without an output format) are in
 `docs/HANDOVER-2026-11-17.md`, "Secret stores (af)". A table per tool with its source. Plan rev 3 (step 1.7)
 will later deny a read of the owner's GitHub credentials; an ask here does not stand in its way.
 
-**4.9 `az` writes** (rows Z; decision ag) **[Q5]**. Written for the recommended answer: `deploy-ask` asks for
-every `az` call whose verb is not a known read (`list`, `show`, `get-*` and the other reads the Zs rows name,
-the help and version probes), the verb being the last plain word in front of the first option. Then Z1 and Z2 are both
-due. Silent stays (Zs): reads, help probes, `az repos pr create`, and calls that change only this machine
-(`az login`, `az account set`, `az config set`, `az bicep build`, `az aks get-credentials`). Under the other
-answer (a list of write verbs) only Z1 is due and Z2 is observed.
+**4.9 `az` writes** (rows Z; decision ag, and the owner's answer of 2026-11-18 on how a write is told).
+`deploy-ask` asks for every `az` call whose verb is not a known read (`list`, `show`, `get-*` and the other
+reads the Zs rows name, the help and version probes), the verb being the last plain word in front of the
+first option. Z1 and Z2 are both due. Silent stays (Zs): reads, help probes, `az repos pr create`, and calls
+that change only this machine (`az login`, `az account set`, `az config set`, `az bicep build`,
+`az aks get-credentials`). A list of write verbs was the other answer and is not taken: a verb such a list
+misses would stay silent.
 
-**4.10 A capital letter, three leftovers of group A** **[Q1] [Q2] [Q3]**, **and a merge** **[Q6]**.
-- Y1: `guard_config_class` answers for the path as written and, when that gives nothing, for the path in
-  lower case, as `secret_class` does since 0.8.0. The home prefix is compared the same way.
+**4.10 A capital letter, three leftovers of group A, and a merge.**
+- Y1: `guard_config_class` (1587) reads the path twice, as written and in lower case, the same two readings
+  as `secret_class` (553) since 0.8.0: a kind from either reading asks. The home prefix is compared the same
+  way.
 - W1: `tracker-guard` finds the GitHub API host whatever its case, scheme included. gh's own `api` reading
   and the Azure DevOps host already ignore case (Ws).
 - W2: for `brew` and `gem` the verb is compared in lower case when it is written all in capitals. Only these
@@ -243,7 +247,7 @@ answer (a list of write verbs) only Z1 is due and Z2 is observed.
   httpie; with `--admin` it denies, as the Azure DevOps twin `--bypass-policy` is denied today. Another call
   under `…/pulls/<n>/` is no merge.
 
-**4.11 What the reviews of group A left** (rows X) **[A-left]**.
+**4.11 What the reviews of group A left** (rows X).
 - X1: an `export NAME=value`, `declare -x`, `typeset -x` or `set -a` inside the script of an `eval` reaches
   the commands that follow the `eval` in the same line; today it is read after them. `bash -c 'export …'`
   does not reach them and stays silent (Xs).
@@ -271,6 +275,22 @@ only for these forms. Each K id has its neighbours in Ks that keep today's verdi
 - K6, K7 and K9 are silent only as a simple command at the top level of the line whose output is not piped
   onward: `ls .env | xargs cat` and `cat $(echo .env)` read the file and keep asking.
 - K10 `command -v codex` inside a client boundary names a tool and runs nothing.
+- K11 inside a client boundary a search tool's pattern is text and no command (the owner's answer of
+  2026-11-18). `grep -n -E 'gemini|openai|ollama' README.md` asks today because the first pass of
+  `rule_egress_guard` (1372; `segments`, 492) splits the line at every `|`, also inside a quoted word, and
+  takes the name behind it for a command word; the reader pass reads the same line right and is silent. Drop
+  a hit of the first pass only when it lies in the word the reader gives as the pattern of a search tool
+  (`_SEARCH_TOOLS` (690) and `git grep`: the operand `_search_pattern` (694) names, or the value of `-e` or
+  `--regexp`). The same holds for the folded reading, through which the capital spelling asks
+  (`'A|OPENAI|B'`). Keep the first pass for everything else and do not make it quote-aware as a whole: it is
+  the only pass that asks for a quoted script handed to a tool the reader does not know
+  (`mytool 'grep x notes.txt | ollama run m'`: first pass ask, reader pass silent, measured on 0.8.0; a Ks
+  row). A hit is dropped for its place in the line, not for its text alone: a line that holds the same words
+  once in a pattern and once in such a quoted script still asks (a Ks row). The reader pass stays as it is, so a pipe the shell really makes into such a tool, a command
+  substitution inside the pattern and an unquoted pattern keep asking (Ks). The same `|` in a quoted word of
+  another tool (`echo 'a|openai|b'`, `sed`, `awk`, `jq`) is not decided: it keeps asking, and you name it in
+  `left_out`. A name at an end of the pattern (`'openai|ollama'`) is silent today already, because the
+  quote stays glued to it.
 - The keep list keeps asking: `find . -name .env`, `cat ca.pem`, `chmod 600 .env`, `cp .env.example .env`,
   `touch .env`, `git reset f`, `git rm --cached f`, `git branch -d x`, `wc -c .env`, `ssh-add`.
 
@@ -288,12 +308,12 @@ only for these forms. Each K id has its neighbours in Ks that keep today's verdi
 7. `protected-branch`: `git update-ref`: rows D1, D2.
 8. the reader: a shell fed by a pipe it cannot read: rows I1.
 9. `secret-shell`: secret stores: rows V1 to V3.
-10. `deploy-ask`: `az` writes: rows Z1, Z2 **[Q5]**.
-11. capitals: rows Y1, W1, W2 **[Q1] [Q2] [Q3]**.
-12. `tracker-guard`: a merge: rows W3, W4 **[Q6]**.
-13. what group A left: rows X1 to X5 **[A-left]**.
+10. `deploy-ask`: `az` writes: rows Z1, Z2.
+11. capitals: rows Y1, W1, W2.
+12. `tracker-guard`: a merge: rows W3, W4.
+13. what group A left: rows X1 to X5.
 14. group C, `delete-guard` and `host-install`: rows K1, K2, K4, K5.
-15. group C, `secret-shell` and `egress-guard`: rows K3, K6 to K10.
+15. group C, `secret-shell` and `egress-guard`: rows K3, K6 to K11.
 16. fixtures: one ask and one deny case per harness for a form of this work, added in
     `tools/guard/tests/make_fixtures.py` and generated with it.
 After step 13 the first checker must exit 0 on the four B files; after step 15 on all five, and the file

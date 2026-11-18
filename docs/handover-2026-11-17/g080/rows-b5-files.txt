@@ -1,7 +1,7 @@
-# Guard, group B, part 5, file tools: rows for open question 1 of 2026-11-17 (the guard's own configuration
-# written in capitals passes `guard-config`).
-# DRAFT of 2026-11-18, written by a cloud session. Not frozen: it needs the owner's answer to that question
-# (recommended there: yes, the same two readings as for a secret file name).
+# Guard 0.9.0, group B, part 5, file tools: rows for open question 1 of 2026-11-17 (the guard's own
+# configuration written in capitals passes `guard-config`).
+# Written by a cloud session on 2026-11-18. The owner answered that question on 2026-11-18 as recommended: yes,
+# the same two readings as for a secret file name. The counts are frozen when the tracker item names them.
 #
 # Row: id | tool | rule | expected | path      (the path is data; no file is opened, written or created)
 #   Y1  red at 0.8.0: the guard's own path with a capital letter in it asks like the plain path

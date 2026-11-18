@@ -1,0 +1,44 @@
+# Guard 0.9.0, group C, K11: forms the engineer never sees, for the K11 rows of rows-c.txt (a vendor's name in
+# a search tool's quoted pattern, inside a client boundary). The other kinds of group C have no such file.
+# Written on the owner's machine on 2026-11-18 together with those rows, after his "Add it (Recommended)". Same
+# format, checked by expect.py. Measured on guard 0.8.0: HR 12 red, HS 8 hold, HO 7 hold.
+# HR = due with the build (other spellings and arrangements of what the rows name): a red row afterwards is a
+#      defect or a missed spelling for the fix pass
+# HS = must answer as at 0.8.0 (holds today): a red row afterwards is a regression, here a pipe into another
+#      vendor's tool that got silent
+# HO = observed only (the same reading of `|` in a quoted word of a tool that is no search tool, and a search
+#      tool's option that does run a command: not decided): reported as a limit or a proposal, never required
+
+# ---------------------------------------------------------------- a search tool's quoted pattern
+HR | feat/x@client | shell | silent | fgrep -rn 'x|ollama|y' .
+HR | feat/x@client | shell | silent | zgrep -E 'a|openai|b' logs.gz
+HR | feat/x@client | shell | silent | ack 'a|codex|b' src
+HR | feat/x@client | shell | silent | rg --pcre2 '(?i)a|GEMINI|b' docs
+HR | feat/x@client | shell | silent | grep -E -- 'a|llm|b' notes.txt
+HR | feat/x@client | shell | silent | grep -rn --include='*.md' -E 'x|aider|y' docs
+HR | feat/x@client | shell | silent | grep -E 'a|cursor-agent|b' notes.txt
+HR | feat/x@client | shell | silent | grep -En "a|huggingface-cli|b" README.md
+HR | feat/x@client | shell | silent | GREP -E 'a|openai|b' notes.txt
+HR | feat/x@client | shell | silent | nice grep -E 'a|ollama|b' notes.txt
+HR | feat/x@client | shell | silent | ggrep -E 'a|openai|b' notes.txt
+HR | feat/x@client | shell | silent | grep -E 'x | ollama run m' notes.txt
+
+# ---------------------------------------------------------------- a real pipe into the tool keeps asking
+HS | feat/x@client | egress-guard | ask | grep x notes.txt | timeout 30 ollama run m
+HS | feat/x@client | egress-guard | ask | zsh -c 'rg x docs | llm -s sum'
+HS | feat/x@client | egress-guard | ask | grep -E 'a|b' notes.txt | tee out.txt | gemini -p x
+HS | feat/x@client | egress-guard | ask | grep -l x notes.txt | xargs -n1 codex exec
+HS | feat/x@client | egress-guard | ask | grep -E a\|b notes.txt | ollama run m
+HS | feat/x@client | egress-guard | ask | grep -E 'a|b' notes.txt | OLLAMA run m
+HS | feat/x@client | egress-guard | ask | grep -E 'a|openai|b' notes.txt; openai api models.list
+HS | feat/x@client | egress-guard | ask | rg 'x|llm -s sum|y' docs && mytool "rg x docs | llm -s sum | cat"
+
+# ---------------------------------------------------------------- the same `|` in a quoted word of another tool: not decided
+HO | feat/x@client | egress-guard | ask | echo 'a|openai|b'
+HO | feat/x@client | egress-guard | ask | sed -n '/a|openai|b/p' notes.txt
+HO | feat/x@client | egress-guard | ask | awk '/a|ollama|b/' notes.txt
+HO | feat/x@client | egress-guard | ask | printf '%s\n' 'x|codex|y'
+HO | feat/x@client | egress-guard | ask | jq '.a|gemini|.b' data.json
+HO | feat/x@client | egress-guard | ask | grep -E 'a|openai|b' notes.txt > 'x|ollama|y.txt'
+# ripgrep runs the command its --pre option names for every file; silent at 0.8.0, which no row of this work asks to change
+HO | feat/x@client | shell | silent | rg --pre 'ollama run m' x docs

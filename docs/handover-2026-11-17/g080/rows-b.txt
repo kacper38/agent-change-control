@@ -1,6 +1,7 @@
-# guard 0.8.0 group B (tables): acceptance rows, written before the build
+# guard 0.9.0 group B (tables): acceptance rows, written before the build (on 2026-11-17, when groups A, B and
+# C were planned as one version; group A took 0.8.0 to `main`)
 # id | branch[@client] | rule | expected | command        (rule `shell` = all eight shell rules, only with `silent`)
-# R1, R2, R3, T1-T4, U1-U4 are due at 0.8.0; Rs, Ts, Us hold at 0.7.0 and must keep holding.
+# R1, R2, R3, T1-T4, U1-U4 are due at 0.9.0; Rs, Ts, Us hold at 0.8.0 and must keep holding.
 #
 # --- R1: the cloud CLI runs a command on a live host or container, or deploys (item r and its twins)
 R1 | feat/x | deploy-ask | ask | aws ssm send-command --instance-ids i-1 --document-name AWS-RunShellScript --parameters commands=uptime

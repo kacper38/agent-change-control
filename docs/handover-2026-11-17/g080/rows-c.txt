@@ -1,9 +1,11 @@
-# Guard 0.8.0, group C: asks that go away (the owner's "do decisions as recommmended", 2026-11-17, on the take
-# and keep list of the report of that day). Draft: counts are frozen when the tracker item names them.
+# Guard 0.9.0, group C: asks that go away (the owner's "do decisions as recommmended", 2026-11-17, on the take
+# and keep list of the report of that day; K11 by his "Add it (Recommended)" of 2026-11-18, after the replay
+# over the calls on his machine had shown that kind). Counts are frozen when the tracker item names them.
 #
 # Ids: K1 find's pattern operand; K2 git restore --staged; K3 a search pattern; K4 previews; K5 a help probe as
 #      the sole argument; K6 ls, stat, test on a secret path; K7 git commands that report names; K8 the word
-#      after an exclude option; K9 text of echo and printf; K10 command -v (all ask today, silent afterwards).
+#      after an exclude option; K9 text of echo and printf; K10 command -v; K11 a vendor's name in a search
+#      tool's quoted pattern (all ask today, silent afterwards).
 #      Ks the neighbours that keep today's verdict, the keep list among them.
 # One condition on K6, K7 and K9 that the list did not spell out: the command is silent only at the top level
 # of the line and when its output is not piped onward. `ls .env | xargs cat` and `cat $(echo .env)` read the
@@ -168,3 +170,43 @@ Ks | feat/x@client | egress-guard | ask | command codex exec hi
 Ks | feat/x@client | egress-guard | ask | command -p codex exec hi
 Ks | feat/x@client | shell | silent | which codex
 Ks | feat/x@client | shell | silent | type codex
+
+# ---------------------------------------------------------------- K11: a search tool's quoted pattern (egress-guard, client boundary)
+# Today the rule's first pass takes the `|` of a quoted pattern for a pipe, so the name behind it counts as a
+# command (9 of the 10 asks guard 0.8.0 added inside a client boundary over the calls of 36 days, 2026-11-18).
+# The pattern is data and nothing is sent. A pipe the shell really makes into such a tool keeps asking, and so
+# does a quoted script handed to a tool the guard does not know: only that first pass sees it.
+K11 | feat/x@client | shell | silent | grep -n -i -E 'model|openai|ollama' README.md
+K11 | feat/x@client | shell | silent | grep -rIn -i -E "anthropic|openai|bedrock" src
+K11 | feat/x@client | shell | silent | grep -nE 'fleet|llama|gemini|codex' DECISIONS.md
+K11 | feat/x@client | shell | silent | rg -n 'aider|codex|gemini|cursor' docs
+K11 | feat/x@client | shell | silent | egrep 'a|llm|b' notes.txt
+K11 | feat/x@client | shell | silent | grep -n -E 'A|OPENAI|OLLAMA|B' README.md
+K11 | feat/x@client | shell | silent | grep -c 'x|hf|y' models.txt
+K11 | feat/x@client | shell | silent | ag 'x|agy|y' src
+K11 | feat/x@client | shell | silent | grep -E 'a|openai|b' notes.txt | head -3
+K11 | feat/x@client | shell | silent | ls docs; grep -n -E "x|gemini|y" docs/a.md
+K11 | feat/x@client | shell | silent | command grep -E 'a|codex|b' notes.txt
+K11 | feat/x@client | shell | silent | rg -e 'a|openai|b' -e x docs
+K11 | feat/x@client | shell | silent | grep -E 'a|openai api|b' notes.txt
+K11 | feat/x@client | shell | silent | git grep -n -E 'x|openai|y'
+K11 | feat/x@client | shell | silent | git grep -n -E 'x|ollama|y' -- docs
+K11 | feat/x@client | shell | silent | cat notes.txt | grep -E 'a|openai|b'
+Ks | feat/x@client | egress-guard | ask | grep -n x README.md | ollama run llama3
+Ks | feat/x@client | egress-guard | ask | grep -c x notes.txt | llm "summarise"
+Ks | feat/x@client | egress-guard | ask | rg -n 'a|b' docs | gemini -p "summarise"
+Ks | feat/x@client | egress-guard | ask | bash -c "grep x notes.txt | ollama run m"
+Ks | feat/x@client | egress-guard | ask | grep -E 'a|b' "$(ollama list)"
+Ks | feat/x@client | egress-guard | ask | grep -E "a|$(ollama list)|b" notes.txt
+Ks | feat/x@client | egress-guard | ask | grep -n x notes.txt; ollama list
+Ks | feat/x@client | egress-guard | ask | grep -E 'a|openai|b' notes.txt | openai api models.list
+Ks | feat/x@client | egress-guard | ask | grep -E 'a|b' notes.txt && codex exec "fix it"
+Ks | feat/x@client | egress-guard | ask | grep -e x notes.txt |ollama run m
+Ks | feat/x@client | egress-guard | ask | grep -E a|ollama|b notes.txt
+Ks | feat/x@client | egress-guard | ask | grep -l x notes.txt | xargs ollama run
+Ks | feat/x@client | egress-guard | ask | mytool 'grep x notes.txt | ollama run m'
+Ks | feat/x@client | egress-guard | ask | ssh build 'grep x notes.txt | ollama run m'
+Ks | feat/x@client | egress-guard | ask | grep -E 'a|ollama run m|b' notes.txt; mytool 'cat notes.txt | ollama run m | tee out.txt'
+Ks | feat/x | shell | silent | grep -n -E 'a|openai|b' README.md
+Ks | feat/x@client | shell | silent | grep -n openai README.md
+Ks | feat/x@client | shell | silent | grep -rn "codex" docs

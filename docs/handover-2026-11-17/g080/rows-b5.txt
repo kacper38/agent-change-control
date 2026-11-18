@@ -1,12 +1,12 @@
-# Guard, group B, part 5: rows for open questions 2, 3 and 6 of 2026-11-17, and for what the reviews of
+# Guard 0.9.0, group B, part 5: rows for open questions 2, 3 and 6 of 2026-11-17, and for what the reviews of
 # group A left.
-# DRAFT of 2026-11-18, written by a cloud session after group A was merged (guard 0.8.0 on `main`). Nothing here
-# is frozen and nothing is decided: there is no tracker item, and each part rests on a word the owner has not
-# given yet.
-#   W1        needs his answer to open question 2 (recommended there: yes)
-#   W2        needs his answer to open question 3 (recommended there: group B's tables)
-#   W3 W4     need his answer to open question 6 (recommended there: deny `--admin`, ask for a plain merge)
-#   X1 to X5  need his word that the forms the reviews of group A left go into this pull request
+# Written by a cloud session on 2026-11-18, after group A was merged (guard 0.8.0 on `main`). The owner gave
+# his word on each part on 2026-11-18, as recommended ("All as recommended (Recommended)"). The counts are
+# frozen when the tracker item names them.
+#   W1        open question 2: yes
+#   W2        open question 3: group B's tables
+#   W3 W4     open question 6: deny `--admin`, ask for a plain merge
+#   X1 to X5  the forms the reviews of group A left go into this pull request
 #
 # Row: id | branch[@client] | rule | expected | command      (commands are data, nothing runs)
 # Ids ending in `s` hold at 0.8.0 and must keep holding; every other id is red at 0.8.0.
@@ -19,7 +19,8 @@
 #   X4        a script fed to a shell inside a group or a subshell
 #   X5        a `case` pattern inside `"$( … )"`: no false deny, and a shell fed there is read
 #
-# Calls this session made. Each is the owner's to strike:
+# Calls the cloud session made. The owner kept all five on 2026-11-18 ("Keep all eleven (Recommended)",
+# together with the six in the head of rows-b4.txt):
 #   1. W1 covers the host and the scheme. A path in capitals (`/REPOS/o/r/ISSUES/3`) has no row: whether the
 #      forge serves it was not measured.
 #   2. W2 holds verbs in capitals only for brew and gem, and only all in capitals. Measured on the owner's
@@ -30,9 +31,9 @@
 #      name and is folded (rows Ws).
 #   3. W3 and W4 are rows of `tracker-guard`, the rule that denies the Azure DevOps twins today
 #      (`az repos pr update --status completed`: "merges behind the tracker"; `--bypass-policy`). The twins are
-#      denied outright; the recommended answer for gh is an ask for a plain merge. If the owner wants gh like
-#      az, the W3 rows become deny rows. Plan rev 3 (step 1.7) denies `gh pr merge` in a cloud session whatever
-#      this answer is. Two fixture cases expect `gh pr merge` to pass today, each for both harnesses: the one
+#      denied outright; the owner's answer for gh is an ask for a plain merge. Plan rev 3 (step 1.7) denies
+#      `gh pr merge` in a cloud session whatever this answer is; that step is not built and not part of this
+#      work. Two fixture cases expect `gh pr merge` to pass today, each for both harnesses: the one
 #      of `tracker-guard` (`gh pr merge 3 --rebase`) has to follow, the one of `git-guard` stays as it is.
 #   4. X2: lefthook's documentation names `LEFTHOOK=0` and `LEFTHOOK=false` as its off switch. Not measured
 #      here: no lefthook on this machine.

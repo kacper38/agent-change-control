@@ -1,9 +1,9 @@
-# Guard 0.8.0, group B, part 4: rows for the az writes of decision (ag) of 2026-11-17.
-# DRAFT of 2026-11-18, written by a cloud session. Not frozen, and waiting for open question 5 of
-# docs/HANDOVER-2026-11-17.md: how an az write is recognised.
-#   answer 1 (recommended there): every az call asks unless its verb is a known read (list, show, get-*, …)
-#   answer 2: a list of write verbs asks; a verb the list misses stays silent
-# The rows are split so that the question can be answered by reading them:
+# Guard 0.9.0, group B, part 4: rows for the az writes of decision (ag) of 2026-11-17.
+# Written by a cloud session on 2026-11-18. Open question 5 of docs/HANDOVER-2026-11-17.md (how an az write is
+# recognised) was answered by the owner on 2026-11-18 with answer 1, as recommended there:
+#   answer 1 (decided): every az call asks unless its verb is a known read (list, show, get-*, …)
+#   answer 2 (not taken): a list of write verbs asks; a verb the list misses stays silent
+# The rows were split so that the question could be answered by reading them; with answer 1 both parts are due:
 #   Z1  verbs the handover's note names as silent today (start, stop, restart, deallocate, resize, scale,
 #       upgrade, set, set-policy, purge, recover, register, upload, renew, reset, failover, tag, rest with a
 #       writing method, acr import|run|build, ad sp create-for-rbac): ask under both answers
@@ -15,7 +15,7 @@
 #       only this machine stay silent
 #
 # Row: id | branch[@client] | rule | expected | command      (commands are data, nothing runs)
-# Ids ending in `s` hold at 0.7.1 and must keep holding; every other id is red at 0.7.1.
+# Ids ending in `s` hold at 0.8.0 and must keep holding; every other id is red at 0.8.0.
 #
 # The verb is the last plain word in front of the first option (`az webapp config appsettings set …` -> set).
 # No rows, because nothing is decided: `az deployment group list|show|what-if|validate` (they ask today and

@@ -2,8 +2,9 @@
 # Write the material a reviewer brief names into the reviewer's scratch folder: the old guard, the diff of
 # the guard, the commit list and the file statistics of the build branch against its base.
 # usage: sh make-review.sh
-# The defaults are those of group A. For groups B and C:
-#   WT_NAME=g090-bc BASE=6ff07cf OLD_NAME=guard-0.8.0.py RDIR=rb sh make-review.sh
+# The defaults are those of group A. For groups B and C, with BASE the commit of main the worktree was made
+# from (ec23d5d on 2026-11-18; a base older than that puts the handover's own commits into the statistics):
+#   WT_NAME=g090-bc BASE=ec23d5d OLD_NAME=guard-0.8.0.py RDIR=rb sh make-review.sh
 SP="${SP:?set SP to the scratch folder of the session}"
 REPO="${REPO:?set REPO to the checkout on the handover branch}"
 WT_NAME="${WT_NAME:-g080-a}"

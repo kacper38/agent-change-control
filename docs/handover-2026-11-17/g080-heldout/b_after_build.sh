@@ -1,9 +1,10 @@
 #!/bin/zsh
 # After the engineer's build of groups B and C: state of the branch, both checkers, the unseen forms, nothing
 # weaker than 0.8.0 outside group C's rows, the new prompts, the replay over real commands, the suite.
-# DRAFT of 2026-11-18, written in a cloud session on the model of a_after_build.sh and not run yet: set the
-# paths, then read each step's output before the next one is trusted. Reads and scratch logs only; commands
-# under test are strings handed to rule functions.
+# Written in a cloud session on 2026-11-18 on the model of a_after_build.sh and not run yet (the unseen forms
+# of K11 were added on the owner's machine the same day): set the paths and BASE, then read each step's output
+# before the next one is trusted. Reads and scratch logs only; commands under test are strings handed to rule
+# functions.
 # usage: zsh b_after_build.sh [nosuite]
 SP=<SCRATCH>
 S=$SP/g070
@@ -11,7 +12,7 @@ S8=$SP/g080
 H=$SP/g080-heldout
 MAIN=<REPO>
 WT=$MAIN/.claude/worktrees/g090-bc
-BASE=6ff07cf
+BASE=<BASE>                    # the commit of main the worktree was made from (ec23d5d on 2026-11-18)
 OLD=$H/guard-0.8.0.py          # git -C $MAIN show $BASE:tools/guard/guard.py, written once by hand
 NEW=$WT/tools/guard/guard.py
 OUT=$H/after-b
@@ -34,18 +35,19 @@ echo "file rows exit $? | $(tail -1 $OUT/files.log)"
 grep '^RED' $OUT/files.log | head -15 | cut -c1-210
 
 echo; echo "== unseen forms (HR due, HS must hold, HO observed)"
-for f in heldout-b heldout-b4 heldout-b5; do
+for f in heldout-b heldout-b4 heldout-b5 heldout-c; do
   python3 -I $S8/expect.py $NEW $H/$f.txt --red > $OUT/$f.log 2>&1
   echo "$f exit $? | $(tail -1 $OUT/$f.log)"
   python3 -I $S8/heldout_report.py $H/$f.txt $OUT/$f.log | cut -c1-210 | head -60
 done
 
-echo; echo "== weaker than 0.8.0 (allowed: the K rows of group C, nothing else)"
+echo; echo "== weaker than 0.8.0 (allowed: the K rows of group C and the unseen K11 forms that are due, nothing else)"
 grep -E '^K[0-9]+ ' $S8/rows-c.txt > $OUT/allow-c.txt
+grep -E '^HR ' $H/heldout-c.txt >> $OUT/allow-c.txt
 python3 -I $H/orch/weaker.py $S8/expect.py $OLD $NEW $ROWS $S8/rows-a.txt $S8/rows-a-added.txt \
   $S8/rows-a-caps.txt $S8/rows-a-fix.txt $S8/rows-a-fix2.txt $H/heldout-a.txt $H/heldout-b.txt \
-  $H/heldout-b4.txt $H/heldout-b5.txt $H/orch/noise.txt $H/orch/noise2.txt $H/orch/plain-forms.txt \
-  --allow $OUT/allow-c.txt > $OUT/weaker.log 2>&1
+  $H/heldout-b4.txt $H/heldout-b5.txt $H/heldout-c.txt $H/orch/noise.txt $H/orch/noise2.txt \
+  $H/orch/plain-forms.txt --allow $OUT/allow-c.txt > $OUT/weaker.log 2>&1
 echo "weaker exit $?"
 tail -6 $OUT/weaker.log | cut -c1-210
 

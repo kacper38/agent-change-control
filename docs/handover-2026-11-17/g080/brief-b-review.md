@@ -1,7 +1,8 @@
-# Review brief: guard 0.9.0, groups B and C (tracker item #NN) — DRAFT of 2026-11-18
+# Review brief: guard 0.9.0, groups B and C (tracker item #NN)
 
-Draft, written with `brief-b.md` and under the same marks (**[Q1]** … **[Q6]**, **[A-left]**, **[calls]**,
-**[version]**). It is filled and struck clean together with that brief.
+Written with `brief-b.md`; the owner's answers of 2026-11-18 are worked in. Before it is handed to a reviewer
+the orchestrating session fills the item number, the paths and the part marked FILL AFTER THE BUILD, and
+strikes these three lines.
 
 `<S8>` = <SCRATCH>/g080
 `<WT>` = <REPO>/.claude/worktrees/g090-bc (branch `feat/guard-0.9.0`)
@@ -32,15 +33,15 @@ Group B adds what the tables did not name. No verdict of 0.8.0 may get weaker th
    `tracker-guard`, `protected-branch`).
 5. `tracker-guard` reads GraphQL mutations; `protected-branch` reads `git update-ref`; a shell fed by a pipe
    the guard cannot read asks; `secret-shell` asks for a command that prints a stored secret; `deploy-ask`
-   asks for `az` writes **[Q5]**.
-6. **[Q1] [Q2] [Q3] [Q6] [A-left]** The guard's own configuration path, the GitHub API host and a verb of
-   `brew` or `gem` in capitals; a merge of a pull request (`tracker-guard`: ask, with `--admin` deny); five
-   forms the reviews of group A left.
+   asks for every `az` call whose verb is no known read.
+6. The guard's own configuration path, the GitHub API host and a verb of `brew` or `gem` in capitals; a merge
+   of a pull request (`tracker-guard`: ask, with `--admin` deny); five forms the reviews of group A left.
 
-Group C takes ten kinds of ask away. Here a verdict gets weaker on purpose, and only for the forms of the K
+Group C takes eleven kinds of ask away. Here a verdict gets weaker on purpose, and only for the forms of the K
 rows: a pattern of `find`, `git restore --staged`, a search pattern, a preview, a help probe as the sole
 argument, `ls`/`stat`/`test` on a secret path, git commands that report names, the word after an exclude
-option, the text of `echo` and `printf`, `command -v` of an LLM tool.
+option, the text of `echo` and `printf`, `command -v` of an LLM tool, and, inside a client boundary, a search
+tool's quoted pattern that names an LLM tool (`grep -E 'a|openai|b' notes.txt`).
 
 ## Where
 - Code under review, read-only for you: `<WT>/tools/guard/guard.py`. Start from the diff:
@@ -59,12 +60,16 @@ option, the text of `echo` and `printf`, `command -v` of an LLM tool.
   where that looks harmless (`wc -c .env`, `touch .env`, `git branch -d x`).
 - `ls`, `stat`, `test`, the name-reporting git commands and `echo` text are silent only as a simple command
   at the top level whose output is not piped onward.
+- For `egress-guard` only a search tool's own pattern is text (`grep` and kin, `git grep`: the pattern
+  operand, or the value of `-e` or `--regexp`). The rule's first pass over the text stays for everything
+  else: it is the one that asks for a quoted script handed to a tool the guard does not know.
 - Left for later; do not report: `aws` and `gcloud` writes, `printenv` and a bare `env`, the ways to move a
   protected branch that are no commit and no `git update-ref` (merge, rebase, `branch -f`, `checkout -B`,
   `fetch . a:b`), `bash < run.sh`, `bash <(cat run.sh)`, `eval "$(cat run.sh)"`, `echo "$X" | bash`, a NUL
   character in the command, `gh pr review --approve`, a path of the forge's API in capitals, a verb in
-  capitals for any tool but `brew` and `gem`, a mixed-case verb, and everything a cloud session or a
-  harness's own GitHub tools can do (plan rev 3, step 1.7).
+  capitals for any tool but `brew` and `gem`, a mixed-case verb, a `|` inside a quoted word of a tool that is
+  no search tool (`echo 'a|openai|b'` asks inside a client boundary, as before), and everything a cloud
+  session or a harness's own GitHub tools can do (plan rev 3, step 1.7).
 
 ## How to test a candidate
 Commands under test are data. Never put one on a shell command line. Never run one.
@@ -91,7 +96,10 @@ Commands under test are data. Never put one on a shell command line. Never run o
    (`git clean -n` against `-f`, `--dry-run=none`), a help word that is not the sole argument, a search tool
    whose secret word is a file operand and not the pattern, `ls` or `echo` whose output goes on (`| xargs`,
    `$( … )`, a redirection into a secret file), `test -f .env && cat .env`, `find … -exec`, `command -v x &&
-   x`, each form inside `bash -c` and behind a wrapper.
+   x`, each form inside `bash -c` and behind a wrapper. With `--boundary client`: a search pattern beside a
+   pipe the shell really makes into an LLM tool, a pattern that is not quoted, a command substitution inside
+   the pattern, a quoted script handed to another tool on the same line as a pattern with the same words, and
+   a search tool's option whose value is run and not searched for.
 3. Tools that run a command: for each new tool, its options that take a value in front of the command, `--`,
    the command as one quoted word, two of them in a row, one behind `sudo` or `env`; and the reverse: the
    tool's own listing or help forms, and a file argument that is no command (`gdb ./a.out`, `valgrind
@@ -116,7 +124,7 @@ Commands under test are data. Never put one on a shell command line. Never run o
    `| xargs bash`, `| grep bash`.
 9. Secret stores: per tool, the printing verb in its other spellings and output formats, behind wrappers and
    inside `$( … )`; and the silent side: list, status and metadata calls, help probes.
-10. `az` writes **[Q5]**: everyday reads that now ask (a read verb the build's list misses), the verb found
+10. `az` writes: everyday reads that now ask (a read verb the build's list misses), the verb found
     in the wrong word (a value that looks like a verb, a group named like one), `az` extension and
     configuration calls that change only this machine.
 11. Capitals, a merge, and the leftovers of group A: the guard's own paths in every mix of capitals and the

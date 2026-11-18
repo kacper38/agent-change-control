@@ -1,10 +1,13 @@
-# Guard 0.8.0, group B, part 4: forms the engineer never sees, for rows-b4.txt and rows-b4-az.txt.
-# DRAFT of 2026-11-18, written by a cloud session together with those rows. Same format, checked by expect.py.
+# Guard 0.9.0, group B, part 4: forms the engineer never sees, for rows-b4.txt and rows-b4-az.txt.
+# Written by a cloud session on 2026-11-18 together with those rows. Same format, checked by expect.py.
 # HR = due with the build (other spellings and arrangements of what the rows name): a red row afterwards is a
 #      defect or a missed spelling for the fix pass
-# HS = must answer as at 0.7.1 (holds today): a red row afterwards is a regression or new noise
-# HO = observed only (a neighbour of the class, an undecided form, or a form whose verdict depends on open
-#      question 5): reported as a limit or a proposal, never required
+# HS = must answer as at 0.8.0 (holds today): a red row afterwards is a regression or new noise
+# HO = observed only (a neighbour of the class or an undecided form): reported as a limit or a proposal,
+#      never required
+# The owner answered open question 5 on 2026-11-18 (every az call asks unless its verb is a known read). The
+# nine az forms that waited for that answer as HO rows are HR rows since that day. `az upgrade` and
+# `az network watcher test-connectivity` stay observed: rows-b4-az.txt names them as not decided.
 
 # ---------------------------------------------------------------- the safety net (3b)
 HR | feat/x | git-guard | ask | wrapper.sh git push --force-with-lease origin feat
@@ -301,14 +304,14 @@ HS | feat/x | shell | silent | az bicep version
 HS | feat/x | shell | silent | az repos pr show --id 3
 HS | feat/x | shell | silent | az pipelines list
 HS | feat/x | shell | silent | echo "az vm restart needs a yes"
-HO | feat/x | deploy-ask | ask | az vm convert -g rg -n vm
-HO | feat/x | deploy-ask | ask | az vm generalize -g rg -n vm
-HO | feat/x | deploy-ask | ask | az vm capture -g rg -n vm --vhd-name-prefix x
-HO | feat/x | deploy-ask | ask | az webapp deployment slot auto-swap -g rg -n app --slot staging
-HO | feat/x | deploy-ask | ask | az keyvault key import --vault-name v -n k --pem-file k.txt
-HO | feat/x | deploy-ask | ask | az storage container lease acquire -c c --lease-duration 60
-HO | feat/x | deploy-ask | ask | az snapshot revoke-access -g rg -n s
-HO | feat/x | deploy-ask | ask | az redis force-reboot -g rg -n r --reboot-type AllNodes
-HO | feat/x | deploy-ask | ask | az sql db restore -g rg -s srv -n db --dest-name db2 --time 2026-11-17T00:00:00
+HR | feat/x | deploy-ask | ask | az vm convert -g rg -n vm
+HR | feat/x | deploy-ask | ask | az vm generalize -g rg -n vm
+HR | feat/x | deploy-ask | ask | az vm capture -g rg -n vm --vhd-name-prefix x
+HR | feat/x | deploy-ask | ask | az webapp deployment slot auto-swap -g rg -n app --slot staging
+HR | feat/x | deploy-ask | ask | az keyvault key import --vault-name v -n k --pem-file k.txt
+HR | feat/x | deploy-ask | ask | az storage container lease acquire -c c --lease-duration 60
+HR | feat/x | deploy-ask | ask | az snapshot revoke-access -g rg -n s
+HR | feat/x | deploy-ask | ask | az redis force-reboot -g rg -n r --reboot-type AllNodes
+HR | feat/x | deploy-ask | ask | az sql db restore -g rg -s srv -n db --dest-name db2 --time 2026-11-17T00:00:00
 HO | feat/x | deploy-ask | ask | az upgrade
 HO | feat/x | shell | silent | az network watcher test-connectivity -g rg --source-resource vm --dest-address example.org --dest-port 443

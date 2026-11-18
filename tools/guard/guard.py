@@ -1397,8 +1397,9 @@ def _dry_run(name: str, args: list[str]) -> bool:
     return False
 
 
-def _az_changes(args: list[str]) -> Optional[str]:
-    """0.6.0's az expressions in token form: pipeline runs, deployments, and delete/create past the first word."""
+def _az_changes(args: list[str], at_command_word: bool = True) -> Optional[str]:
+    """0.6.0's az expressions in token form: pipeline runs, deployments, and delete/create past the first word;
+    0.9.0: at a command word, every verb that is no known read (_az_writes)."""
     args = drop_redirections(args)
     words = [t for t in args if not t.startswith("-")]
     if words[:2] == ["pipelines", "run"] or words[:3] == ["pipelines", "build", "queue"]:
@@ -1418,7 +1419,38 @@ def _az_changes(args: list[str]) -> Optional[str]:
         return "az changes resources"
     if len(lead) > 1 and lead[-1] in _AZ_RUNS and not _help_probe(args):
         return "az runs a command on a live resource or deploys"
-    return None
+    return _az_writes(args, lead) if at_command_word else None  # `echo az vm restart` is text
+
+
+# 0.9.0 (decision ag): every az call whose verb (the last leading word) is no known read asks. The reads and the
+# calls that change only this machine, from the Azure CLI 2.6x reference; a list of write verbs was the other
+# answer and is not taken, since a verb such a list misses would stay silent
+_AZ_READ_VERBS = frozenset("list show exists wait query tail download browse version result".split())
+_AZ_READ_PREFIXES = ("list-", "show-", "get-", "check-")
+_AZ_LOCAL_GROUPS = frozenset("login logout config configure extension bicep cache self-test interactive feedback"
+                             " upgrade init find version survey".split())
+_AZ_LOCAL_CALLS = (("account", "set"), ("account", "clear"), ("acr", "login"), ("devops", "configure"),
+                   ("devops", "login"), ("devops", "logout"), ("cloud", "set"), ("cloud", "register"),
+                   ("cloud", "unregister"), ("cloud", "update"), ("repos", "pr", "checkout"))
+_AZ_REST_READS = frozenset({"get", "head", "options"})
+
+
+def _az_writes(args: list[str], lead: list[str]) -> Optional[str]:
+    """An az call that may change a live resource: its verb is no known read and it is no help probe, no call
+    that changes only this machine; `az rest` with a method other than GET (its default)."""
+    if not lead or _help_probe(args) or lead[0] in _AZ_LOCAL_GROUPS:
+        return None
+    if lead[0] == "rest":
+        method = (_flag_value(args, {"--method", "-m"}) or "get").lower()
+        return None if method in _AZ_REST_READS else f"`az rest --method {method}` changes resources"
+    if len(lead) == 1:
+        return None  # a group alone prints its help
+    if any(tuple(lead[: len(call)]) == call for call in _AZ_LOCAL_CALLS):
+        return None
+    verb = lead[-1]
+    if verb in _AZ_READ_VERBS or verb.startswith(_AZ_READ_PREFIXES):
+        return None
+    return f"`az {' '.join(lead)}` changes resources"
 
 
 def _az_leading_words(args: list[str]) -> list[str]:
@@ -1452,7 +1484,7 @@ def _deploy_call(name: str, args: list[str], at_command_word: bool) -> Optional[
     """The label when one call of a deploy tool changes a live environment, before the dry-run check."""
     verbs, pairs, label = _DEPLOY_TABLE[name]
     if name == "az":
-        return _az_changes(args)
+        return _az_changes(args, at_command_word)
     if name == "ansible-playbook":
         return label if _ansible_runs(args, at_command_word) else None
     hit = subcommand_hit(args, verbs, pairs)

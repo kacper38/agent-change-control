@@ -571,6 +571,67 @@ Vs | feat/x | shell | silent | vault --help
 Vs | feat/x | shell | silent | gh auth login
 """  # noqa: E501 (a row holds its command as written)
 ROWS_B4_AZ = r"""
+Z1 | feat/x | deploy-ask | ask | az vm start -g rg -n vm
+Z1 | feat/x | deploy-ask | ask | az vm stop -g rg -n vm
+Z1 | feat/x | deploy-ask | ask | az vm restart -g rg -n vm
+Z1 | feat/x | deploy-ask | ask | az vm deallocate -g rg -n vm
+Z1 | feat/x | deploy-ask | ask | az vm resize -g rg -n vm --size Standard_B2s
+Z1 | feat/x | deploy-ask | ask | az keyvault secret set --vault-name v -n s --value x
+Z1 | feat/x | deploy-ask | ask | az keyvault set-policy -n v --object-id o --secret-permissions get
+Z1 | feat/x | deploy-ask | ask | az keyvault purge -n v
+Z1 | feat/x | deploy-ask | ask | az keyvault recover -n v
+Z1 | feat/x | deploy-ask | ask | az keyvault secret recover --vault-name v -n s
+Z1 | feat/x | deploy-ask | ask | az webapp restart -g rg -n app
+Z1 | feat/x | deploy-ask | ask | az webapp stop -g rg -n app
+Z1 | feat/x | deploy-ask | ask | az webapp start -g rg -n app
+Z1 | feat/x | deploy-ask | ask | az webapp config appsettings set -g rg -n app --settings A=1
+Z1 | feat/x | deploy-ask | ask | az webapp config set -g rg -n app --always-on true
+Z1 | feat/x | deploy-ask | ask | az functionapp restart -g rg -n app
+Z1 | feat/x | deploy-ask | ask | az functionapp config appsettings set -g rg -n app --settings A=1
+Z1 | feat/x | deploy-ask | ask | az containerapp revision restart -g rg -n app --revision r
+Z1 | feat/x | deploy-ask | ask | az aks scale -g rg -n aks --node-count 3
+Z1 | feat/x | deploy-ask | ask | az aks upgrade -g rg -n aks --kubernetes-version 1.30
+Z1 | feat/x | deploy-ask | ask | az aks start -g rg -n aks
+Z1 | feat/x | deploy-ask | ask | az aks stop -g rg -n aks
+Z1 | feat/x | deploy-ask | ask | az aks nodepool scale -g rg --cluster-name aks -n np --node-count 3
+Z1 | feat/x | deploy-ask | ask | az ad sp create-for-rbac -n x
+Z1 | feat/x | deploy-ask | ask | az ad app credential reset --id x
+Z1 | feat/x | deploy-ask | ask | az storage blob upload -c c -f x.txt -n x.txt
+Z1 | feat/x | deploy-ask | ask | az storage blob copy start --destination-blob b --destination-container c --source-uri u
+Z1 | feat/x | deploy-ask | ask | az storage account keys renew -g rg -n acct --key primary
+Z1 | feat/x | deploy-ask | ask | az sql db failover -g rg -s srv -n db
+Z1 | feat/x | deploy-ask | ask | az postgres flexible-server restart -g rg -n pg
+Z1 | feat/x | deploy-ask | ask | az postgres flexible-server parameter set -g rg -s pg -n max_connections --value 200
+Z1 | feat/x | deploy-ask | ask | az provider register --namespace Microsoft.Web
+Z1 | feat/x | deploy-ask | ask | az feature register --namespace Microsoft.Web --name X
+Z1 | feat/x | deploy-ask | ask | az resource tag --tags a=b --ids x
+Z1 | feat/x | deploy-ask | ask | az rest --method put --uri https://management.azure.com/subscriptions/s/resourceGroups/rg?api-version=2021-04-01 --body '{}'
+Z1 | feat/x | deploy-ask | ask | az acr import -n reg --source docker.io/library/alpine:3
+Z1 | feat/x | deploy-ask | ask | az acr run -r reg --cmd '$Registry/x:1' /dev/null
+Z1 | feat/x | deploy-ask | ask | az acr build -r reg -t x:1 .
+Z1 | feat/x | deploy-ask | ask | timeout 60 az vm restart -g rg -n vm
+Z1 | feat/x | deploy-ask | ask | bash -c 'az webapp restart -g rg -n app'
+Z1 | feat/x | deploy-ask | ask | az --subscription s vm restart -g rg -n vm
+Z2 | feat/x | deploy-ask | ask | az vm redeploy -g rg -n vm
+Z2 | feat/x | deploy-ask | ask | az vm reimage -g rg -n vm
+Z2 | feat/x | deploy-ask | ask | az containerapp revision activate -g rg -n app --revision r
+Z2 | feat/x | deploy-ask | ask | az containerapp ingress enable -g rg -n app --type external --target-port 80
+Z2 | feat/x | deploy-ask | ask | az aks rotate-certs -g rg -n aks
+Z2 | feat/x | deploy-ask | ask | az storage blob upload-batch -d c -s dir
+Z2 | feat/x | deploy-ask | ask | az network vnet peering sync -g rg --vnet-name v -n p
+Z2 | feat/x | deploy-ask | ask | az acr repository untag -n reg --image x:1
+Z2 | feat/x | deploy-ask | ask | az webapp ssh -g rg -n app
+Z2 | feat/x | deploy-ask | ask | az rest -m post --url https://management.azure.com/subscriptions/s/providers/Microsoft.Web/sites/app/restart?api-version=2022-03-01
+Z2 | feat/x | deploy-ask | ask | az rest --method=patch --uri https://management.azure.com/subscriptions/s/resourceGroups/rg?api-version=2021-04-01 --body @b.json
+Z2 | feat/x | deploy-ask | ask | az ad group member add --group g --member-id m
+Z2 | feat/x | deploy-ask | ask | az ad group member remove --group g --member-id m
+Z2 | feat/x | deploy-ask | ask | az keyvault network-rule add --name v --ip-address 198.51.100.7
+Z2 | feat/x | deploy-ask | ask | az webapp identity assign -g rg -n app
+Z2 | feat/x | deploy-ask | ask | az vm disk attach -g rg --vm-name vm -n disk
+Z2 | feat/x | deploy-ask | ask | az vm disk detach -g rg --vm-name vm -n disk
+Z2 | feat/x | deploy-ask | ask | az vm open-port -g rg -n vm --port 80
+Z2 | feat/x | deploy-ask | ask | az keyvault key rotate --vault-name v -n k
+Z2 | feat/x | deploy-ask | ask | az disk grant-access -g rg -n d --duration-in-seconds 3600
 Zs | feat/x | deploy-ask | ask | az role assignment create --assignee a --role Reader --scope /subscriptions/s
 Zs | feat/x | deploy-ask | ask | az role assignment delete --assignee a --role Reader
 Zs | feat/x | deploy-ask | ask | az network nsg rule create -g rg --nsg-name n -n r --priority 100

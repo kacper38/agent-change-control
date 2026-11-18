@@ -1955,6 +1955,21 @@ def _az_flag_on(seg: list[str], name: str) -> bool:
     return False
 
 
+# 0.9.0: a merge of a pull request is the owner's call; `--admin` skips the branch protection
+_MERGE_API_RE = re.compile(r"(^|/)repos/[^/\s]+/[^/\s]+/pulls/\d+/merge/?($|\?)")
+MERGE_ASK_MSG = "tracker-guard: {what} merges a pull request, which is the owner's call. Confirm the command."
+
+
+def _http_method(seg: list[str]) -> str:
+    """The method a curl, wget or httpie call names (`-X PUT`, `-XPUT`, `--method=PUT`, httpie's `PUT`), or ""."""
+    method = (_flag_value(seg, {"-X", "--request", "--method"}) or "").upper()
+    if not method:  # curl -XPATCH
+        method = next((t[2:].upper() for t in seg[1:] if t.startswith("-X") and len(t) > 2), "")
+    if not method and os.path.basename(seg[0]) not in ("curl", "wget"):
+        method = next((t for t in seg[1:] if t in _HTTP_VERBS), "")
+    return method
+
+
 def _http_writes(seg: list[str], head: str, url: str) -> bool:
     """curl/wget/httpie/xh: an explicit write method, a data flag, or httpie's implicit POST (data items)."""
     method = (_flag_value(seg, {"-X", "--request", "--method"}) or "").upper()
@@ -2186,6 +2201,11 @@ def _tracker_seg(seg: list[str]) -> Optional[Decision]:
     if group == "issue" and verb in _GH_ISSUE_REPLACEMENT:
         return "deny", TRACKER_MSG.format(what=f"`gh issue {verb}` bypasses the tracker",
                                           use=_GH_ISSUE_REPLACEMENT[verb])
+    if group == "pr" and verb == "merge" and not _help_probe(seg):
+        if any(t == "--admin" or (t.startswith("--admin=") and t[8:].lower() != "false") for t in seg):
+            return "deny", TRACKER_MSG.format(what="`gh pr merge --admin` bypasses the branch protection",
+                                              use="a merge the protection allows, by the owner")
+        return "ask", MERGE_ASK_MSG.format(what="`gh pr merge`")
     if group == "label" and verb in ("create", "edit", "delete", "clone"):
         return "deny", TRACKER_MSG.format(what=f"`gh label {verb}` bypasses the tracker",
                                           use="`tracker owner labels-sync` (a human runs it)")
@@ -2208,6 +2228,8 @@ def _tracker_seg(seg: list[str]) -> Optional[Decision]:
             d = _graphql_verdict(doc, "gh api graphql") if found else None
             if d:
                 return d
+        if method == "PUT" and _MERGE_API_RE.search(path):
+            return "ask", MERGE_ASK_MSG.format(what=f"`gh api PUT {path}`")
         mutating = method != "GET" or any(_gh_api_mutating(t) for t in seg)
         if _ISSUE_API_RE.search(path) and mutating:
             return "deny", TRACKER_MSG.format(what=f"`gh api {method} {path}` writes issues or labels",
@@ -2218,6 +2240,9 @@ def _tracker_seg(seg: list[str]) -> Optional[Decision]:
                     or _ADO_WIT_RE.search(t)), "")
         if url and _http_writes(seg, head, url):
             return "deny", TRACKER_MSG.format(what=f"`{head}` writes to {url}", use="the tracker verbs")
+        merge = next((t for t in seg[1:] if "api.github.com/repos/" in t.lower() and _MERGE_API_RE.search(t)), "")
+        if merge and _http_method(seg) == "PUT":
+            return "ask", MERGE_ASK_MSG.format(what=f"`{head} PUT {merge}`")
         if any(_GRAPHQL_URL_RE.search(t) for t in seg[1:]):
             found, doc = _http_graphql_query(seg, head)
             d = _graphql_verdict(doc, f"{head} …/graphql") if found else None

@@ -718,6 +718,27 @@ W2 | feat/x | host-install | ask | brew TAP homebrew/cask
 W2 | feat/x | delete-guard | ask | gem UNINSTALL rake
 W2 | feat/x | delete-guard | ask | brew CLEANUP
 W2 | feat/x | delete-guard | ask | brew AUTOREMOVE
+W3 | feat/x | tracker-guard | ask | gh pr merge 3
+W3 | feat/x | tracker-guard | ask | gh pr merge
+W3 | feat/x | tracker-guard | ask | gh pr merge 3 --squash
+W3 | feat/x | tracker-guard | ask | gh pr merge 3 --merge --delete-branch
+W3 | feat/x | tracker-guard | ask | gh pr merge 3 --auto --squash
+W3 | feat/x | tracker-guard | ask | gh -R o/r pr merge 3
+W3 | feat/x | tracker-guard | ask | gh pr -R o/r merge 3
+W3 | feat/x | tracker-guard | ask | gh api -X PUT repos/o/r/pulls/3/merge
+W3 | feat/x | tracker-guard | ask | gh api --method PUT /repos/o/r/pulls/3/merge
+W3 | feat/x | tracker-guard | ask | gh api -XPUT repos/o/r/pulls/3/merge -f merge_method=squash
+W3 | feat/x | tracker-guard | ask | curl -X PUT https://api.github.com/repos/o/r/pulls/3/merge
+W3 | feat/x | tracker-guard | ask | sudo gh pr merge 3
+W3 | feat/x | tracker-guard | ask | bash -c 'gh pr merge 3'
+W3 | main | tracker-guard | ask | gh pr merge 3
+W3 | feat/x | tracker-guard | ask | mytool gh pr merge 3 --admin
+W4 | feat/x | tracker-guard | deny | gh pr merge 3 --admin
+W4 | feat/x | tracker-guard | deny | gh pr merge --admin --squash 3
+W4 | feat/x | tracker-guard | deny | gh -R o/r pr merge 3 --admin
+W4 | feat/x | tracker-guard | deny | sudo gh pr merge 3 --admin
+W4 | feat/x | tracker-guard | deny | bash -c 'gh pr merge 3 --admin'
+W4 | main | tracker-guard | deny | gh pr merge 3 --admin
 Ws | feat/x | tracker-guard | deny | curl -X PATCH https://api.github.com/repos/o/r/issues/3
 Ws | feat/x | tracker-guard | deny | curl -XPOST https://api.github.com/repos/o/r/issues -d '{"title":"x"}'
 Ws | feat/x | tracker-guard | deny | wget --method=PATCH https://api.github.com/repos/o/r/issues/3

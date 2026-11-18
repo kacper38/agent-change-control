@@ -366,12 +366,14 @@ CASES: dict = {
             "allow",
             "gh issue view 1", "gh issue list --state open", "gh issue status", "gh api repos/o/r/issues/1",
             "gh api repos/o/r/issues --jq '.[].number'", "curl https://api.github.com/repos/o/r/issues/1",
-            "gh pr create --fill", "gh pr merge 3 --rebase", "gh label list",
+            "gh pr create --fill", "gh pr view 3", "gh label list",
             "tracker claim 4 --branch step-5", "python3 tools/tracker/tracker.py new --title x",
             "tracker list --status ready", "gh issue list --label handoff",
             "gh issue view 9 --comments", "gh api -X POST repos/o/r/pulls -f title=x",
             "echo 'gh issue close 1'",
         ),
+        # guard 0.9.0: a merge is the owner's call (rows W3); it passed before
+        *shell("ask", "gh pr merge 3 --rebase"),
         # Azure DevOps (ADO port step A3): work items are issues, tags are labels
         *shell(
             "deny",

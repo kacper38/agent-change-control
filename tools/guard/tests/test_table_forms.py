@@ -1151,6 +1151,13 @@ Fs | feat/x | delete-guard | ask | git restore --staged --source=HEAD~3 --worktr
 
 # --- F01: `genv -S '…'` is `env -S '…'` (section 4.3: a Homebrew g name is the plain tool in every table;
 #     GNU coreutils 9.11: `-S, --split-string=S`)
+F01 | feat/x | delete-guard | ask | genv -S 'rm -rf build'
+F01 | feat/x | delete-guard | ask | genv --split-string='rm -rf build'
+F01 | feat/x | delete-guard | ask | genv -i -S 'rm -rf build'
+F01 | feat/x | git-guard | deny | genv -S 'git push --force origin feat'
+F01 | feat/x | git-guard | deny | genv -S 'git commit --no-verify -m x'
+F01 | feat/x | host-install | ask | genv -S 'npm install -g x'
+F01 | feat/x | delete-guard | ask | GENV -S 'rm -rf build'
 Fs | feat/x | delete-guard | ask | env -S 'rm -rf build'
 Fs | feat/x | host-install | ask | env -S 'npm install -g x'
 Fs | feat/x | shell | silent | genv -S 'ls -la'

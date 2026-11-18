@@ -3799,7 +3799,7 @@ def _nc_scripts(toks: list[str]) -> list[str]:
         elif name in _NC_SCRIPT_WORDS and not remote:  # the first is enough: its later words hold any later one's
             remote = True
             scripts.extend(r for r in toks[i + 1 :] if any(c.isspace() for c in r))
-        elif name == "env" and not env:
+        elif tool_name(name.lower()) == "env" and not env:  # F01: also `genv` (Homebrew) and `GENV` (macOS)
             env = True
             scripts.extend(_nc_split_string(toks, i))
         if name in _NC_SCRIPT_OPTIONS and i in words:

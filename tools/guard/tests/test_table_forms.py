@@ -28,6 +28,53 @@ R1 | feat/x | deploy-ask | ask | az container exec -g rg -n c --exec-command sh
 R1 | feat/x | deploy-ask | ask | az containerapp exec -g rg -n app --command sh
 R1 | feat/x | deploy-ask | ask | timeout 60 aws ssm send-command --instance-ids i-1 --document-name AWS-RunShellScript
 R1 | feat/x | deploy-ask | ask | bash -c 'az aks command invoke -g rg -n aks --command "kubectl get pods"'
+R2 | feat/x | delete-guard | ask | uv remove requests
+R2 | feat/x | delete-guard | ask | uv remove --dev pytest
+R2 | feat/x | delete-guard | ask | poetry remove requests
+R2 | feat/x | delete-guard | ask | yarn global remove typescript
+R2 | feat/x | delete-guard | ask | conda env remove -n old
+R2 | feat/x | delete-guard | ask | conda remove numpy
+R2 | feat/x | delete-guard | ask | mamba remove numpy
+R2 | feat/x | delete-guard | ask | gem uninstall rake
+R2 | feat/x | delete-guard | ask | bun remove lodash
+R2 | feat/x | delete-guard | ask | pdm remove requests
+R2 | feat/x | delete-guard | ask | pipenv uninstall requests
+R2 | feat/x | delete-guard | ask | cargo remove serde
+R2 | feat/x | delete-guard | ask | bundle remove rake
+R2 | feat/x | delete-guard | ask | uv python uninstall 3.11
+R2 | feat/x | delete-guard | ask | poetry env remove python3.11
+R2 | feat/x | delete-guard | ask | pyenv uninstall 3.11
+R2 | feat/x | delete-guard | ask | nvm uninstall 20
+R2 | feat/x | delete-guard | ask | fnm uninstall 20
+R2 | feat/x | delete-guard | ask | volta uninstall node
+R2 | feat/x | delete-guard | ask | asdf uninstall nodejs 20
+R2 | feat/x | delete-guard | ask | rustup toolchain uninstall stable
+R2 | feat/x | delete-guard | ask | rustup self uninstall
+R2 | feat/x | delete-guard | ask | apt-get remove -y curl
+R2 | feat/x | delete-guard | ask | sudo apt-get purge curl
+R2 | feat/x | delete-guard | ask | apt autoremove
+R2 | feat/x | delete-guard | ask | dnf remove curl
+R2 | feat/x | delete-guard | ask | yum remove curl
+R2 | feat/x | delete-guard | ask | apk del curl
+R2 | feat/x | delete-guard | ask | snap remove x
+R2 | feat/x | delete-guard | ask | brew untap homebrew/cask
+R2 | feat/x | delete-guard | ask | bash -c 'uv remove requests'
+R2 | feat/x | delete-guard | ask | timeout 60 poetry remove requests
+R3 | feat/x | delete-guard | ask | uv cache clean
+R3 | feat/x | delete-guard | ask | uv cache prune
+R3 | feat/x | delete-guard | ask | npm cache clean --force
+R3 | feat/x | delete-guard | ask | pip cache purge
+R3 | feat/x | delete-guard | ask | go clean -modcache
+R3 | feat/x | delete-guard | ask | yarn cache clean
+R3 | feat/x | delete-guard | ask | pnpm store prune
+R3 | feat/x | delete-guard | ask | poetry cache clear pypi --all
+R3 | feat/x | delete-guard | ask | conda clean --all
+R3 | feat/x | delete-guard | ask | brew cleanup
+R3 | feat/x | delete-guard | ask | brew autoremove
+R3 | feat/x | delete-guard | ask | npm prune
+R3 | feat/x | delete-guard | ask | pnpm prune
+R3 | feat/x | delete-guard | ask | gem cleanup
+R3 | feat/x | delete-guard | ask | bundle clean --force
 Rs | feat/x | deploy-ask | silent | aws ssm list-commands
 Rs | feat/x | deploy-ask | silent | aws ssm get-command-invocation --command-id c --instance-id i-1
 Rs | feat/x | deploy-ask | silent | aws ssm describe-instance-information

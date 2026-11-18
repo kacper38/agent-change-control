@@ -346,14 +346,45 @@ _DOCKER_DELETE_PAIRS = {
 }
 _DOCKER_DELETE = (frozenset({"rm", "rmi"}), _DOCKER_DELETE_PAIRS)
 # tool basename -> (verbs, pairs as first word -> second words); pip3.12-style names count as pip
+# 0.9.0: the verbs that remove a package or a tool version, empty a download cache or the installed set (the
+# offline checks of this kit run from these caches), each from the tool's own help: npm 10 (`prune`, `cache
+# clean`), pnpm 9 (`prune`, `store prune`), yarn 1 (`global remove`, `cache clean`), Homebrew 4 (`untap`, `cleanup`,
+# `autoremove`), pip 24 (`cache purge|remove`), cargo 1.8x (`remove`), uv 0.5 (`remove`, `cache clean|prune`,
+# `python uninstall`); the tools below them are new
 _DELETE_TOOLS: dict = {
     "mise": (frozenset({"uninstall", "prune"}), {}),
-    "npm": (frozenset({"uninstall", "rm", "un", "r", "unlink"}), {}),
-    "pnpm": (frozenset({"remove", "rm", "uninstall"}), {}),
-    "yarn": (frozenset({"remove"}), {}),
-    "brew": (frozenset({"uninstall", "remove", "rm"}), {}),
-    "pip": (frozenset({"uninstall"}), {}),
-    "cargo": (frozenset({"uninstall"}), {}),
+    "npm": (frozenset({"uninstall", "rm", "un", "r", "unlink", "prune"}), {"cache": frozenset({"clean"})}),
+    "pnpm": (frozenset({"remove", "rm", "uninstall", "prune"}), {"store": frozenset({"prune"})}),
+    "yarn": (frozenset({"remove"}), {"global": frozenset({"remove"}), "cache": frozenset({"clean"})}),
+    "brew": (frozenset({"uninstall", "remove", "rm", "untap", "cleanup", "autoremove"}), {}),
+    "pip": (frozenset({"uninstall"}), {"cache": frozenset({"purge", "remove"})}),
+    "cargo": (frozenset({"uninstall", "remove", "rm"}), {}),
+    "poetry": (frozenset({"remove"}), {"env": frozenset({"remove"}), "cache": frozenset({"clear"})}),  # poetry 1.8
+    "conda": (frozenset({"remove", "uninstall", "clean"}), {"env": frozenset({"remove"})}),  # conda 24
+    "mamba": (frozenset({"remove", "uninstall", "clean"}), {"env": frozenset({"remove"})}),  # mamba 1.5
+    "micromamba": (frozenset({"remove", "uninstall", "clean"}), {"env": frozenset({"remove"})}),
+    "gem": (frozenset({"uninstall", "cleanup"}), {}),  # RubyGems 3.5
+    "bundle": (frozenset({"remove", "clean"}), {}),  # Bundler 2.5
+    "bun": (frozenset({"remove", "rm"}), {}),  # bun 1.1
+    "pdm": (frozenset({"remove"}), {"cache": frozenset({"clear", "remove"})}),  # pdm 2
+    "pipenv": (frozenset({"uninstall", "clean"}), {}),  # pipenv 2024
+    "pyenv": (frozenset({"uninstall"}), {}),  # pyenv 2.4
+    "nvm": (frozenset({"uninstall"}), {"cache": frozenset({"clear"})}),  # nvm 0.40
+    "fnm": (frozenset({"uninstall"}), {}),  # fnm 1.37
+    "volta": (frozenset({"uninstall"}), {}),  # volta 2
+    "asdf": (frozenset({"uninstall"}), {"plugin": frozenset({"remove"})}),  # asdf 0.14
+    "rustup": (frozenset({"uninstall"}), {"toolchain": frozenset({"uninstall", "remove"}),  # rustup 1.27
+                                          "self": frozenset({"uninstall"}), "target": frozenset({"remove"}),
+                                          "component": frozenset({"remove"})}),
+    "apt-get": (frozenset({"remove", "purge", "autoremove", "autopurge", "clean", "autoclean"}), {}),  # apt 2.6
+    "apt": (frozenset({"remove", "purge", "autoremove", "autopurge"}), {}),
+    "dnf": (frozenset({"remove", "erase", "autoremove"}), {}),  # dnf 4
+    "yum": (frozenset({"remove", "erase", "autoremove"}), {}),
+    "apk": (frozenset({"del"}), {}),  # apk-tools 2
+    "snap": (frozenset({"remove"}), {}),  # snapd 2.6
+    "go": (frozenset({"clean"}), {}),  # go 1.23: only with -modcache (_DELETE_ONLY_WITH)
+    "uv": (frozenset({"remove"}), {"pip": frozenset({"uninstall"}), "tool": frozenset({"uninstall"}),
+                                   "cache": frozenset({"clean", "prune"}), "python": frozenset({"uninstall"})}),
     "docker": _DOCKER_DELETE,
     "podman": _DOCKER_DELETE,
     "nerdctl": _DOCKER_DELETE,
@@ -364,8 +395,10 @@ _DELETE_TOOLS: dict = {
     "rclone": (frozenset({"delete", "purge", "sync"}), {}),
     "prisma": (frozenset(), {"migrate": frozenset({"reset"})}),
     "pipx": (frozenset({"uninstall", "uninstall-all"}), {}),
-    "uv": (frozenset(), {"pip": frozenset({"uninstall"}), "tool": frozenset({"uninstall"})}),
 }
+# a verb of _DELETE_TOOLS that deletes only with one of these options (`go clean` cleans the build output; Go's
+# flag package takes one dash or two)
+_DELETE_ONLY_WITH = {"go": frozenset({"-modcache", "--modcache"})}
 _SWITCH_DISCARDS = frozenset({"--discard-changes", "-f", "--force"})
 
 
@@ -422,7 +455,7 @@ def delete_what(command: str) -> Optional[str]:
                     return f"`git {sub}` discards work"
                 continue
             hit = subcommand_hit(list(toks[i + 1 :]), *entry)
-            if hit:
+            if hit and (name not in _DELETE_ONLY_WITH or _DELETE_ONLY_WITH[name] & set(toks[i + 1 :])):
                 return f"`{name} {hit}` deletes"
     return None
 

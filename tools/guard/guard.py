@@ -2725,11 +2725,18 @@ def _nc_runs_stdin(toks) -> bool:
             remote = _ssh_command(args)
             if remote == []:  # no command after the host: the remote login shell reads it
                 return True
-            # `ssh build 'bash -s'`: the words after the host are a command line for the remote shell (0.8.0)
-            if remote and any(_nc_runs_stdin(drop_redirections(seg)) for _sep, seg in simple_commands(" ".join(remote))
-                              if seg):
+            # `ssh build 'bash -s'`: a quoted word after the host is a command line for the remote shell (0.8.0).
+            # A plain word is a command word of this simple command already (ssh is a wrapper), so a chain
+            # `ssh h0 ssh h1 …` is read once, not once per hop
+            if remote and any(_nc_line_runs_stdin(w) for w in remote if any(c.isspace() for c in w)):
                 return True
     return False
+
+
+@functools.lru_cache(maxsize=64)
+def _nc_line_runs_stdin(line: str) -> bool:
+    """A command line (the quoted remote command of ssh) has a simple command that runs a script from stdin."""
+    return any(_nc_runs_stdin(drop_redirections(seg)) for _sep, seg in simple_commands(line) if seg)
 
 
 def _ssh_command(args) -> Optional[list]:

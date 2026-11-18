@@ -959,9 +959,7 @@ Y5 | feat/x | git-guard | deny | HUSKY=0 bash -c "bash -c 'git commit -m x'"
 Y5 | feat/x | git-guard | deny | "HUSKY=0 bash <<'EOF'\nbash -c 'git commit -m x'\nEOF"
 """  # noqa: E501 (a row holds its command as written)
 
-_FIX2_OPEN = ()  # the ids of the second round still open; the table holds every row of the round
-TABLE = (_rows(PINNED) + _rows(CLOSED) + _rows(CAPS) + _rows(FIX)
-         + [r for r in _rows(FIX2) if r[0] not in _FIX2_OPEN])
+TABLE = _rows(PINNED) + _rows(CLOSED) + _rows(CAPS) + _rows(FIX) + _rows(FIX2)
 OWN_TABLE = _rows(OWN)
 
 
@@ -1071,6 +1069,19 @@ def test_a_script_named_by_the_command_is_scanned_folded(guard, tmp_path):
 
 def _chain(hops: int) -> str:
     return " ".join(f"ssh h{n}" for n in range(hops))
+
+
+# a loaded CI machine runs a guard rule several times slower than a laptop; the chains take milliseconds here
+CHAIN_BOUND_S = 1.0
+
+
+@pytest.mark.parametrize("command", [f"echo x | {_chain(24)} ls",
+                                     f"{_chain(24)} <<'EOF'\ngit push --force origin feat\nEOF"])
+def test_a_chain_of_ssh_hops_is_read_in_bounded_time(guard, monkeypatch, command):
+    import time
+    start = time.perf_counter()
+    _answers(guard, monkeypatch, "feat/x", "own", "shell", command)
+    assert time.perf_counter() - start < CHAIN_BOUND_S
 
 
 @pytest.mark.parametrize("command, expected", [

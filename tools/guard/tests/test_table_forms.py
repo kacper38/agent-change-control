@@ -232,6 +232,42 @@ Ts | feat/x | shell | silent | echo "- rm -rf build"
 Ts | feat/x | shell | silent | cd -
 Ts | feat/x | shell | silent | cat - notes.txt
 Ts | feat/x | shell | silent | tar czf - src
+U1 | feat/x | delete-guard | ask | grm -rf build
+U1 | feat/x | delete-guard | ask | grmdir build
+U1 | feat/x | delete-guard | ask | gunlink f
+U1 | feat/x | delete-guard | ask | gshred -u f
+U1 | feat/x | delete-guard | ask | sudo grm -rf build
+U1 | feat/x | delete-guard | ask | /opt/homebrew/bin/grm -rf build
+U1 | feat/x | delete-guard | ask | bash -c 'grm -rf build'
+U1 | feat/x | delete-guard | ask | find . -name '*.pyc' -exec grm {} \;
+U1 | feat/x | delete-guard | ask | xargs grm < files.txt
+U1 | feat/x | delete-guard | ask | gtimeout 30 grm -rf build
+U1 | feat/x | delete-guard | ask | genv FOO=1 rm -rf build
+U1 | feat/x | delete-guard | ask | gnice -n 5 rm -rf build
+U1 | feat/x | delete-guard | ask | gnohup rm -rf build
+U1 | feat/x | delete-guard | ask | gstdbuf -oL rm -rf build
+U1 | feat/x | delete-guard | ask | gchroot /mnt rm -rf /x
+U1 | feat/x | delete-guard | ask | gtime -v rm -rf build
+U2 | feat/x | secret-shell | deny | gcp x .env
+U2 | feat/x | secret-shell | deny | gmv .env.bak .env
+U2 | feat/x | secret-shell | deny | gtee .env
+U2 | feat/x | secret-shell | deny | gtouch .env
+U2 | feat/x | secret-shell | deny | gchmod 600 .env
+U2 | feat/x | secret-shell | deny | gchown me .env
+U2 | feat/x | secret-shell | deny | ginstall -m 600 x .env
+U2 | feat/x | secret-shell | deny | gsed -i s/a/b/ .env
+U2 | feat/x | secret-shell | deny | gln -sf other .env
+U2 | feat/x | secret-shell | deny | gtruncate -s 0 .env
+U3 | feat/x | git-guard | deny | gnice -n 5 git push --force origin feat
+U3 | feat/x | git-guard | deny | genv FOO=1 git push --force origin feat
+U3 | feat/x | git-guard | deny | gnohup git commit --no-verify -m x
+U3 | feat/x | git-guard | deny | gstdbuf -oL git push --force origin feat
+U3 | feat/x | host-install | ask | genv FOO=1 npm install -g x
+U3 | feat/x | host-install | ask | gnice npm install -g x
+U3 | feat/x | host-install | ask | gnohup npm install -g x
+U3 | feat/x | host-install | ask | gstdbuf -oL npm install -g x
+U4 | feat/x | secret-shell | silent | bash -c 'ggrep -rn .env docs'
+U4 | feat/x | secret-shell | silent | bash -c 'gegrep -n ".env|.pem" notes.txt'
 Us | feat/x | delete-guard | ask | gtruncate -s 0 f
 Us | feat/x | delete-guard | ask | gfind . -name '*.pyc' -delete
 Us | feat/x | delete-guard | ask | gfind . -name x -exec rm {} \;
@@ -684,6 +720,21 @@ def test_file_row(guard, rid, tool, rule, expected, path):
     ev = guard.Event({"hook_event_name": "PreToolUse", "tool_name": tool, "tool_input": _FILE_INPUT[tool](path),
                       "cwd": "/nonexistent-scratch"})
     assert (guard.RULES[rule](ev, dict(guard.DEFAULTS)) or ("silent",))[0] == expected, path
+
+
+@pytest.mark.parametrize("word, name", [
+    ("grm", "rm"), ("/opt/homebrew/bin/gfind", "find"), ("gxargs", "xargs"), ("gsed", "sed"), ("ggrep", "grep"),
+    ("gtimeout", "timeout"), ("gh", "gh"), ("git", "git"), ("go", "go"), ("gem", "gem"), ("grep", "grep"),
+    ("gzip", "gzip"), ("gdb", "gdb"), ("gmake", "gmake"), ("rm", "rm"),
+])
+def test_tool_name_takes_the_homebrew_g_off_a_gnu_tool_only(guard, word, name):
+    assert guard.tool_name(word) == name
+
+
+@pytest.mark.parametrize("command", ["GRM -rf build", "GFIND . -name x -delete", "GXARGS rm < files.txt",
+                                     "UNSHARE -n rm -rf build"])
+def test_a_new_name_in_capitals_is_read_like_the_plain_name(guard, monkeypatch, command):
+    assert _answers(guard, monkeypatch, "feat/x", "own", "delete-guard", command) == {"delete-guard": "ask"}
 
 
 def test_pinned_rows_are_all_there():

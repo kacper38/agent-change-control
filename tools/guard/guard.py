@@ -439,7 +439,7 @@ def delete_what(command: str) -> Optional[str]:
         at_word = command_word_indexes(toks)
         named = 0
         for i, t in enumerate(toks):
-            name = os.path.basename(t)
+            name = tool_name(t)
             if name in _RM_CLASS and i in at_word:
                 return f"`{name}` deletes files"
             entry = _DELETE_TOOLS.get("pip" if _PIP_RE.match(name) else name)
@@ -513,6 +513,26 @@ def rule_delete_guard(ev: Event, cfg: dict) -> Optional[Decision]:
 _SEP_RE = re.compile(r"\|\||&&|[;|]|\n")
 _WRAPPERS = {"sudo", "env", "command", "exec", "time", "nohup", "doas", "builtin"}
 _ASSIGN_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+# 0.9.0: Homebrew installs the GNU tools with a `g` in front (`grm`, `gfind`, `gsed`); `g` + one of these names is
+# that tool. The names are the file lists of the formulae coreutils 9.5, findutils 4.10, grep 3.11, gnu-sed 4.9,
+# gnu-tar 1.35 and gnu-time 1.9. Only these: `gh`, `git`, `go`, `gem`, `grep`, `gzip` and `gdb` are tools of
+# their own, and none of them is `g` + a name of this list.
+_GNU_NAMES = frozenset(
+    "[ b2sum base32 base64 basename basenc cat chcon chgrp chmod chown chroot cksum comm cp csplit cut date dd df"
+    " dir dircolors dirname du echo env expand expr factor false fmt fold groups head hostid id install join kill"
+    " link ln logname ls md5sum mkdir mkfifo mknod mktemp mv nice nl nohup nproc numfmt od paste pathchk pinky pr"
+    " printenv printf ptx pwd readlink realpath rm rmdir runcon seq sha1sum sha224sum sha256sum sha384sum"
+    " sha512sum shred shuf sleep sort split stat stdbuf stty sum sync tac tail tee test timeout touch tr true"
+    " truncate tsort tty uname unexpand uniq unlink uptime users vdir wc who whoami yes"
+    " find xargs locate updatedb grep egrep fgrep sed tar time".split()
+)
+_GNU_G_NAMES = frozenset("g" + n for n in _GNU_NAMES)
+
+
+def tool_name(word: str) -> str:
+    """The tool a command word names: its basename, with Homebrew's `g` taken off a GNU tool (`grm` -> `rm`)."""
+    name = os.path.basename(word)
+    return name[1:] if name in _GNU_G_NAMES else name
 
 
 def tokens(text: str) -> list[str]:
@@ -701,7 +721,7 @@ def _secret_reads(seg: list[str], cwd: str, skip: list[str]) -> list[str]:
 
 def _secret_seg(seg: list[str], cwd: str, writes: list[str], reads: list[str]) -> None:
     """Add the secret files one simple command writes and reads to the two lists."""
-    head = os.path.basename(seg[0])
+    head = tool_name(seg[0])
     paths = [t for t in seg[1:] if not t.startswith("-") and t != "--"]
     targets: list[str] = []
     if head in _WRITERS_LAST and paths:
@@ -730,7 +750,7 @@ def _search_pattern(seg: list[str], k: int) -> tuple[Optional[int], list[str]]:
     `-rnf`), and the glued values of -f/--file (files it reads). The pattern is the first word that is not an
     option; an option's value taken for it (`-A 3`) leaves the real pattern read as a path, which errs towards
     asking."""
-    name = os.path.basename(seg[k])
+    name = tool_name(seg[k])
     start = k + 1
     if name == "git":
         sub, rest = _git_subcommand(seg[k:])
@@ -770,7 +790,7 @@ def _secret_reader_seg(seg: list[str], cwd: str, writes: list[str], reads: list[
     """The reader pass of secret-shell: _secret_seg without the pattern operand of a search tool at any
     command word of the words, plus the files a glued -f/--file reads."""
     drop = set()
-    if any(os.path.basename(t) in _SEARCH_TOOLS or os.path.basename(t) == "git" for t in seg):
+    if any(tool_name(t) in _SEARCH_TOOLS or os.path.basename(t) == "git" for t in seg):
         for k in command_word_indexes(seg):
             pattern, files = _search_pattern(seg, k)
             if pattern is not None:
@@ -2988,7 +3008,7 @@ def _command_word_indexes(toks: tuple) -> set:
     work = [i]  # a work list, not recursion: a chain of wrappers is as long as the line
     while work:
         j = work.pop()
-        name = os.path.basename(toks[j])
+        name = tool_name(toks[j])
         if name == "find":
             later = [k + 1 for k in range(j + 1, n - 1) if toks[k] in _NC_FIND_EXEC]
         elif name in _NC_FD:
@@ -3169,7 +3189,7 @@ _FOLD_NAMES = frozenset(
         _WRAPPERS, _RM_CLASS, _DELETE_TOOLS, _WRITERS_LAST, _WRITERS_ALL, _SEARCH_TOOLS, _DEPLOY_TABLE, _DEPLOY_ADDED,
         _OTHER_LLM_CLIS, _HI_TABLE, _HI_PAIRS, _HI_PAIRS_ONLY, _HI_BARE, _HI_SELF_FETCH, _HI_SHELLS, _HI_DOWNLOADERS,
         _HI_WRAPPERS, _HI_REMOTE, _NC_SHELLS, _NC_WRAPPERS, _NC_SUB_WRAPPERS, _NC_OPTION_RUNNERS, _NC_SCRIPT_OPTIONS,
-        _NC_FD, _NC_ELSEWHERE, _NC_SCRIPT_WORDS, _NC_STDIN_SHELLS, _NC_AFTER_OPTION, _NAMES_IN_CODE,
+        _NC_FD, _NC_ELSEWHERE, _NC_SCRIPT_WORDS, _NC_STDIN_SHELLS, _NC_AFTER_OPTION, _GNU_G_NAMES, _NAMES_IN_CODE,
     ) for k in table if k == k.lower()
 )
 _FOLD_RUN_RE = re.compile(r"[^\s;|&()<>`]+")  # a candidate: a run of characters between the shell's separators

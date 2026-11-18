@@ -671,3 +671,88 @@ def test_a_deep_line_in_a_meta_file_and_in_the_spawn_log(ledger, tmp_path):
     data = tree(ledger, t, tmp_path / "telemetry")
     assert (data["files_not_read"], data["lines_not_read"]) == (1, 1)
     assert data["rows"][1]["label"] == "logged"
+
+
+# fix pass B: one session id in two project folders
+TWO_FOLDERS = "this session id lies in 2 project folders: shown is the transcript written last"
+
+
+def second_copy(tmp_path, monkeypatch, name, copy_newer):
+    """The fixture config in tmp_path plus a copy of one session's transcript (no agents) in -work-copy."""
+    config = copy_config(tmp_path, "none")
+    original = config / "projects" / "-work-demo" / f"{SESSIONS[name]}.jsonl"
+    copy = config / "projects" / "-work-copy" / original.name
+    copy.parent.mkdir()
+    shutil.copyfile(str(original), str(copy))
+    old, new = (original, copy) if copy_newer else (copy, original)
+    os.utime(str(old), (1_700_000_000, 1_700_000_000))
+    os.utime(str(new), (1_800_000_000, 1_800_000_000))
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(config))
+    monkeypatch.setenv("KZ_TELEMETRY_DIR", str(FIX / "telemetry"))
+    return config
+
+
+@pytest.mark.parametrize("text", [SESSIONS["two-agents"], "2222"])
+def test_two_folders_show_the_copy_written_last(ledger, tmp_path, monkeypatch, fixture_prices, text):
+    second_copy(tmp_path, monkeypatch, "two-agents", copy_newer=True)
+    code, out, err = run(ledger, ["agents", "--session", text])
+    assert (code, err) == (0, "")
+    lines = out.splitlines()
+    # the copy has no agents folder beside it: the agents the spawn log names have no transcript there
+    assert lines[1].endswith("(no transcript)") and lines[2].endswith("(no transcript)")
+    assert lines[3].startswith("total") and lines[-1] == TWO_FOLDERS
+
+
+def test_two_folders_with_the_times_swapped_show_the_original(ledger, tmp_path, monkeypatch, fixture_prices):
+    second_copy(tmp_path, monkeypatch, "two-agents", copy_newer=False)
+    want = (FIX / "expected" / "two-agents.txt").read_text(encoding="utf-8") + TWO_FOLDERS + "\n"
+    assert run(ledger, ["agents", "--session", "2222"]) == (0, want, "")
+
+
+def test_two_folders_note_comes_after_not_read(ledger, tmp_path, monkeypatch, fixture_prices):
+    second_copy(tmp_path, monkeypatch, "broken", copy_newer=False)
+    lines = run(ledger, ["agents", "--session", SESSIONS["broken"]])[1].splitlines()
+    assert lines[-2].startswith("not read: ") and lines[-1] == TWO_FOLDERS
+
+
+def test_ids_not_files_are_counted_in_the_error(ledger, tmp_path, monkeypatch, fixture_prices):
+    second_copy(tmp_path, monkeypatch, "plain", copy_newer=True)  # three files, two ids start with 11111111-
+    assert run(ledger, ["agents", "--session", "11111111-"]) == (
+        1, "", "ledger agents: 11111111- fits 2 sessions, give more of the id\n")
+
+
+def test_an_exact_id_in_two_folders_still_wins(ledger, tmp_path, monkeypatch):
+    for sid in ("abc", "abcd"):
+        make_session(tmp_path, [asst()], sid=sid)
+    make_session(tmp_path / "second", [asst([tool_use("t1")])], sid="abc")  # one tool call tells the copy apart
+    projects = tmp_path / "config" / "projects"
+    shutil.copytree(str(tmp_path / "second" / "config" / "projects" / "-p"), str(projects / "-q"))
+    os.utime(str(projects / "-q" / "abc.jsonl"), (1_900_000_000, 1_900_000_000))
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("KZ_TELEMETRY_DIR", str(tmp_path / "telemetry"))
+    monkeypatch.setattr(ledger, "load_prices", lambda *a, **k: OPUS)
+    code, out, _ = run(ledger, ["agents", "--session", "abc"])
+    lines = out.splitlines()
+    assert code == 0 and lines[0].endswith("session abc") and lines[-1] == TWO_FOLDERS
+    assert lines[0].split()[3] == "1"  # the tool calls of the copy written last
+
+
+def test_without_session_no_two_folders_line(ledger, tmp_path, monkeypatch, prices):
+    second_copy(tmp_path, monkeypatch, "broken", copy_newer=True)
+    out, err = io.StringIO(), io.StringIO()
+    assert ledger.cmd_agents(None, out, err, str(FIX / "telemetry"), prices, cwd="/work/demo") == 0
+    assert TWO_FOLDERS not in out.getvalue()
+
+
+# fix pass C: the current folder is gone
+def test_a_gone_current_folder(ledger, fixture_env, prices, monkeypatch):
+    def gone():
+        raise FileNotFoundError(2, "No such file or directory")
+    monkeypatch.setattr(ledger.os, "getcwd", gone)
+    out, err = io.StringIO(), io.StringIO()
+    assert ledger.cmd_agents(SESSIONS["plain"], out, err, str(FIX / "telemetry"), prices) == 0
+    assert out.getvalue() == (FIX / "expected" / "plain.txt").read_text(encoding="utf-8") and err.getvalue() == ""
+    out, err = io.StringIO(), io.StringIO()
+    assert ledger.cmd_agents(None, out, err, str(FIX / "telemetry"), prices) == 1
+    assert (out.getvalue(), err.getvalue()) == (
+        "", "ledger agents: the current folder is gone; name a session with --session\n")

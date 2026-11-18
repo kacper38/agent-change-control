@@ -1020,8 +1020,9 @@ AGENT_NOTES = ("columns: state, duration, cost in USD, tool calls, model",
                "state: inferred from the transcript's end, so a cut-off run reads as running")
 
 
-def agent_lines(data: dict) -> list:
-    """The rows of read_agents() as a tree, then the notes under it; lines without line ends."""
+def agent_lines(data: dict, folders: int = 1) -> list:
+    """The rows of read_agents() as a tree, then the notes under it; lines without line ends. `folders` is the
+    number of project folders that hold the session id (find_session)."""
     rows = data["rows"]
     last_child: dict = {}
     for i, row in enumerate(rows):
@@ -1054,6 +1055,8 @@ def agent_lines(data: dict) -> list:
     files, bad = data["files_not_read"], data["lines_not_read"]
     if files + bad:
         lines.append(f"not read: files {files}, lines {bad} (what they held is missing above)")
+    if folders > 1:
+        lines.append(f"this session id lies in {folders} project folders: shown is the transcript written last")
     return lines
 
 
@@ -1068,24 +1071,36 @@ def _encodable(text: str, stream) -> str:
         return text
 
 
-def find_session(text: Optional[str], cwd: str) -> tuple:
-    """(transcript, None) or (None, error line): the session `--session TEXT` names, or without it the session
-    of the project folder of `cwd` whose transcript was written last."""
+def _mtime(path: str) -> int:
+    """The modification time in ns, -1 for a file gone since it was listed (it then loses every comparison)."""
+    try:
+        return os.stat(path).st_mtime_ns
+    except OSError:
+        return -1
+
+
+def find_session(text: Optional[str], cwd: Optional[str]) -> tuple:
+    """(transcript, None, folders) or (None, error line, 0): the session `--session TEXT` names, or without it the
+    session of the project folder of `cwd` whose transcript was written last. `folders` counts the project folders
+    that hold the chosen id: a session continued from another folder has a transcript in each."""
     root = os.path.expanduser(os.environ.get("CLAUDE_CONFIG_DIR") or "~/.claude")
     projects = os.path.join(root, "projects")
     if text is not None:
         if not re.fullmatch(r"[A-Za-z0-9_-]+", text):
-            return None, "ledger agents: a session id holds only letters, digits, - and _"
-        hits = sorted(glob.glob(os.path.join(glob.escape(projects), "*", text + "*.jsonl")))
-        exact = [h for h in hits if os.path.basename(h) == text + ".jsonl"]
-        if len(hits) == 1:
-            return hits[0], None
-        if len(exact) == 1:
-            return exact[0], None
-        if not hits:
-            return None, f"ledger agents: no session fits {text} under {projects}"
-        return None, f"ledger agents: {text} fits {len(hits)} sessions, give more of the id"
-    folder = os.path.join(projects, re.sub(r"[^A-Za-z0-9]", "-", cwd))
+            return None, "ledger agents: a session id holds only letters, digits, - and _", 0
+        by_id: dict = {}
+        for hit in glob.glob(os.path.join(glob.escape(projects), "*", text + "*.jsonl")):
+            by_id.setdefault(os.path.basename(hit)[:-len(".jsonl")], []).append(hit)
+        if not by_id:
+            return None, f"ledger agents: no session fits {text} under {projects}", 0
+        if len(by_id) == 1:
+            files = next(iter(by_id.values()))
+        elif text in by_id:
+            files = by_id[text]
+        else:
+            return None, f"ledger agents: {text} fits {len(by_id)} sessions, give more of the id", 0
+        return max(files, key=lambda p: (_mtime(p), p)), None, len(files)
+    folder = os.path.join(projects, re.sub(r"[^A-Za-z0-9]", "-", cwd or ""))
     try:
         names = os.listdir(folder)
     except OSError:  # no project folder: the same answer as a folder without sessions
@@ -1101,8 +1116,8 @@ def find_session(text: Optional[str], cwd: str) -> tuple:
             continue
         newest = key if newest is None or key > newest else newest
     if newest is None:
-        return None, f"ledger agents: no session of this folder under {folder}; name one with --session"
-    return os.path.join(folder, newest[1]), None
+        return None, f"ledger agents: no session of this folder under {folder}; name one with --session", 0
+    return os.path.join(folder, newest[1]), None, 1
 
 
 WATCH_ENTER = "\x1b[?1049h\x1b[?25l"  # the alternate screen, cursor hidden
@@ -1119,7 +1134,7 @@ def watch_frame(lines: list, width: int, height: int) -> str:
     return "\n".join(_cut(line, width - 1) + "\x1b[K" for line in lines + [WATCH_LAST])
 
 
-def watch_agents(transcript: str, out, tdir: str, prices: dict, sleep, size) -> int:
+def watch_agents(transcript: str, out, tdir: str, prices: dict, sleep, size, folders: int = 1) -> int:
     """Draw the tree on the alternate screen every 2 s, only when it changed, until Ctrl-C; the terminal is
     restored on every way out, an error included."""
     shown = None
@@ -1128,7 +1143,7 @@ def watch_agents(transcript: str, out, tdir: str, prices: dict, sleep, size) -> 
         out.flush()
         while True:
             width, height = size()
-            frame = watch_frame(agent_lines(read_agents(transcript, tdir, prices)), width, height)
+            frame = watch_frame(agent_lines(read_agents(transcript, tdir, prices), folders), width, height)
             if frame != shown:
                 out.write(_encodable("\x1b[H" + frame + "\x1b[J", out))
                 out.flush()
@@ -1145,14 +1160,21 @@ def cmd_agents(session: Optional[str], out, err, tdir: str, prices: dict, cwd: O
                watch: bool = False, sleep=time.sleep, size=shutil.get_terminal_size) -> int:
     """The `agents` verb: one session as a tree on `out`; an error is one line on `err` and exit 1. With `watch`
     on a terminal the tree is redrawn (sleep and size are parameters so a test runs the loop without either)."""
-    transcript, problem = find_session(session, os.getcwd() if cwd is None else cwd)
+    if session is None and cwd is None:  # only without --session is the folder asked for
+        try:
+            cwd = os.getcwd()
+        except FileNotFoundError:  # the folder was removed under the shell (a worktree gone): ask for an id
+            err.write("ledger agents: the current folder is gone; name a session with --session\n")
+            return 1
+    transcript, problem, folders = find_session(session, cwd)
     if problem:
         err.write(_encodable(_clean(problem) + "\n", err))
         return 1
     isatty = getattr(out, "isatty", None)
     if watch and callable(isatty) and isatty():
-        return watch_agents(transcript, out, tdir, prices, sleep, size)
-    out.write(_encodable("".join(line + "\n" for line in agent_lines(read_agents(transcript, tdir, prices))), out))
+        return watch_agents(transcript, out, tdir, prices, sleep, size, folders)
+    lines = agent_lines(read_agents(transcript, tdir, prices), folders)
+    out.write(_encodable("".join(line + "\n" for line in lines), out))
     return 0
 
 

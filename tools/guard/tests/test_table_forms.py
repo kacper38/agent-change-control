@@ -1343,6 +1343,8 @@ Fs | feat/x | shell | silent | builtin eval 'echo hi'; git commit -m x
 
 # --- F20: brew and gem take a verb with any capitals in it, not only one written all in capitals (measured:
 #     `brew Uninstall --help` and `gem Uninstall --help` print the help of uninstall)
+F20 | feat/x | delete-guard | ask | brew Uninstall jq
+F20 | feat/x | delete-guard | ask | gem Uninstall rake
 Fs | feat/x | delete-guard | ask | brew UNINSTALL jq
 Fs | feat/x | delete-guard | ask | gem uninstall rake
 Fs | feat/x | shell | silent | brew info Uninstall

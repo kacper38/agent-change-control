@@ -667,11 +667,12 @@ _CAPS_VERB_TOOLS = frozenset({"brew", "gem"})
 
 
 def caps_verbs(name: str, args: list[str]) -> list[str]:
-    """The arguments of a call of `name`, with a plain word written all in capitals in lower case when the tool
-    takes such a verb; options and every other tool's words stay as written."""
+    """The arguments of a call of `name`, with a plain word that holds a capital in lower case when the tool
+    takes such a verb (F20: any capitals, measured: `brew Uninstall --help` and `gem Uninstall --help` print the
+    help of uninstall); options and every other tool's words stay as written."""
     if name not in _CAPS_VERB_TOOLS:
         return args
-    return [t.lower() if t.isupper() and not t.startswith("-") else t for t in args]
+    return [t.lower() if t != t.lower() and not t.startswith("-") else t for t in args]
 
 
 def tool_name(word: str) -> str:

@@ -187,6 +187,22 @@ N3 | feat/x | secret-shell | ask | "ssh build <<'EOF'\ncat .env\nEOF"
 N3 | feat/x | delete-guard | ask | echo 'rm -rf build' | ssh build
 N3 | feat/x | deploy-ask | ask | "ssh -p 2222 build <<'EOF'\nterraform apply -auto-approve\nEOF"
 N3 | feat/x | deploy-ask | ask | "docker exec -i web sh <<'EOF'\nterraform apply -auto-approve\nEOF"
+O1 | feat/x | tracker-guard | deny | gh -R o/r issue close 3
+O1 | feat/x | tracker-guard | deny | gh --repo o/r issue close 3
+O1 | feat/x | tracker-guard | deny | gh --repo=o/r issue close 3
+O1 | feat/x | tracker-guard | deny | gh -R o/r label create bug
+O1 | feat/x | tracker-guard | deny | gh --repo o/r issue edit 3 --add-label status/done
+O1 | feat/x | tracker-guard | deny | gh issue --repo o/r close 3
+O1 | feat/x | tracker-guard | deny | gh -R o/r issue reopen 3
+O1 | feat/x | tracker-guard | deny | gh -R o/r issue create --title x
+O1 | feat/x | tracker-guard | deny | gh -R o/r issue comment 3 --body x
+O1 | feat/x | tracker-guard | deny | bash -c 'gh -R o/r issue close 3'
+O2 | feat/x | tracker-guard | deny | gh api -XPATCH repos/o/r/issues/3
+O2 | feat/x | tracker-guard | deny | gh api -XDELETE repos/o/r/issues/3/labels/bug
+O2 | feat/x | tracker-guard | deny | gh api repos/o/r/issues/3/comments -fbody=hi
+O2 | feat/x | tracker-guard | deny | gh api repos/o/r/issues/3/comments --field=body=hi
+O2 | feat/x | tracker-guard | deny | gh api repos/o/r/issues/3/comments --raw-field=body=hi
+O2 | feat/x | tracker-guard | deny | gh api repos/o/r/issues --input=issue.json
 """
 
 # forms of this work beyond the acceptance rows: the same readings, other spellings
@@ -226,6 +242,15 @@ Xs | feat/x | shell | silent | "ssh build cat <<'EOF'\ngit commit --no-verify -m
 Xs | feat/x | shell | silent | "ssh -N build <<'EOF'\ngit commit --no-verify -m x\nEOF"
 Xs | feat/x | shell | silent | "cat <<'EOF' | tee out.txt\ngit commit --no-verify -m x\nEOF"
 Xs | main | protected-branch | silent | "cat <<'EOF' | ssh build bash\ngit commit -m x\nEOF"
+X4 | feat/x | tracker-guard | deny | gh -Ro/r issue close 3
+X4 | feat/x | tracker-guard | deny | gh label --repo=o/r delete bug
+X4 | feat/x | tracker-guard | deny | sudo gh -R o/r issue lock 3
+X4 | feat/x | tracker-guard | deny | gh api --method=POST repos/o/r/labels
+X4 | feat/x | tracker-guard | deny | gh api repos/o/r/issues -Ftitle=x
+Xs | feat/x | shell | silent | gh -Ro/r issue view 3
+Xs | feat/x | shell | silent | gh issue --repo=o/r list
+Xs | feat/x | shell | silent | gh api --method=GET repos/o/r/issues/3
+Xs | feat/x | shell | silent | gh api repos/o/r/labels --jq=.[].name
 """
 
 

@@ -1565,6 +1565,29 @@ def rule_tracker_guard(ev: Event, cfg: dict) -> Optional[Decision]:
     return reader_pass(ev.command, _tracker_seg, "tracker-guard")  # the reader takes the bodies out (0.8.0)
 
 
+def _gh_words(seg: list[str]) -> list[int]:
+    """The indexes of the first two plain words of a gh call (the command group and the verb). gh accepts
+    `-R`/`--repo` before the group and between group and verb (`gh -R o/r issue close 3`, `gh issue --repo o/r
+    close 3`); its value is skipped in every spelling: `-R v`, `-Rv`, `--repo v`, `--repo=v` (0.8.0)."""
+    out: list[int] = []
+    k = 1
+    while k < len(seg) and len(out) < 2:
+        t = seg[k]
+        if t in ("-R", "--repo"):
+            k += 1  # the value is the next word
+        elif not t.startswith("-"):
+            out.append(k)
+        k += 1
+    return out
+
+
+def _gh_api_mutating(t: str) -> bool:
+    """A gh api write flag in any spelling gh accepts: `-f k=v`, `-fk=v`, `-F…`, `--field=k=v`, `--raw-field=…`,
+    `--input v`, `--input=v` (gh api --help)."""
+    return (t in _GH_API_MUTATING_FLAGS or t.startswith(("--field=", "--raw-field=", "--input="))
+            or (t[:2] in ("-f", "-F") and len(t) > 2))
+
+
 def _tracker_seg(seg: list[str]) -> Optional[Decision]:
     """The tracker-guard verdict on one simple command: a write to issues, labels or work items past the tracker."""
     head = os.path.basename(seg[0])
@@ -1572,15 +1595,17 @@ def _tracker_seg(seg: list[str]) -> Optional[Decision]:
         d = _az_tracker_guard(seg)
         if d:
             return d
-    if head == "gh" and len(seg) >= 3 and seg[1] == "issue" and seg[2] in _GH_ISSUE_REPLACEMENT:
-        return "deny", TRACKER_MSG.format(what=f"`gh issue {seg[2]}` bypasses the tracker",
-                                          use=_GH_ISSUE_REPLACEMENT[seg[2]])
-    if head == "gh" and len(seg) >= 3 and seg[1] == "label" and seg[2] in ("create", "edit", "delete", "clone"):
-        return "deny", TRACKER_MSG.format(what=f"`gh label {seg[2]}` bypasses the tracker",
+    at = _gh_words(seg) if head == "gh" else []
+    group, verb = ([seg[k] for k in at] + ["", ""])[:2]
+    if group == "issue" and verb in _GH_ISSUE_REPLACEMENT:
+        return "deny", TRACKER_MSG.format(what=f"`gh issue {verb}` bypasses the tracker",
+                                          use=_GH_ISSUE_REPLACEMENT[verb])
+    if group == "label" and verb in ("create", "edit", "delete", "clone"):
+        return "deny", TRACKER_MSG.format(what=f"`gh label {verb}` bypasses the tracker",
                                           use="`tracker owner labels-sync` (a human runs it)")
-    if head == "gh" and len(seg) >= 3 and seg[1] == "api":
+    if group == "api":
         path, skip = "", False
-        for t in seg[2:]:
+        for t in seg[at[0] + 1 :]:
             if skip:
                 skip = False
             elif t in _GH_API_VALUE_FLAGS:
@@ -1588,8 +1613,11 @@ def _tracker_seg(seg: list[str]) -> Optional[Decision]:
             elif not t.startswith("-"):
                 path = t
                 break
-        method = (_flag_value(seg, {"-X", "--method"}) or "GET").upper()
-        mutating = method != "GET" or any(t in _GH_API_MUTATING_FLAGS for t in seg)
+        method = _flag_value(seg, {"-X", "--method"})
+        if method is None:  # `-XPATCH`: the value glued on
+            method = next((t[2:] for t in seg[at[0] + 1 :] if t.startswith("-X") and len(t) > 2), "GET")
+        method = method.upper()
+        mutating = method != "GET" or any(_gh_api_mutating(t) for t in seg)
         if _ISSUE_API_RE.search(path) and mutating:
             return "deny", TRACKER_MSG.format(what=f"`gh api {method} {path}` writes issues or labels",
                                               use="the tracker verbs")

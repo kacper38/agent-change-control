@@ -203,6 +203,23 @@ O2 | feat/x | tracker-guard | deny | gh api repos/o/r/issues/3/comments -fbody=h
 O2 | feat/x | tracker-guard | deny | gh api repos/o/r/issues/3/comments --field=body=hi
 O2 | feat/x | tracker-guard | deny | gh api repos/o/r/issues/3/comments --raw-field=body=hi
 O2 | feat/x | tracker-guard | deny | gh api repos/o/r/issues --input=issue.json
+P1 | feat/x | git-guard | deny | git push -uf origin feat
+P1 | feat/x | git-guard | deny | git push -fu origin feat
+P1 | feat/x | git-guard | deny | git push -ufv origin feat
+P2 | feat/x | git-guard | deny | git commit -nm x
+P2 | feat/x | git-guard | deny | git commit -anm x
+P2 | feat/x | git-guard | deny | git commit -vnm x
+P2 | feat/x | git-guard | deny | git commit -qnm x
+P3 | feat/x | git-guard | deny | git commit --no-verif -m x
+P3 | feat/x | git-guard | deny | git commit --no-veri -m x
+P3 | feat/x | git-guard | deny | git push --no-verif origin feat
+P3 | feat/x | git-guard | deny | timeout 30 git commit --no-verif -m x
+P3 | feat/x | git-guard | deny | git push --force-with-leas origin feat
+P3 | feat/x | git-guard | deny | git push --mirro origin
+P3 | feat/x | delete-guard | ask | git push --delet origin feat
+P3 | feat/x | delete-guard | ask | git push --de origin feat
+P3 | feat/x | delete-guard | ask | git push -d origin feat
+P3 | feat/x | delete-guard | ask | git push --prune origin
 """
 
 # forms of this work beyond the acceptance rows: the same readings, other spellings
@@ -251,6 +268,26 @@ Xs | feat/x | shell | silent | gh -Ro/r issue view 3
 Xs | feat/x | shell | silent | gh issue --repo=o/r list
 Xs | feat/x | shell | silent | gh api --method=GET repos/o/r/issues/3
 Xs | feat/x | shell | silent | gh api repos/o/r/labels --jq=.[].name
+X5 | feat/x | git-guard | deny | git push -vf origin feat
+X5 | feat/x | git-guard | deny | git push --forc origin feat
+X5 | feat/x | git-guard | deny | git push --force-if-incl origin feat
+X5 | feat/x | git-guard | deny | git push --force-with-leas=main origin feat
+X5 | feat/x | git-guard | deny | git push --al origin
+X5 | feat/x | git-guard | deny | git -C sub commit -sn -m x
+X5 | feat/x | git-guard | deny | git rebase --no-verif main
+X5 | feat/x | git-guard | deny | bash -c 'git commit -an -m x'
+X5 | feat/x | delete-guard | ask | git push -ud origin feat
+X5 | feat/x | delete-guard | ask | git push --prun origin
+X5 | feat/x | delete-guard | ask | sudo git push --delete origin feat
+Xs | feat/x | shell | silent | git push -o fast -u origin feat
+Xs | feat/x | shell | silent | git push -oforce origin feat
+Xs | feat/x | shell | silent | git push --dry-run origin feat
+Xs | feat/x | shell | silent | git commit -F msg.txt -s
+Xs | feat/x | shell | silent | git commit -Sn -m x
+Xs | feat/x | shell | silent | git commit -m -an
+Xs | feat/x | shell | silent | git commit -m x -- --no-verif
+Xs | feat/x | shell | silent | git fetch --prune origin
+Xs | feat/x | shell | silent | git log --no-merges -n 5
 """
 
 

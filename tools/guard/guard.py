@@ -390,6 +390,15 @@ def _git_discards(sub: str, rest: list[str]) -> bool:
     return len(plain) >= 2 and not any(_checkout_new_branch(t) for t in rest)
 
 
+def _git_push_deletes(sub: str, rest: list[str]) -> bool:
+    """`git push` that removes remote branches: -d in a cluster, --delete, --prune (it removes remote branches
+    without a local counterpart) or a prefix git takes for one (`--delet`, `--de`) (0.8.0)."""
+    if sub != "push":
+        return False
+    longs, shorts = _git_options(sub, rest)
+    return "d" in shorts or _git_prefix(longs, ("delete", "prune"))
+
+
 def delete_what(command: str) -> Optional[str]:
     """What a command line would delete, read from the tokens of every simple command it runs, or None."""
     for toks in nested_commands(command):
@@ -407,7 +416,8 @@ def delete_what(command: str) -> Optional[str]:
                 raise CommandNotRead(_TOO_MANY_TOOLS)
             if name == "git":
                 sub, rest = _git_subcommand(list(toks[i:]))
-                if sub and (_GIT_DELETE_RE.match(" ".join(["git", sub, *rest])) or _git_discards(sub, rest)):
+                if sub and (_GIT_DELETE_RE.match(" ".join(["git", sub, *rest])) or _git_discards(sub, rest)
+                            or _git_push_deletes(sub, rest)):
                     return f"`git {sub}` discards work"
                 continue
             hit = subcommand_hit(list(toks[i + 1 :]), *entry)
@@ -774,6 +784,49 @@ def _git_subcommand(seg: list[str]) -> tuple[Optional[str], list[str]]:
     return seg[i], seg[i + 1 :]
 
 
+# 0.8.0: git accepts a unique prefix of a long option (`--no-verif`, `--force-with-leas`; measured) and short
+# options in one word (`-uf`, `-nm x`). These subcommands run a hook that --no-verify skips (githooks(5))
+_NO_VERIFY_SUBS = frozenset("commit push merge pull am rebase".split())
+_PUSH_FORCE_NAMES = ("force", "force-with-lease", "force-if-includes")
+# short options that take a value (git-commit(1), git-push(1)): the letters after one are its value, or the next
+# word is; commit's -u and -S take an optional value glued on (`-uno` is --untracked-files=no)
+_GIT_SHORT_VALUED = {"commit": ("mFCct", "uS"), "push": ("o", "")}
+
+
+def _git_options(sub: str, rest: list[str]) -> tuple[list[str], set]:
+    """The long option names (cut at `=`) and the short option letters among a git subcommand's words in front
+    of `--`; the value of a short option that takes one is no option (`-mn` is the message `n`)."""
+    valued, optional = _GIT_SHORT_VALUED.get(sub, ("", ""))
+    longs: list[str] = []
+    shorts: set = set()
+    skip = False
+    for t in rest:
+        if skip:
+            skip = False
+            continue
+        if t == "--":
+            break
+        if t.startswith("--"):
+            name = t[2:].split("=", 1)[0]
+            if name:
+                longs.append(name)
+        elif t.startswith("-") and len(t) > 1:
+            for k, c in enumerate(t[1:], 1):
+                shorts.add(c)
+                if c in valued:
+                    skip = k == len(t) - 1  # nothing glued on: the next word is the value
+                    break
+                if c in optional:
+                    break
+    return longs, shorts
+
+
+def _git_prefix(longs: list[str], names: tuple) -> bool:
+    """A long option as written is one of `names` or a prefix of one: git takes a unique prefix for the option,
+    and refuses a prefix two options share, so the over-match costs nothing."""
+    return any(n.startswith(x) for x in longs for n in names)
+
+
 def current_branch(cwd: str) -> Optional[str]:
     """Checked-out branch name, also on an unborn branch; None when detached or not a repo."""
     for args in (["symbolic-ref", "--short", "-q", "HEAD"], ["rev-parse", "--abbrev-ref", "HEAD"]):
@@ -800,13 +853,16 @@ def _git_guard_seg(seg: list[str], cwd: str, protected: set, elsewhere: bool = F
     sub, rest = _git_subcommand(seg)
     if sub is None:
         return None
-    if "--no-verify" in rest or (sub == "commit" and "-n" in rest):
+    longs, shorts = _git_options(sub, rest)
+    if ("--no-verify" in rest or (sub == "commit" and ("-n" in rest or "n" in shorts))
+            or (sub in _NO_VERIFY_SUBS and _git_prefix(longs, ("no-verify",)))):
         return "deny", GIT_MSG.format(what=f"`git {sub} --no-verify` skips the commit gate")
     if sub != "push":
         return None
-    if any(t in _FORCE_FLAGS or t.startswith("--force-with-lease=") for t in rest):
+    if (any(t in _FORCE_FLAGS or t.startswith("--force-with-lease=") for t in rest) or "f" in shorts
+            or _git_prefix(longs, _PUSH_FORCE_NAMES)):
         return "deny", GIT_MSG.format(what="force push")
-    if "--all" in rest or "--mirror" in rest:
+    if "--all" in rest or "--mirror" in rest or _git_prefix(longs, ("mirror", "all")):
         return "deny", GIT_MSG.format(what="`git push --all/--mirror` can rewrite a protected branch")
     positional: list[str] = []
     skip = False

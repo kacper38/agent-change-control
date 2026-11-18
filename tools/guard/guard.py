@@ -777,7 +777,8 @@ def rule_secret_shell(ev: Event, cfg: dict) -> Optional[Decision]:
 # git-guard: no force push, no push to a protected branch, no --no-verify
 # ----------------------------------------------------------------------------
 
-_GIT_GLOBAL_WITH_VALUE = {"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--exec-path"}
+_GIT_GLOBAL_WITH_VALUE = {"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--exec-path",
+                          "--config-env"}  # 0.8.0: `--config-env <name>=<envvar>` (git(1))
 _PUSH_OPT_WITH_VALUE = {"-o", "--push-option", "--receive-pack", "--exec", "--repo", "--recurse-submodules"}
 _FORCE_FLAGS = {"-f", "--force", "--force-with-lease", "--force-if-includes"}
 GIT_MSG = (
@@ -864,6 +865,8 @@ def _git_sets_hooks_path(own: list[str]) -> bool:
                 return True
         elif t.startswith("--config-env=") and t[len("--config-env=") :].partition("=")[0].lower() == _HOOKS_PATH_KEY:
             return True
+        elif t == "--config-env" and k + 1 < len(own) and own[k + 1].partition("=")[0].lower() == _HOOKS_PATH_KEY:
+            return True  # the value as the next word (measured: git 2.43.0 accepts it)
     return False
 
 
@@ -871,6 +874,10 @@ def _git_config_writes_hooks_path(rest: list[str]) -> bool:
     """`git config` sets or unsets core.hooksPath: `[set] core.hooksPath <value>`, `--unset`, `--unset-all`,
     `unset`, with any scope option in front. The value `.githooks` and the reads (`--get`, `get`, the name alone,
     `--list`) are none (git-config(1))."""
+    for k, t in enumerate(rest[:-1]):  # dropping or renaming the section `core` drops core.hooksPath (0.8.0)
+        if t in ("--remove-section", "--rename-section", "remove-section", "rename-section") \
+                and rest[k + 1].lower() == "core":
+            return True
     keys = [k for k, t in enumerate(rest) if t.lower() == _HOOKS_PATH_KEY]
     if not keys:
         return False
@@ -906,9 +913,27 @@ def _git_env_gate(command: str) -> Optional[Decision]:
     does not reach git). segments() drops these words, so only the reader sees them."""
     try:
         exported: list[str] = []
+        assigned: dict = {}  # NAME -> `NAME=value` of a plain assignment, which an `export NAME` exports later
+        allexport = False  # `set -a`: every later assignment is exported
         for toks in nested_commands(command):
-            if toks[0] == "export":
-                exported.extend(t for t in toks[1:] if _ASSIGN_RE.match(t))
+            if all(_ASSIGN_RE.match(t) for t in toks):
+                for t in toks:
+                    assigned[t.partition("=")[0]] = t
+                if allexport:
+                    exported.extend(toks)
+                continue
+            if toks[0] in ("export", "declare", "typeset"):
+                flags = "".join(t[1:] for t in toks[1:] if t.startswith("-"))
+                if toks[0] == "export" or "x" in flags:  # `declare -x`, `typeset -x` export as well
+                    exported.extend(t for t in toks[1:] if _ASSIGN_RE.match(t))
+                    exported.extend(assigned[t] for t in toks[1:] if t in assigned)
+                continue
+            if toks[0] == "set":
+                for t in toks[1:]:
+                    if t.startswith(("-", "+")) and "a" in t[1:] and not t.startswith("--"):
+                        allexport = t[0] == "-"
+                    elif t == "allexport" and toks[toks.index(t) - 1] in ("-o", "+o"):
+                        allexport = toks[toks.index(t) - 1] == "-o"
                 continue
             for i in sorted(command_word_indexes(toks)):
                 if os.path.basename(toks[i]) == "git":
@@ -2482,15 +2507,18 @@ def _nc_read(text: str, depth: int, out: list, seen: set, local: bool = False,
         rows.append((raw, toks))
     nested = list(subs)  # substitutions outside quotes are simple commands of their own in the lexer already
     for k, (raw, toks) in enumerate(rows):
-        nested.extend(_nc_here_strings(raw))  # taken from the words before the redirections go: `<<<` is one
+        env = _nc_hook_env(toks)
+        # taken from the words before the redirections go: `<<<` is one
+        nested.extend(_nc_with_env(env, _nc_here_strings(raw)))
         if inputs is not None:
             inputs.extend(_nc_inputs(raw))
         piped = rows[k + 1][1] if k + 1 < len(rows) and seps[k + 1].strip(" \n") in ("|", "|&") else None
-        nested.extend(_nc_fed(raw, toks, piped, bodies))
+        fed, runner = _nc_fed(raw, toks, piped, bodies)
+        nested.extend(_nc_with_env(env if runner is toks else _nc_hook_env(runner or []), fed))
         if not toks:
             continue
         out.append(tuple(toks))
-        nested.extend(_nc_scripts(toks))
+        nested.extend(_nc_with_env(env, _nc_scripts(toks)))
     for script in nested:
         if script not in seen:  # one read per distinct script: a repeated nest costs nothing twice
             seen.add(script)
@@ -2586,28 +2614,51 @@ def _quote_state(text: str, start: int, end: int, quote: str) -> tuple[int, str]
     return max(i, end), quote
 
 
-def _nc_fed(raw: list[str], toks: list[str], piped: Optional[list], bodies: list) -> list[str]:
-    """The scripts one simple command feeds to a shell (0.8.0): its here-document bodies when it runs a shell
-    that reads standard input or an ssh without a command; and, when its output goes through one pipe into such
-    a command (`piped`), the bodies of a `cat` without a file operand and the words of an `echo` or `printf`."""
+def _nc_fed(raw: list[str], toks: list[str], piped: Optional[list], bodies: list) -> tuple[list[str], Optional[list]]:
+    """The scripts one simple command feeds to a shell (0.8.0), and the simple command that runs them: its
+    here-document bodies when it runs a shell that reads standard input or an ssh without a command; and, when
+    its output goes through one pipe into such a command (`piped`), the bodies of a `cat` without a file operand
+    and the words of an `echo` or `printf`."""
     marks = [_NC_HEREDOC_MARK_RE.match(t) for t in raw]
     own = [bodies[int(m.group(1))] for m in marks if m and int(m.group(1)) < len(bodies)]
     if own and _nc_runs_stdin(toks):
-        return own
+        return own, toks
     if piped is None or not toks or not _nc_runs_stdin(piped):
-        return []
+        return [], None
     for i in sorted(command_word_indexes(toks)):
         name, args = os.path.basename(toks[i]), toks[i + 1 :]
         if name == "cat":
-            return own if all(t == "-" or (t.startswith("-") and t != "--") for t in args) else []
+            return (own if all(t == "-" or (t.startswith("-") and t != "--") for t in args) else []), piped
         if name == "echo":
             k = 0
             while k < len(args) and _NC_ECHO_OPTION_RE.match(args[k]):
                 k += 1
-            return [" ".join(args[k:]).replace("\\n", "\n")]
-        if name == "printf":
-            return [] if args[:1] == ["-v"] else [" ".join(args).replace("\\n", "\n")]  # -v sets a variable
-    return []
+            return [" ".join(args[k:]).replace("\\n", "\n")], piped
+        if name == "printf":  # -v sets a variable
+            return ([] if args[:1] == ["-v"] else [" ".join(args).replace("\\n", "\n")]), piped
+    return [], None
+
+
+# the environment names that reach the hook gate (git-guard): an assignment of one of these in front of a shell
+# goes with the script that shell runs (0.8.0)
+_HOOK_ENV_RE = re.compile(r"^(HUSKY|LEFTHOOK|SKIP|GIT_CONFIG_KEY_\w*|GIT_CONFIG_PARAMETERS)=")
+
+
+def _nc_hook_env(toks) -> list[str]:
+    """The hook-gate assignments in front of the last command word of a simple command (`HUSKY=0 bash -c …`,
+    `env SKIP=x sh -c …`): the environment of the script a shell there runs."""
+    if not toks or not any(_HOOK_ENV_RE.match(t) for t in toks):
+        return []
+    last = max(command_word_indexes(toks), default=0)
+    return [t for t in toks[:last] if _HOOK_ENV_RE.match(t)]
+
+
+def _nc_with_env(env: list[str], scripts: list[str]) -> list[str]:
+    """The scripts, each behind an `export` of the environment it gets, so the reader of git-guard sees it."""
+    if not env:
+        return scripts
+    head = "export " + " ".join(shlex.quote(w) for w in env) + "\n"
+    return [head + s for s in scripts]
 
 
 def _nc_runs_stdin(toks) -> bool:

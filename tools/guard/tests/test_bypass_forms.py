@@ -220,7 +220,28 @@ P3 | feat/x | delete-guard | ask | git push --delet origin feat
 P3 | feat/x | delete-guard | ask | git push --de origin feat
 P3 | feat/x | delete-guard | ask | git push -d origin feat
 P3 | feat/x | delete-guard | ask | git push --prune origin
-"""
+P4 | feat/x | git-guard | deny | HUSKY=0 git commit -m x
+P4 | feat/x | git-guard | deny | env HUSKY=0 git commit -m x
+P4 | feat/x | git-guard | deny | export HUSKY=0; git commit -m x
+P4 | feat/x | git-guard | deny | HUSKY=0 git push origin feat
+P4 | feat/x | git-guard | deny | LEFTHOOK=0 git commit -m x
+P4 | feat/x | git-guard | deny | SKIP=ruff git commit -m x
+P4 | feat/x | git-guard | deny | bash -c 'HUSKY=0 git commit -m x'
+P4 | feat/x | git-guard | deny | git -c core.hooksPath=/dev/null commit -m x
+P4 | feat/x | git-guard | deny | git -c core.hooksPath= commit -m x
+P4 | feat/x | git-guard | deny | git -c core.hookspath=/dev/null commit -m x
+P4 | feat/x | git-guard | deny | git -C sub -c core.hooksPath=/dev/null commit -m x
+P4 | feat/x | git-guard | deny | git -c core.hooksPath=/dev/null push origin feat
+P4 | feat/x | git-guard | deny | git --config-env=core.hooksPath=NOHOOKS commit -m x
+P4 | feat/x | git-guard | deny | GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.hooksPath GIT_CONFIG_VALUE_0=/dev/null git commit -m x
+P5 | feat/x | git-guard | ask | git config core.hooksPath /dev/null
+P5 | feat/x | git-guard | ask | git config --unset core.hooksPath
+P5 | feat/x | git-guard | ask | git config unset core.hooksPath
+P5 | feat/x | git-guard | ask | git config set core.hooksPath /dev/null
+P5 | feat/x | git-guard | ask | git config --global core.hooksPath /tmp/h
+P5 | feat/x | git-guard | ask | git -C sub config core.hooksPath /dev/null
+P5 | feat/x | git-guard | ask | git config core.hookspath /dev/null
+"""  # noqa: E501 (a row holds its command as written)
 
 # forms of this work beyond the acceptance rows: the same readings, other spellings
 OWN = r"""
@@ -288,6 +309,24 @@ Xs | feat/x | shell | silent | git commit -m -an
 Xs | feat/x | shell | silent | git commit -m x -- --no-verif
 Xs | feat/x | shell | silent | git fetch --prune origin
 Xs | feat/x | shell | silent | git log --no-merges -n 5
+X6 | feat/x | git-guard | deny | sudo SKIP=1 git merge feat
+X6 | feat/x | git-guard | deny | env -u X LEFTHOOK=0 timeout 60 git rebase main
+X6 | feat/x | git-guard | deny | export SKIP=ruff && git -C sub cherry-pick abc
+X6 | feat/x | git-guard | deny | GIT_CONFIG_PARAMETERS="'core.hooksPath'='/dev/null'" git commit -m x
+X6 | feat/x | git-guard | deny | git -c CORE.HOOKSPATH=x status
+X6 | feat/x | git-guard | deny | ssh build 'HUSKY=0 git push origin feat'
+X6 | feat/x | git-guard | ask | git config --local --unset-all core.hooksPath
+X6 | feat/x | git-guard | ask | git config --type=path core.hooksPath ~/hooks
+X6 | feat/x | git-guard | ask | bash -c 'git config core.hooksPath /tmp/h'
+Xs | feat/x | shell | silent | HUSKY=0; git commit -m x
+Xs | feat/x | shell | silent | HUSKY=1 git commit -m x
+Xs | feat/x | shell | silent | SKIP=1 git status
+Xs | feat/x | shell | silent | export HUSKY=0; make test
+Xs | feat/x | shell | silent | git config get core.hooksPath
+Xs | feat/x | shell | silent | git config --get-all core.hooksPath
+Xs | feat/x | shell | silent | git config set core.hooksPath .githooks
+Xs | feat/x | shell | silent | git -c core.hooksPath=.githooks push origin feat
+Xs | feat/x | shell | silent | git commit -m "SKIP=ruff git commit"
 """
 
 

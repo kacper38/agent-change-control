@@ -827,6 +827,85 @@ def _git_prefix(longs: list[str], names: tuple) -> bool:
     return any(n.startswith(x) for x in longs for n in names)
 
 
+# 0.8.0: the hook gate through configuration and the environment. The key is case-insensitive (measured); the
+# kit's own hook directory is the one silent value
+_HOOKS_PATH_KEY = "core.hookspath"
+_KIT_HOOKS = ".githooks"
+GIT_HOOKS_PATH_MSG = ("git-guard: `git config core.hooksPath` changes where the commit gate's hooks run. "
+                      "The kit installs `.githooks`; confirm any other change.")
+# the hook managers' own off switches (husky, lefthook, pre-commit's SKIP) and the git calls whose hooks they skip
+_HOOK_ENV_OFF = {"HUSKY": "0", "LEFTHOOK": "0"}
+_HOOK_ENV_SUBS = frozenset("commit push merge pull rebase am cherry-pick revert".split())
+
+
+def _git_sets_hooks_path(own: list[str]) -> bool:
+    """git's own options (the words between `git` and the subcommand) set core.hooksPath for the call:
+    `-c core.hooksPath=…` with any value but `.githooks`, or `--config-env=core.hooksPath=VAR` (git(1))."""
+    for k, t in enumerate(own):
+        if t == "-c" and k + 1 < len(own):
+            key, _eq, value = own[k + 1].partition("=")
+            if key.lower() == _HOOKS_PATH_KEY and value != _KIT_HOOKS:
+                return True
+        elif t.startswith("--config-env=") and t[len("--config-env=") :].partition("=")[0].lower() == _HOOKS_PATH_KEY:
+            return True
+    return False
+
+
+def _git_config_writes_hooks_path(rest: list[str]) -> bool:
+    """`git config` sets or unsets core.hooksPath: `[set] core.hooksPath <value>`, `--unset`, `--unset-all`,
+    `unset`, with any scope option in front. The value `.githooks` and the reads (`--get`, `get`, the name alone,
+    `--list`) are none (git-config(1))."""
+    keys = [k for k, t in enumerate(rest) if t.lower() == _HOOKS_PATH_KEY]
+    if not keys:
+        return False
+    before = rest[: keys[0]]
+    if any(t in ("--unset", "--unset-all", "unset") for t in before):
+        return True
+    if any(t.startswith(("--get", "--list")) or t in ("-l", "get", "list") for t in before):
+        return False
+    values = [t for t in rest[keys[0] + 1 :] if not t.startswith("-")]
+    return bool(values) and values[0] != _KIT_HOOKS
+
+
+def _git_env_bypass(env: list[str], seg: list[str]) -> Optional[str]:
+    """What the environment of one git call (assignments in front of it, `env NAME=value`, earlier exports) does
+    to the hooks: HUSKY=0, LEFTHOOK=0 or SKIP=… for a git call that runs hooks; GIT_CONFIG_KEY_<n> or
+    GIT_CONFIG_PARAMETERS naming core.hooksPath for any git call."""
+    sub, _rest = _git_subcommand(seg)
+    if sub is None:
+        return None
+    for word in env:
+        name, _eq, value = word.partition("=")
+        if sub in _HOOK_ENV_SUBS and (_HOOK_ENV_OFF.get(name) == value or name == "SKIP"):
+            return f"`{word}` in the environment of `git {sub}` skips the hooks"
+        if ((name.startswith("GIT_CONFIG_KEY_") and value.lower() == _HOOKS_PATH_KEY)
+                or (name == "GIT_CONFIG_PARAMETERS" and _HOOKS_PATH_KEY in value.lower())):
+            return f"`{name}` sets core.hooksPath for `git {sub}` and skips the hooks"
+    return None
+
+
+def _git_env_gate(command: str) -> Optional[Decision]:
+    """The hook gate through the environment, read from the reader's token lists: the words in front of a git
+    command word and the `export NAME=value` of an earlier simple command of the line (a plain `NAME=value;`
+    does not reach git). segments() drops these words, so only the reader sees them."""
+    try:
+        exported: list[str] = []
+        for toks in nested_commands(command):
+            if toks[0] == "export":
+                exported.extend(t for t in toks[1:] if _ASSIGN_RE.match(t))
+                continue
+            for i in sorted(command_word_indexes(toks)):
+                if os.path.basename(toks[i]) == "git":
+                    what = _git_env_bypass([t for t in toks[:i] if _ASSIGN_RE.match(t)] + exported, list(toks[i:]))
+                    if what:
+                        return "deny", GIT_MSG.format(what=what)
+    except CommandNotRead:  # reader_pass reads the same memo next and asks with the reason
+        return None
+    except Exception as exc:  # main() turns a crash into exit 1, which both harnesses let run silently: ask instead
+        return "ask", READER_MSG.format(rule="git-guard", what=f"the command could not be read ({type(exc).__name__})")
+    return None
+
+
 def current_branch(cwd: str) -> Optional[str]:
     """Checked-out branch name, also on an unborn branch; None when detached or not a repo."""
     for args in (["symbolic-ref", "--short", "-q", "HEAD"], ["rev-parse", "--abbrev-ref", "HEAD"]):
@@ -857,6 +936,10 @@ def _git_guard_seg(seg: list[str], cwd: str, protected: set, elsewhere: bool = F
     if ("--no-verify" in rest or (sub == "commit" and ("-n" in rest or "n" in shorts))
             or (sub in _NO_VERIFY_SUBS and _git_prefix(longs, ("no-verify",)))):
         return "deny", GIT_MSG.format(what=f"`git {sub} --no-verify` skips the commit gate")
+    if _git_sets_hooks_path(seg[1 : len(seg) - len(rest) - 1]):
+        return "deny", GIT_MSG.format(what=f"`git {sub}` sets core.hooksPath for the call and skips the hooks")
+    if sub == "config" and _git_config_writes_hooks_path(rest):
+        return "ask", GIT_HOOKS_PATH_MSG
     if sub != "push":
         return None
     if (any(t in _FORCE_FLAGS or t.startswith("--force-with-lease=") for t in rest) or "f" in shorts
@@ -916,7 +999,10 @@ def rule_git_guard(ev: Event, cfg: dict) -> Optional[Decision]:
         # a simple command the local reading does not find runs elsewhere: the host's branch says nothing there
         return _git_guard_seg(seg, ev.cwd, protected, elsewhere=here is not None and tuple(seg) not in here)
 
-    return reader_pass(ev.command, judge, "git-guard")
+    gate = _git_env_gate(ev.command)
+    if gate and gate[0] == "deny":
+        return gate
+    return combine([d for d in (gate, reader_pass(ev.command, judge, "git-guard")) if d])
 
 
 def _local_simple_commands(command: str) -> Optional[set]:

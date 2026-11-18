@@ -1909,9 +1909,14 @@ def rule_egress_guard(ev: Event, cfg: dict) -> Optional[Decision]:
     if str(cfg.get("boundary") or "own") != "client":
         return None
     text = strip_heredocs(ev.command)
+    places = None  # K11: worked out once per line, at the first hit (F21: once per hit cost O(n^3))
     for seg in segments(text):
         d = _egress_seg(seg)
-        if d and not _only_in_search_patterns(text, ev.command, seg):
+        if not d:
+            continue
+        if places is None:
+            places = _pattern_places(text, ev.command)
+        if not _only_in_search_patterns(places, seg):
             return d
     # 0.8.0: the full reading (not the local one): a container or another host still sends the data out
     return reader_pass(ev.command, _egress_seg, "egress-guard")
@@ -1944,13 +1949,12 @@ def _search_patterns(command: str) -> list[str]:
     return out
 
 
-def _only_in_search_patterns(text: str, command: str, seg: list[str]) -> bool:
-    """Group C (K11, the owner's answer of 2026-11-18): the first pass splits the line at every `|`, also inside a
-    quoted word, so the words of a quoted search pattern (`grep -E 'a|openai|b'`) look like a command. A hit is
-    dropped when every place of the line that gives this segment lies inside such a pattern, written between a
-    pair of quotes; a hit anywhere else keeps asking."""
+def _pattern_places(text: str, command: str) -> tuple:
+    """K11's reading of a line, once (F21): the spans of the quoted search patterns that hold a separator, merged
+    and sorted, and for each segment the first pass gives, the places (start, end) of the parts of the line that
+    give it."""
     spans = []
-    for p in _search_patterns(command):
+    for p in set(_search_patterns(command)):
         if not _SEP_RE.search(p):
             continue
         for q in ("'", '"'):
@@ -1958,19 +1962,43 @@ def _only_in_search_patterns(text: str, command: str, seg: list[str]) -> bool:
             while start >= 0:
                 spans.append((start + 1, start + 1 + len(p)))
                 start = text.find(q + p + q, start + 1)
-    if not spans:
-        return False
-    places = 0
-    pos = 0
-    for m in [*_SEP_RE.finditer(text), None]:
-        end = m.start() if m else len(text)
-        part = text[pos:end]
-        if [list(s) for s in _segments_cached(part)] == [seg]:
-            places += 1
-            if not any(a <= pos and end <= b for a, b in spans):
-                return False
-        pos = m.end() if m else end
-    return places > 0
+    merged: list = []
+    for a, b in sorted(spans):
+        if merged and a <= merged[-1][1]:
+            merged[-1][1] = max(merged[-1][1], b)
+        else:
+            merged.append([a, b])
+    where: dict = {}
+    if merged:
+        pos = 0
+        for m in [*_SEP_RE.finditer(text), None]:
+            end = m.start() if m else len(text)
+            part = text[pos:end]
+            segs = _segments_cached(part)
+            if len(segs) == 1:
+                where.setdefault(segs[0], []).append((pos, end))
+            pos = m.end() if m else end
+    return [a for a, _ in merged], [b for _, b in merged], where
+
+
+def _only_in_search_patterns(places: tuple, seg: list[str]) -> bool:
+    """Group C (K11, the owner's answer of 2026-11-18): the first pass splits the line at every `|`, also inside a
+    quoted word, so the words of a quoted search pattern (`grep -E 'a|openai|b'`) look like a command. A hit is
+    dropped when every place of the line that gives this segment lies inside such a pattern, written between a
+    pair of quotes; a hit anywhere else keeps asking."""
+    starts, ends, where = places
+    key = tuple(seg)
+    found = where.get(key)
+    if not isinstance(found, list):  # judged before on this line (the same segment repeats), or never placed
+        return bool(found)
+    inside = True
+    for a, b in found:
+        i = bisect.bisect_right(starts, a) - 1
+        if i < 0 or b > ends[i]:
+            inside = False
+            break
+    where[key] = inside  # one verdict per segment and line (F21)
+    return inside
 
 
 def _egress_seg(seg: list[str]) -> Optional[Decision]:

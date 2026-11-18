@@ -3,6 +3,7 @@ read, and eleven kinds of ask that fired on harmless commands. Each row is one c
 answers for it; the commands are data, nothing runs. Rows whose id ends in `s` or `t` held at 0.8.0 and must keep
 holding; the others were red at 0.8.0."""
 import json
+import time
 
 import pytest
 
@@ -1368,6 +1369,21 @@ def test_tool_name_takes_the_homebrew_g_off_a_gnu_tool_only(guard, word, name):
                                      "UNSHARE -n rm -rf build"])
 def test_a_new_name_in_capitals_is_read_like_the_plain_name(guard, monkeypatch, command):
     assert _answers(guard, monkeypatch, "feat/x", "own", "delete-guard", command) == {"delete-guard": "ask"}
+
+
+@pytest.mark.parametrize("tail, expected", [("", None), ("ollama run m", "ask")])
+def test_search_patterns_cost_one_reading_per_line(guard, tail, expected):
+    """Fix pass, F21: K11 read the line again for every segment with a hit (12.8 s at 10 kB at 8879cd5). The
+    patterns and their places are worked out once per line now; 20 kB with a wide margin (the hook stops at 5 s)."""
+    command = "grep -E 'a|ollama|b' f; " * (20000 // len("grep -E 'a|ollama|b' f; ")) + tail
+    guard._nc_cached.cache_clear()
+    ev = guard.Event({"hook_event_name": "PreToolUse", "tool_name": "Bash", "tool_input": {"command": command},
+                      "cwd": "/nonexistent-scratch"})
+    start = time.perf_counter()
+    got = guard.rule_egress_guard(ev, dict(guard.DEFAULTS, boundary="client"))
+    took = time.perf_counter() - start
+    assert (got or (None,))[0] == expected
+    assert took < 2, f"{took:.2f} s: a slow hook fails open"
 
 
 def test_pinned_rows_are_all_there():

@@ -619,8 +619,10 @@ _WRITERS_ALL = {"tee", "truncate", "touch", "chmod", "chown"}
 # grep, rg, fd, ag, git ls-files): `tar --exclude=.env` stays silent
 _PATTERN_VALUE_OPTIONS = frozenset("--exclude --exclude-dir --exclude-from --include --glob --iglob --ignore"
                                    " --filter".split())
-_INPUT_REDIRECT_RE = re.compile(r"^\d*<(?![<&(>])(\S+)$")  # `<f`, `0<f`; not `<<`, `<<<`, `<&3`, `<(…)`, `<>`
-_BARE_INPUT_RE = re.compile(r"^\d*<$")  # `< f`: the file is the next word
+# the reader marks an unquoted input redirection `<` with \x01 (_hi_prepare), so a quoted `'<.env'` is none:
+# `<f`, `0<f`, `<>f` (read and write); not `<<`, `<<<`, `<&3`, `<(…)`
+_INPUT_REDIRECT_RE = re.compile(r"^\d*<\x01>?(\S+)$")
+_BARE_INPUT_RE = re.compile(r"^\d*<\x01>?$")  # `< f`: the file is the next word
 
 
 def _path_candidates(t: str) -> list[str]:
@@ -1942,10 +1944,25 @@ def _hi_sub_end(text: str, i: int) -> int:
     return len(text)
 
 
-def _hi_prepare(text: str) -> tuple[str, list[str]]:
+def _hi_glued(out: list[str]) -> bool:
+    """The unquoted `<` or `>` at hand is glued to a word in front of it that is no file descriptor number
+    (`cat<f`, `bash<<EOF`; not `2>f`, the second `<` of `<<`, or a word start)."""
+    if not out or out[-1] in ("<", ">", "<\x01"):
+        return False
+    for p in reversed(out):
+        if len(p) == 1 and p in _HI_WORD_START:
+            break
+        if not p.isdigit():
+            return True
+    return False
+
+
+def _hi_prepare(text: str, mark: bool = False) -> tuple[str, list[str]]:
     """One quote-aware pass before the lexer. Drops backslash-newline and comments, takes the `&` out of a
     redirection (2>&1, >&2, &>) so it does not split the command, and collects the body of every $( … ) and
-    backtick substitution written inside double quotes: the host shell runs it."""
+    backtick substitution written inside double quotes: the host shell runs it. 0.8.0: an unquoted `<` or `>`
+    glued to the word in front of it is split off (`cat<.env`, `bash<<EOF`); with `mark` (the reader) an unquoted
+    input redirection `<` gets the mark \x01, so a quoted word that starts with `<` is no redirection."""
     out: list[str] = []
     subs: list[str] = []
     quote = ""
@@ -1975,12 +1992,22 @@ def _hi_prepare(text: str) -> tuple[str, list[str]]:
             i = n if j < 0 else j
             continue
         elif c in "<>" and text[i + 1 : i + 2] == "&":  # 2>&1, >&2, <&3, 2>&-
+            if _hi_glued(out):
+                out.append(" ")
             out.append(c)
             i += 2
             continue
         elif c == "&" and text[i + 1 : i + 2] == ">":  # &>, &>>
             i += 1
             continue
+        elif c in "<>":
+            glued = _hi_glued(out)
+            if glued:
+                out.append(" ")
+            if mark and c == "<" and text[i + 1 : i + 2] not in ("<", "(") and (glued or out[-1:] != ["<"]):
+                out.append("<\x01")  # an input redirection: `<f`, `< f`, `<>f`
+                i += 1
+                continue
         out.append(c)
         i += 1
     return "".join(out), subs
@@ -2309,7 +2336,7 @@ _MAX_COMMAND_WORDS = 64
 _TOO_MANY_WORDS = (f"one simple command has more than {_MAX_COMMAND_WORDS} places where a command can stand "
                    "and was not read")
 _REDIRECT_TOKEN_RE = re.compile(r"^\d*[<>]")
-_BARE_REDIRECT_TOKEN_RE = re.compile(r"^\d*(<|>|>>|<<|<<-|<<<|<>)$")
+_BARE_REDIRECT_TOKEN_RE = re.compile(r"^\d*(<|>|>>|<<|<<-|<<<|<>|<\x01|<\x01>)$")  # \x01: _hi_prepare's mark
 # the reader's own tables (the host-install ones stay as they are): names whose -c or here-string hands a script
 # to a shell, by basename; `$SHELL` is a word the reader sees unexpanded
 _NC_SHELLS = frozenset("sh bash zsh dash ksh fish ash su script flock $SHELL ${SHELL}".split())
@@ -2428,7 +2455,7 @@ def _nc_read(text: str, depth: int, out: list, seen: set, local: bool = False,
         return
     if bodies is None:
         bodies = []
-    prepared, subs = _hi_prepare(_nc_take_heredocs(text, bodies))
+    prepared, subs = _hi_prepare(_nc_take_heredocs(text, bodies), mark=True)
     cmds = _hi_lex(prepared)
     if cmds is None:  # an unbalanced quote: raw words between separators, brackets and backticks, ends unquoted
         parts = [[w for w in (t.strip("'\"\\") for t in tokens(p)) if w] for p in _NC_FALLBACK_SPLIT_RE.split(prepared)]
@@ -2451,7 +2478,7 @@ def _nc_read(text: str, depth: int, out: list, seen: set, local: bool = False,
         nested.extend(_nc_here_strings(raw))  # taken from the words before the redirections go: `<<<` is one
         if inputs is not None:
             inputs.extend(_nc_inputs(raw))
-        piped = rows[k + 1][1] if k + 1 < len(rows) and seps[k + 1].strip(" \n") == "|" else None
+        piped = rows[k + 1][1] if k + 1 < len(rows) and seps[k + 1].strip(" \n") in ("|", "|&") else None
         nested.extend(_nc_fed(raw, toks, piped, bodies))
         if not toks:
             continue

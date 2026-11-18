@@ -916,7 +916,8 @@ As | Read | secret-read | ask | .ENV
 As | Read | secret-read | silent | docs/ENV.md
 """
 
-_FIX_DONE = ("A1", "As")  # the ids of the fix pass closed so far; the table holds every row of the pass
+# the ids of the fix pass closed so far; the table holds every row of the pass
+_FIX_DONE = ("A1", "As", "A2", "A3", "A11", "A12")
 TABLE = _rows(PINNED) + _rows(CLOSED) + _rows(CAPS) + [r for r in _rows(FIX) if r[0] in _FIX_DONE]
 OWN_TABLE = _rows(OWN)
 

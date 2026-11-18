@@ -51,7 +51,9 @@ import json
 import math
 import os
 import re
+import shutil
 import sys
+import time
 from typing import Optional
 
 try:
@@ -773,7 +775,10 @@ def _clean(text) -> str:
 
 
 def _cut(text: str, width: int) -> str:
-    return text if len(text) <= width else text[:max(width - 3, 0)] + "..."
+    """The text if it fits `width`, else its first width - 3 characters and `...` (a plain cut below 3)."""
+    if len(text) <= width:
+        return text
+    return text[:width - 3] + "..." if width >= 3 else text[:max(width, 0)]
 
 
 def _priced(per_model: dict, prices: dict) -> tuple:
@@ -1094,12 +1099,53 @@ def find_session(text: Optional[str], cwd: str) -> tuple:
     return os.path.join(folder, newest[1]), None
 
 
-def cmd_agents(session: Optional[str], out, err, tdir: str, prices: dict, cwd: Optional[str] = None) -> int:
-    """The `agents` verb: one session as a tree on `out`; an error is one line on `err` and exit 1."""
+WATCH_ENTER = "\x1b[?1049h\x1b[?25l"  # the alternate screen, cursor hidden
+WATCH_LEAVE = "\x1b[?25h\x1b[?1049l"  # cursor shown, the screen as it was
+WATCH_LAST = "watching: redrawn every 2 s, Ctrl-C ends"
+
+
+def watch_frame(lines: list, width: int, height: int) -> str:
+    """One screen: the lines and WATCH_LAST, each cut to width - 1 and ended by erase-to-end-of-line; a frame
+    taller than the window keeps its first lines and says how many it leaves out."""
+    if len(lines) + 1 > height:
+        keep = max(height - 2, 0)
+        lines = lines[:keep] + [f"... {len(lines) - keep} more lines (a larger window shows them)"]
+    return "\n".join(_cut(line, width - 1) + "\x1b[K" for line in lines + [WATCH_LAST])
+
+
+def watch_agents(transcript: str, out, tdir: str, prices: dict, sleep, size) -> int:
+    """Draw the tree on the alternate screen every 2 s, only when it changed, until Ctrl-C; the terminal is
+    restored on every way out, an error included."""
+    shown = None
+    try:
+        out.write(WATCH_ENTER)
+        out.flush()
+        while True:
+            width, height = size()
+            frame = watch_frame(agent_lines(read_agents(transcript, tdir, prices)), width, height)
+            if frame != shown:
+                out.write(_encodable("\x1b[H" + frame + "\x1b[J", out))
+                out.flush()
+                shown = frame
+            sleep(2)
+    except KeyboardInterrupt:  # Ctrl-C is how a watch ends
+        return 0
+    finally:
+        out.write(WATCH_LEAVE)
+        out.flush()
+
+
+def cmd_agents(session: Optional[str], out, err, tdir: str, prices: dict, cwd: Optional[str] = None,
+               watch: bool = False, sleep=time.sleep, size=shutil.get_terminal_size) -> int:
+    """The `agents` verb: one session as a tree on `out`; an error is one line on `err` and exit 1. With `watch`
+    on a terminal the tree is redrawn (sleep and size are parameters so a test runs the loop without either)."""
     transcript, problem = find_session(session, os.getcwd() if cwd is None else cwd)
     if problem:
         err.write(_encodable(_clean(problem) + "\n", err))
         return 1
+    isatty = getattr(out, "isatty", None)
+    if watch and callable(isatty) and isatty():
+        return watch_agents(transcript, out, tdir, prices, sleep, size)
     out.write(_encodable("".join(line + "\n" for line in agent_lines(read_agents(transcript, tdir, prices))), out))
     return 0
 
@@ -1115,6 +1161,7 @@ def main(argv: list, stdin=None, out=None, err=None) -> int:
     r.add_argument("--write", action="store_true")
     g = sub.add_parser("agents")
     g.add_argument("--session")
+    g.add_argument("--watch", action="store_true")
     if not argv or argv[0] in ("help", "-h", "--help"):
         out.write(__doc__.strip() + "\n")
         return 0
@@ -1129,7 +1176,7 @@ def main(argv: list, stdin=None, out=None, err=None) -> int:
     if ns.verb == "recount":
         return recount(telemetry_dir(), ns.write, out)
     if ns.verb == "agents":
-        return cmd_agents(ns.session, out, err, telemetry_dir(), load_prices())
+        return cmd_agents(ns.session, out, err, telemetry_dir(), load_prices(), watch=ns.watch)
     out.write(__doc__.strip() + "\n")
     return 1
 

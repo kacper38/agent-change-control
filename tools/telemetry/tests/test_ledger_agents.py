@@ -3,6 +3,7 @@ import io
 import json
 import os
 import pathlib
+import re
 import shutil
 
 import pytest
@@ -497,3 +498,126 @@ def test_imports_are_standard_library_only():
         elif isinstance(node, ast.ImportFrom):
             names.add((node.module or "").split(".")[0])
     assert names <= allowed
+
+
+# step 3: --watch
+ENTER, LEAVE = "\x1b[?1049h\x1b[?25l", "\x1b[?25h\x1b[?1049l"
+ESCAPES = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
+
+
+class Terminal(io.StringIO):
+    """A stand-in output stream that says it is a terminal."""
+
+    def isatty(self):
+        return True
+
+
+def stop_on_second_call(first=None):
+    """A stand-in sleep: runs `first` on its first call, raises KeyboardInterrupt (Ctrl-C) on the second."""
+    calls = []
+
+    def sleep(seconds):
+        calls.append(seconds)
+        if len(calls) == 2:
+            raise KeyboardInterrupt
+        if first:
+            first()
+    sleep.calls = calls
+    return sleep
+
+
+def watch(ledger, transcript, sleep, size=(100, 40), tdir=None):
+    out, err = Terminal(), io.StringIO()
+    code = ledger.cmd_agents(pathlib.Path(transcript).stem, out, err, str(tdir or FIX / "telemetry"), OPUS,
+                             watch=True, sleep=sleep, size=lambda: size)
+    return code, out.getvalue(), err.getvalue()
+
+
+@pytest.fixture
+def live(tmp_path, monkeypatch):
+    t = make_session(tmp_path, [user("p", 1), asst(sec=2)], [("", "a1", [user("b", 3), asst(sec=4)], None)])
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "config"))
+    return t
+
+
+def test_watch_draws_an_unchanged_tree_once(ledger, live):
+    sleep = stop_on_second_call()
+    code, out, err = watch(ledger, live, sleep)
+    assert (code, err, sleep.calls) == (0, "", [2, 2])
+    assert out.startswith(ENTER) and out.endswith(LEAVE)
+    assert out.count("\x1b[H") == 1 and out.count("\x1b[J") == 1
+    assert "watching: redrawn every 2 s, Ctrl-C ends\x1b[K" in out
+
+
+def test_watch_draws_a_changed_tree_again(ledger, live):
+    def grow():
+        with open(live, "a", encoding="utf-8") as fh:
+            fh.write(json.dumps(asst(sec=59, req="r-late")) + "\n")
+    code, out, _ = watch(ledger, live, stop_on_second_call(grow))
+    assert code == 0 and out.count("\x1b[H") == 2
+    first, second = out.split("\x1b[H")[1:]
+    assert first.startswith("running       1s") and second.startswith("running      58s")  # before and after
+
+
+def visible_lines(out):
+    frames = out[len(ENTER):-len(LEAVE)].split("\x1b[H")[1:]
+    return [ESCAPES.sub("", line) for frame in frames for line in frame.split("\n")]
+
+
+def test_watch_lines_fit_the_width(ledger, live):
+    _, out, _ = watch(ledger, live, stop_on_second_call(), size=(40, 40))
+    lines = visible_lines(out)
+    assert lines and max(len(line) for line in lines) == 39
+    assert all(line.endswith("\x1b[K") for line in out.split("\x1b[H")[1].split("\x1b[J")[0].split("\n"))
+
+
+def test_watch_tree_taller_than_the_window(ledger, live):
+    _, out, _ = watch(ledger, live, stop_on_second_call(), size=(100, 5))
+    lines = visible_lines(out)
+    # session, agent, total, blank and three notes are seven lines; the window keeps three of them
+    assert len(lines) == 5
+    assert lines[3:] == ["... 4 more lines (a larger window shows them)", "watching: redrawn every 2 s, Ctrl-C ends"]
+
+
+def test_watch_error_while_building_a_frame_restores_the_terminal(ledger, live, monkeypatch):
+    real = ledger.read_agents
+    calls = []
+
+    def flaky(*a):
+        calls.append(1)
+        if len(calls) == 2:
+            raise RuntimeError("disk gone")
+        return real(*a)
+    monkeypatch.setattr(ledger, "read_agents", flaky)
+    out = Terminal()
+    with pytest.raises(RuntimeError):  # the second frame fails after the first was drawn
+        ledger.cmd_agents(pathlib.Path(live).stem, out, io.StringIO(), "", OPUS, watch=True,
+                          sleep=lambda s: None, size=lambda: (80, 24))
+    assert out.getvalue().startswith(ENTER) and out.getvalue().endswith("\x1b[J" + LEAVE)
+    out = Terminal()
+    monkeypatch.setattr(ledger, "read_agents", lambda *a: (_ for _ in ()).throw(RuntimeError("x")))
+    with pytest.raises(RuntimeError):  # the first frame fails
+        ledger.cmd_agents(pathlib.Path(live).stem, out, io.StringIO(), "", OPUS, watch=True,
+                          sleep=lambda s: None, size=lambda: (80, 24))
+    assert out.getvalue() == ENTER + LEAVE
+
+
+def test_watch_ctrl_c_while_the_size_is_read(ledger, live):
+    def size():
+        raise KeyboardInterrupt
+    out = Terminal()
+    assert ledger.cmd_agents(pathlib.Path(live).stem, out, io.StringIO(), "", OPUS, watch=True,
+                             sleep=lambda s: None, size=size) == 0
+    assert out.getvalue() == ENTER + LEAVE
+
+
+def test_watch_error_in_the_session_leaves_the_terminal_alone(ledger, live):
+    out, err = Terminal(), io.StringIO()
+    assert ledger.cmd_agents("nothing-fits", out, err, "", OPUS, watch=True, sleep=stop_on_second_call(),
+                             size=lambda: (80, 24)) == 1
+    assert out.getvalue() == "" and err.getvalue().count("\n") == 1
+
+
+def test_watch_on_a_stream_that_is_no_terminal(ledger, fixture_env, fixture_prices):
+    for sid in SESSIONS.values():
+        assert run(ledger, ["agents", "--session", sid, "--watch"]) == run(ledger, ["agents", "--session", sid])

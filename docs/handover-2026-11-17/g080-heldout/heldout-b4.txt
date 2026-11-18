@@ -1,0 +1,314 @@
+# Guard 0.8.0, group B, part 4: forms the engineer never sees, for rows-b4.txt and rows-b4-az.txt.
+# DRAFT of 2026-11-18, written by a cloud session together with those rows. Same format, checked by expect.py.
+# HR = due with the build (other spellings and arrangements of what the rows name): a red row afterwards is a
+#      defect or a missed spelling for the fix pass
+# HS = must answer as at 0.7.1 (holds today): a red row afterwards is a regression or new noise
+# HO = observed only (a neighbour of the class, an undecided form, or a form whose verdict depends on open
+#      question 5): reported as a limit or a proposal, never required
+
+# ---------------------------------------------------------------- the safety net (3b)
+HR | feat/x | git-guard | ask | wrapper.sh git push --force-with-lease origin feat
+HR | feat/x | git-guard | ask | ./scripts/run git commit -n -m x
+HR | feat/x | git-guard | ask | mytool -v --opt=1 git push origin feat:main
+HR | feat/x | git-guard | ask | mytool git push --mirror origin
+HR | feat/x | git-guard | ask | nohup mytool git push --force origin feat &
+HR | feat/x | git-guard | ask | mytool run -- git push -f origin feat
+HR | feat/x | git-guard | ask | env FOO=1 mytool git commit --no-verify -m x
+HR | feat/x | git-guard | ask | cd repo && mytool git push --force origin feat
+HR | feat/x | git-guard | ask | mytool git -C sub push --force origin feat
+HR | feat/x | git-guard | ask | time mytool git push --force origin feat
+HR | feat/x | git-guard | ask | mytool git merge --no-verify feat
+HR | feat/x | tracker-guard | ask | mytool gh issue delete 3 --yes
+HR | feat/x | tracker-guard | ask | ./ci-helper gh label delete bug --yes
+HR | feat/x | tracker-guard | ask | mytool gh api --method DELETE repos/o/r/labels/bug
+HR | feat/x | tracker-guard | ask | mytool az boards work-item create --title x --type Task
+HR | feat/x | tracker-guard | ask | nohup mytool gh issue reopen 3 &
+HR | feat/x | tracker-guard | ask | mytool az repos pr update --id 3 --status completed
+HR | main | protected-branch | ask | ./with-env.sh prod git commit -am x
+HR | main | protected-branch | ask | mytool git -C . commit -m x
+HR | main | protected-branch | ask | retry 3 git commit --amend --no-edit
+HS | feat/x | shell | silent | mytool git diff --stat
+HS | feat/x | shell | silent | mytool gh pr list
+HS | feat/x | shell | silent | mytool az account show
+HS | feat/x | shell | silent | mytool gitk --all
+HS | feat/x | shell | silent | ls git gh az
+HS | feat/x | shell | silent | man gh issue close
+HS | feat/x | shell | silent | which az
+HS | feat/x | shell | silent | type gh
+HS | feat/x | git-guard | silent | echo "run mytool git push --force"
+HS | feat/x | git-guard | silent | printf 'git commit --no-verify\n'
+HS | feat/x | git-guard | deny | sudo git push --force origin feat
+HS | feat/x | git-guard | deny | xargs git push --force origin feat
+HS | feat/x | tracker-guard | deny | env FOO=1 gh issue close 3
+HS | main | shell | silent | mytool git log -1
+HS | main | shell | silent | mytool git fetch origin
+HO | feat/x | tracker-guard | ask | mytool python3 tools/tracker/tracker.py owner done 3
+HO | feat/x | git-guard | ask | mytool "git push --force origin feat"
+HO | feat/x | tracker-guard | ask | mytool curl -X PATCH https://api.github.com/repos/o/r/issues/3 -d '{"state":"closed"}'
+HO | feat/x | git-guard | ask | mytool GIT push --force origin feat
+
+# ---------------------------------------------------------------- GraphQL (aa)
+HR | feat/x | tracker-guard | deny | gh api graphql -f query='mutation { transferIssue(input: {issueId: "I_1", repositoryId: "R_2"}) { clientMutationId } }'
+HR | feat/x | tracker-guard | deny | gh api graphql -f query='mutation { updateLabel(input: {id: "L_1", name: "y"}) { clientMutationId } }'
+HR | feat/x | tracker-guard | deny | gh api graphql -f query='mutation { pinIssue(input: {issueId: "I_1"}) { clientMutationId } }'
+HR | feat/x | tracker-guard | deny | gh api graphql -f query='mutation { updateIssueComment(input: {id: "IC_1", body: "x"}) { clientMutationId } }'
+HR | feat/x | tracker-guard | deny | "gh api graphql -f query='\nmutation {\n  closeIssue(input: {issueId: \"I_1\"}) { clientMutationId }\n}'"
+HR | feat/x | tracker-guard | deny | gh api graphql -fquery='mutation { closeIssue(input: {issueId: "I_1"}) { clientMutationId } }'
+HR | feat/x | tracker-guard | deny | gh api graphql --field query='mutation { closeIssue(input: {issueId: "I_1"}) { clientMutationId } }'
+HR | feat/x | tracker-guard | deny | gh api graphql --field=query='mutation { closeIssue(input: {issueId: "I_1"}) { clientMutationId } }'
+HR | feat/x | tracker-guard | deny | gh api graphql -f query='mutation{closeIssue(input:{issueId:"I_1"}){clientMutationId}}'
+HR | feat/x | tracker-guard | deny | GH_HOST=ghe.example.org gh api graphql -f query='mutation { closeIssue(input: {issueId: "I_1"}) { clientMutationId } }'
+HR | feat/x | tracker-guard | deny | gh api graphql --hostname ghe.example.org -f query='mutation { deleteLabel(input: {id: "L_1"}) { clientMutationId } }'
+HR | feat/x | tracker-guard | deny | curl -sS -H "Authorization: Bearer $GH_TOKEN" --data '{"query":"mutation { reopenIssue(input: {issueId: \"I_1\"}) { clientMutationId } }"}' https://api.github.com/graphql
+HR | feat/x | tracker-guard | deny | wget -qO- --post-data='{"query":"mutation { closeIssue(input: {issueId: \"I_1\"}) { clientMutationId } }"}' https://api.github.com/graphql
+HR | feat/x | tracker-guard | deny | http POST https://api.github.com/graphql query='mutation { closeIssue(input: {issueId: "I_1"}) { clientMutationId } }'
+HR | feat/x | tracker-guard | deny | bash -c "gh api graphql -f query='mutation { closeIssue(input: {issueId: \"I_1\"}) { clientMutationId } }'"
+HR | feat/x | tracker-guard | ask | gh api graphql -f query='mutation { createPullRequest(input: {repositoryId: "R_1", baseRefName: "main", headRefName: "feat", title: "x"}) { pullRequest { number } } }'
+HR | feat/x | tracker-guard | ask | gh api graphql -f query='mutation { resolveReviewThread(input: {threadId: "T_1"}) { clientMutationId } }'
+HR | feat/x | tracker-guard | ask | gh api graphql -F query=@- < q.graphql
+HR | feat/x | tracker-guard | ask | gh api graphql --input - < body.json
+HR | feat/x | tracker-guard | ask | gh api graphql -f query=$QUERY
+HR | feat/x | tracker-guard | ask | gh api graphql -f query="$(cat q.graphql)"
+HR | feat/x | tracker-guard | ask | curl -s https://api.github.com/graphql --data-binary @q.json
+HR | feat/x | tracker-guard | ask | curl -s https://api.github.com/graphql -d "$BODY"
+HS | feat/x | shell | silent | gh api graphql -f query='query { repository(owner:"o",name:"r") { issue(number: 3) { title labels(first: 5) { nodes { name } } } } }'
+HS | feat/x | shell | silent | gh api graphql -f query='query($n: Int!) { repository(owner:"o",name:"r") { pullRequest(number: $n) { mergeable } } }' -F n=3
+HS | feat/x | shell | silent | gh api user
+HS | feat/x | shell | silent | gh api --help
+HS | feat/x | shell | silent | curl -s https://api.github.com/graphql -H "Authorization: bearer $T" -d '{"query":"{ viewer { login } }"}'
+HS | feat/x | shell | silent | curl -s https://example.org/graphql -d '{"query":"mutation { closeIssue }"}'
+HS | feat/x | shell | silent | gh api repos/o/r/issues/3/comments
+HS | feat/x | shell | silent | gh issue view 3 --json title
+HS | feat/x | shell | silent | echo "mutation { closeIssue }" > q.graphql
+HO | feat/x | shell | silent | gh api graphql -f query='query { search(query: "mutation testing", type: REPOSITORY, first: 1) { repositoryCount } }'
+HO | feat/x | tracker-guard | ask | gh api graphql -f query='mutation { updateRepository(input: {repositoryId: "R_1", hasIssuesEnabled: false}) { clientMutationId } }'
+
+# ---------------------------------------------------------------- git update-ref (ab)
+HR | feat/x | protected-branch | deny | git update-ref refs/heads/main HEAD~1
+HR | feat/x | protected-branch | deny | git update-ref -m msg --create-reflog refs/heads/main abc123
+HR | feat/x | protected-branch | deny | git --git-dir=.git update-ref refs/heads/main abc123
+HR | feat/x | protected-branch | deny | sudo git update-ref refs/heads/main abc123
+HR | feat/x | protected-branch | deny | git update-ref refs/heads/main abc123 && git status
+HR | feat/x | protected-branch | deny | cd sub && git update-ref refs/heads/main abc123
+HR | main | protected-branch | deny | git update-ref HEAD HEAD~1
+HR | main | protected-branch | deny | git update-ref -m rewind HEAD abc123
+HR | feat/x | protected-branch | ask | git update-ref --stdin < refs.txt
+HR | feat/x | protected-branch | ask | echo "update refs/heads/main abc123" | git update-ref --stdin
+HR | feat/x | protected-branch | ask | git update-ref --no-deref --stdin
+HS | feat/x | shell | silent | git update-ref refs/heads/feature/main-fix abc123
+HS | feat/x | shell | silent | git update-ref refs/heads/maintenance abc123
+HS | feat/x | shell | silent | git update-ref refs/notes/commits abc123
+HS | feat/x | shell | silent | git update-ref refs/stash abc123
+HS | feat/x | shell | silent | git for-each-ref refs/heads/main
+HS | feat/x | shell | silent | git log refs/heads/main -1
+HS | feat/x | shell | silent | git update-ref HEAD HEAD~1
+HS | feat/x | git-guard | deny | git push . feat:main
+HO | feat/x | shell | silent | git symbolic-ref HEAD refs/heads/main
+HO | feat/x | shell | silent | git branch -f main abc123
+HO | feat/x | shell | silent | git update-ref main abc123
+HO | feat/x | protected-branch | silent | ssh build 'git update-ref refs/heads/main abc123'
+
+# ---------------------------------------------------------------- a program from a pipe (ad)
+HR | feat/x | delete-guard | ask | cat scripts/deploy.sh | bash -x
+HR | feat/x | delete-guard | ask | cat run.sh | bash -e -u
+HR | feat/x | delete-guard | ask | tail -n +2 run.sh | sh
+HR | feat/x | delete-guard | ask | zcat x.gz | bash
+HR | feat/x | delete-guard | ask | xz -dc x.xz | sh
+HR | feat/x | delete-guard | ask | openssl enc -d -base64 -in x | bash
+HR | feat/x | delete-guard | ask | awk 'NR>1' run.sh | bash
+HR | feat/x | delete-guard | ask | cat a.sh b.sh | bash
+HR | feat/x | delete-guard | ask | jq -r .cmd plan.json | sh
+HR | feat/x | delete-guard | ask | python3 gen.py | bash
+HR | feat/x | delete-guard | ask | cat run.sh | nohup bash &
+HR | feat/x | delete-guard | ask | cat run.sh | time bash
+HR | feat/x | delete-guard | ask | cat run.sh | /bin/bash
+HR | feat/x | delete-guard | ask | cat run.sh | /usr/bin/env bash
+HR | feat/x | delete-guard | ask | (cat run.sh) | bash
+HR | feat/x | delete-guard | ask | cat run.sh | bash && echo done
+HR | feat/x | delete-guard | ask | cat run.sh | bash 2>&1 | tee log
+HR | feat/x | delete-guard | ask | make -n build | sh
+HR | feat/x | git-guard | ask | tail -n +2 run.sh | sh
+HS | feat/x | shell | silent | cat run.sh | bash lint.sh
+HS | feat/x | shell | silent | cat list.txt | xargs -n1 echo
+HS | feat/x | shell | silent | cat run.sh | less
+HS | feat/x | shell | silent | cat run.sh | shellcheck -
+HS | feat/x | shell | silent | ls | sort | head
+HS | feat/x | shell | silent | cat run.sh | ssh host 'cat > run.sh'
+HS | feat/x | shell | silent | echo "echo hello" | sh
+HS | feat/x | shell | silent | printf 'ls\n' | bash
+HS | feat/x | shell | silent | yes n | bash setup.sh --interactive
+HS | feat/x | shell | silent | cat data.csv | python3 process.py
+HS | feat/x | shell | silent | bash -c 'cat run.sh'
+HS | feat/x | shell | silent | cat run.sh | tee copy.sh
+HS | feat/x | shell | silent | cat README.md | head -5
+HO | feat/x | shell | silent | cat run.sh | bash -n
+HO | feat/x | shell | silent | bash < run.sh
+HO | feat/x | shell | silent | bash <(cat run.sh)
+HO | feat/x | shell | silent | eval "$(cat run.sh)"
+HO | feat/x | shell | silent | echo "$X" | bash
+HO | feat/x | shell | silent | cat run.sh | ssh host bash
+HO | feat/x | shell | silent | cat run.sh | docker exec -i c sh
+HO | feat/x | shell | silent | source <(cat run.sh)
+HO | feat/x | shell | silent | cat run.sh | python3 -
+HO | feat/x | shell | silent | cat run.sh | node -
+
+# ---------------------------------------------------------------- commands that print a secret from a store (af)
+HR | feat/x | secret-shell | ask | vault kv get -format=json secret/app
+HR | feat/x | secret-shell | ask | vault kv get -mount=secret app
+HR | feat/x | secret-shell | ask | VAULT_ADDR=https://vault.example.org vault kv get secret/app
+HR | feat/x | secret-shell | ask | vault read database/creds/readonly
+HR | feat/x | secret-shell | ask | vault kv get secret/app | jq -r .data.data.password
+HR | feat/x | secret-shell | ask | op read "op://Private/GitHub/token"
+HR | feat/x | secret-shell | ask | op read --no-newline op://vault/item/password
+HR | feat/x | secret-shell | ask | op item get GitHub --format json
+HR | feat/x | secret-shell | ask | kubectl get secret app -o yaml -n prod
+HR | feat/x | secret-shell | ask | kubectl get secret -n prod app -o=jsonpath='{.data.token}'
+HR | feat/x | secret-shell | ask | kubectl --context prod get secrets app --output json
+HR | feat/x | secret-shell | ask | kubectl get secret app -o jsonpath-as-json='{.data}'
+HR | feat/x | secret-shell | ask | kubectl get secret app -o go-template-file=t.tpl
+HR | feat/x | secret-shell | ask | kubectl get secrets --all-namespaces -o yaml
+HR | feat/x | secret-shell | ask | kubectl get secret,configmap -o json
+HR | feat/x | secret-shell | ask | gh auth token --hostname ghe.example.org
+HR | feat/x | secret-shell | ask | gh auth token -h github.com
+HR | feat/x | secret-shell | ask | GH_HOST=ghe.example.org gh auth token
+HR | feat/x | secret-shell | ask | gh auth status --show-token --hostname github.com
+HR | feat/x | secret-shell | ask | aws secretsmanager get-secret-value --secret-id prod/db --query SecretString --output text
+HR | feat/x | secret-shell | ask | aws --profile prod secretsmanager get-secret-value --secret-id x
+HR | feat/x | secret-shell | ask | aws ssm get-parameters --names a b --with-decryption
+HR | feat/x | secret-shell | ask | aws ssm get-parameter --with-decryption --name /app/key
+HR | feat/x | secret-shell | ask | aws ssm get-parameters-by-path --recursive --with-decryption --path /app
+HR | feat/x | secret-shell | ask | az keyvault secret show --name s --vault-name v --query value -o tsv
+HR | feat/x | secret-shell | ask | az keyvault secret show --id https://v.vault.azure.net/secrets/s
+HR | feat/x | secret-shell | ask | az account get-access-token --scope https://graph.microsoft.com/.default
+HR | feat/x | secret-shell | ask | az storage account keys list --account-name acct --query "[0].value" -o tsv
+HR | feat/x | secret-shell | ask | az acr credential show --name reg --query "passwords[0].value"
+HR | feat/x | secret-shell | ask | az cosmosdb keys list --type connection-strings -g rg -n db
+HR | feat/x | secret-shell | ask | gcloud secrets versions access 3 --secret x --project p
+HR | feat/x | secret-shell | ask | gcloud auth print-access-token --impersonate-service-account=sa@p.iam.gserviceaccount.com
+HR | feat/x | secret-shell | ask | gcloud auth application-default print-access-token
+HR | feat/x | secret-shell | ask | security find-generic-password -a "$USER" -s x -w
+HR | feat/x | secret-shell | ask | security find-internet-password -g -s example.org
+HR | feat/x | secret-shell | ask | pass show -c x
+HR | feat/x | secret-shell | ask | doppler secrets get DB_URL --plain --project p --config prd
+HR | feat/x | secret-shell | ask | doppler secrets download --no-file --format env
+HR | feat/x | secret-shell | ask | git credential fill < req.txt
+HR | feat/x | secret-shell | ask | printf 'host=github.com\nprotocol=https\n' | git credential fill
+HR | feat/x | secret-shell | ask | git -C sub credential fill
+HR | feat/x | secret-shell | ask | sops -d --extract '["db"]["password"]' secrets.enc.yaml
+HR | feat/x | secret-shell | ask | sops --decrypt --output-type json secrets.enc.yaml
+HR | feat/x | secret-shell | ask | ansible-vault view --vault-id prod@prompt group_vars/all/vault.yml
+HR | feat/x | secret-shell | ask | ansible-vault decrypt --output - vars.yml
+HR | feat/x | secret-shell | ask | sudo -u deploy vault kv get secret/app
+HR | feat/x | secret-shell | ask | ssh bastion 'vault kv get secret/app'
+HR | feat/x | secret-shell | ask | docker exec vault vault kv get secret/app
+HR | feat/x | secret-shell | ask | nice op read op://v/i/p
+HR | feat/x | secret-shell | ask | bash -lc "aws secretsmanager get-secret-value --secret-id x"
+HS | feat/x | shell | silent | vault login -method=oidc
+HS | feat/x | shell | silent | op signin
+HS | feat/x | shell | silent | op vault list
+HS | feat/x | shell | silent | op item list --vault Private --format json
+HS | feat/x | shell | silent | kubectl get secret app -o wide
+HS | feat/x | shell | silent | kubectl get secrets --show-labels
+HS | feat/x | shell | silent | kubectl get configmap app -o yaml
+HS | feat/x | shell | silent | kubectl get pods -o json
+HS | feat/x | shell | silent | kubectl get sa -o yaml
+HS | feat/x | shell | silent | gh auth status --hostname github.com
+HS | feat/x | shell | silent | aws secretsmanager list-secret-version-ids --secret-id x
+HS | feat/x | shell | silent | aws ssm describe-parameters
+HS | feat/x | shell | silent | aws ssm get-parameters --names a
+HS | feat/x | shell | silent | aws sts get-caller-identity
+HS | feat/x | shell | silent | aws configure list-profiles
+HS | feat/x | shell | silent | az keyvault secret list-versions --vault-name v -n s
+HS | feat/x | shell | silent | az keyvault show -n v
+HS | feat/x | shell | silent | az keyvault key list --vault-name v
+HS | feat/x | shell | silent | az storage account list
+HS | feat/x | shell | silent | az acr list
+HS | feat/x | shell | silent | gcloud secrets describe x
+HS | feat/x | shell | silent | gcloud secrets versions list x
+HS | feat/x | shell | silent | gcloud auth login
+HS | feat/x | shell | silent | gcloud config list
+HS | feat/x | shell | silent | security find-certificate -a
+HS | feat/x | shell | silent | security find-identity -v -p codesigning
+HS | feat/x | shell | silent | pass find x
+HS | feat/x | shell | silent | pass git log
+HS | feat/x | shell | silent | doppler secrets --only-names
+HS | feat/x | shell | silent | doppler setup
+HS | feat/x | shell | silent | git config credential.helper
+HS | feat/x | shell | silent | sops --version
+HS | feat/x | shell | silent | sops -e -i secrets.yaml
+HS | feat/x | shell | silent | sops updatekeys secrets.enc.yaml
+HS | feat/x | shell | silent | ansible-vault rekey vars.yml
+HS | feat/x | shell | silent | ansible-vault create new.yml
+HS | feat/x | shell | silent | grep -rn "gh auth token" .
+HS | feat/x | shell | silent | echo "run: vault kv get secret/app"
+HS | feat/x | shell | silent | man op
+HO | feat/x | secret-shell | ask | X=$(op read op://v/i/p)
+HO | feat/x | secret-shell | ask | echo "token: $(gh auth token)"
+HO | feat/x | secret-shell | ask | curl -H "Authorization: Bearer $(gh auth token)" https://api.github.com/user
+HO | feat/x | secret-shell | ask | aws secretsmanager batch-get-secret-value --secret-id-list a b
+HO | feat/x | secret-shell | ask | az redis list-keys -g rg -n r
+HO | feat/x | secret-shell | ask | az webapp deployment list-publishing-credentials -g rg -n app
+HO | feat/x | secret-shell | ask | security find-generic-password -ws x
+HO | feat/x | secret-shell | ask | pass x
+HO | feat/x | secret-shell | ask | oc get secret app -o yaml
+HO | feat/x | secret-shell | ask | vault token lookup
+HO | feat/x | secret-shell | ask | sops exec-env secrets.enc.yaml 'printenv'
+HO | feat/x | secret-shell | ask | ansible-vault edit vars.yml
+HO | feat/x | secret-shell | ask | op document get notes
+HO | feat/x | secret-shell | ask | terraform output -raw db_password
+HO | feat/x | shell | silent | kubectl get secret app -o jsonpath='{.metadata.name}'
+HO | feat/x | shell | silent | kubectl create secret generic app --from-literal=k=v --dry-run=client -o yaml
+
+# ---------------------------------------------------------------- az writes (ag)
+HR | feat/x | deploy-ask | ask | az vm restart --resource-group rg --name vm --no-wait
+HR | feat/x | deploy-ask | ask | az vmss scale -g rg -n ss --new-capacity 3
+HR | feat/x | deploy-ask | ask | az vmss restart -g rg -n ss
+HR | feat/x | deploy-ask | ask | az vmss deallocate -g rg -n ss
+HR | feat/x | deploy-ask | ask | az webapp config connection-string set -g rg -n app -t SQLAzure --settings a=b
+HR | feat/x | deploy-ask | ask | az functionapp config set -g rg -n app --linux-fx-version "PYTHON|3.12"
+HR | feat/x | deploy-ask | ask | az keyvault key purge --vault-name v -n k
+HR | feat/x | deploy-ask | ask | az keyvault secret set --vault-name v -n s -f value.txt
+HR | feat/x | deploy-ask | ask | az appconfig kv set -n cfg --key k --value v --yes
+HR | feat/x | deploy-ask | ask | az storage blob upload --overwrite -c c -f a -n a
+HR | feat/x | deploy-ask | ask | az storage file upload -s share --source x
+HR | feat/x | deploy-ask | ask | az acr build --registry reg --image x:1 .
+HR | feat/x | deploy-ask | ask | az aks nodepool upgrade -g rg --cluster-name aks -n np --kubernetes-version 1.30
+HR | feat/x | deploy-ask | ask | az postgres flexible-server stop -g rg -n pg
+HR | feat/x | deploy-ask | ask | az mysql flexible-server restart -g rg -n my
+HR | feat/x | deploy-ask | ask | az rest --method POST --url https://management.azure.com/subscriptions/s/providers/Microsoft.Web/sites/app/restart?api-version=2022-03-01
+HR | feat/x | deploy-ask | ask | az vm extension set -g rg --vm-name vm -n CustomScript --publisher Microsoft.Azure.Extensions
+HR | feat/x | deploy-ask | ask | env AZURE_CONFIG_DIR=/tmp/az az vm stop -g rg -n vm
+HR | feat/x | deploy-ask | ask | nohup az aks upgrade -g rg -n aks --kubernetes-version 1.30 --yes &
+HR | feat/x | deploy-ask | ask | az vm start --ids $(az vm list -g rg --query "[].id" -o tsv)
+HR | feat/x | deploy-ask | ask | az webapp traffic-routing set -g rg -n app --distribution staging=50
+HR | feat/x | deploy-ask | ask | az cdn endpoint purge -g rg -n e --profile-name p --content-paths '/*'
+HR | feat/x | deploy-ask | ask | az containerapp job start -g rg -n job
+HS | feat/x | deploy-ask | ask | az rest -m delete -u https://management.azure.com/subscriptions/s/resourceGroups/rg?api-version=2021-04-01
+HS | feat/x | deploy-ask | ask | az vm user update -g rg -n vm -u u -p p
+HS | feat/x | shell | silent | az vm list --query "[?powerState=='VM running']" -d -o table
+HS | feat/x | shell | silent | az webapp show -g rg -n app --query state
+HS | feat/x | shell | silent | az aks show -g rg -n aks -o json
+HS | feat/x | shell | silent | az storage account show -g rg -n acct
+HS | feat/x | shell | silent | az keyvault secret list --vault-name v --query "[].name"
+HS | feat/x | shell | silent | az monitor activity-log list -g rg --offset 1h
+HS | feat/x | shell | silent | az network nsg rule list -g rg --nsg-name n -o table
+HS | feat/x | shell | silent | az vm restart --help
+HS | feat/x | shell | silent | az aks get-credentials -g rg -n aks --overwrite-existing
+HS | feat/x | shell | silent | az account set -s s
+HS | feat/x | shell | silent | az login --use-device-code
+HS | feat/x | shell | silent | az config get defaults.group
+HS | feat/x | shell | silent | az bicep version
+HS | feat/x | shell | silent | az repos pr show --id 3
+HS | feat/x | shell | silent | az pipelines list
+HS | feat/x | shell | silent | echo "az vm restart needs a yes"
+HO | feat/x | deploy-ask | ask | az vm convert -g rg -n vm
+HO | feat/x | deploy-ask | ask | az vm generalize -g rg -n vm
+HO | feat/x | deploy-ask | ask | az vm capture -g rg -n vm --vhd-name-prefix x
+HO | feat/x | deploy-ask | ask | az webapp deployment slot auto-swap -g rg -n app --slot staging
+HO | feat/x | deploy-ask | ask | az keyvault key import --vault-name v -n k --pem-file k.txt
+HO | feat/x | deploy-ask | ask | az storage container lease acquire -c c --lease-duration 60
+HO | feat/x | deploy-ask | ask | az snapshot revoke-access -g rg -n s
+HO | feat/x | deploy-ask | ask | az redis force-reboot -g rg -n r --reboot-type AllNodes
+HO | feat/x | deploy-ask | ask | az sql db restore -g rg -s srv -n db --dest-name db2 --time 2026-11-17T00:00:00
+HO | feat/x | deploy-ask | ask | az upgrade
+HO | feat/x | shell | silent | az network watcher test-connectivity -g rg --source-resource vm --dest-address example.org --dest-port 443

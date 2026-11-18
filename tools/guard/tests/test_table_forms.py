@@ -778,6 +778,25 @@ Ws | feat/x | shell | silent | echo gh pr merge 3
 Ws | feat/x | tracker-guard | deny | az repos pr update --id 3 --status completed
 Ws | feat/x | tracker-guard | deny | az repos pr update --id 3 --bypass-policy true
 Ws | feat/x | shell | silent | az repos pr create --title x
+X1 | feat/x | git-guard | deny | eval 'export HUSKY=0'; git commit -m x
+X1 | feat/x | git-guard | deny | eval 'set -a; HUSKY=0'; git commit -m x
+X1 | feat/x | git-guard | deny | eval "export HUSKY=0"; git push origin feat
+X1 | feat/x | git-guard | deny | eval 'export LEFTHOOK=0'; git commit -m x
+X1 | feat/x | git-guard | deny | eval 'export SKIP=ruff' && git commit -m x
+X2 | feat/x | git-guard | deny | LEFTHOOK=false git commit -m x
+X2 | feat/x | git-guard | deny | env LEFTHOOK=false git commit -m x
+X2 | feat/x | git-guard | deny | export LEFTHOOK=false; git push origin feat
+X2 | feat/x | git-guard | deny | LEFTHOOK=false bash -c 'git commit -m x'
+X3 | feat/x | git-guard | deny | "ssh build -T <<EOF\ngit commit --no-verify -m x\nEOF"
+X3 | feat/x | git-guard | deny | "ssh build -t -t <<EOF\ngit commit --no-verify -m x\nEOF"
+X3 | feat/x | git-guard | deny | "ssh build -o BatchMode=yes <<EOF\ngit commit --no-verify -m x\nEOF"
+X3 | feat/x | git-guard | deny | "ssh -p 2222 build -T <<EOF\ngit commit --no-verify -m x\nEOF"
+X4 | feat/x | git-guard | deny | "{ bash; } <<EOF\ngit commit --no-verify -m x\nEOF"
+X4 | feat/x | git-guard | deny | "{ sh -s; } <<EOF\ngit commit --no-verify -m x\nEOF"
+X4 | feat/x | git-guard | deny | "( bash ) <<EOF\ngit commit --no-verify -m x\nEOF"
+X4 | feat/x | git-guard | deny | "{ cd repo && bash; } <<EOF\ngit commit --no-verify -m x\nEOF"
+X5 | feat/x | git-guard | silent | "git commit -m \"$(case x in a) cat <<'EOF'\nfix: \"make; git push --force origin main\"\nnpm install x\nEOF\n;; esac)\""
+X5 | feat/x | git-guard | deny | "echo \"$(case x in a) bash <<EOF\ngit commit --no-verify -m x\nEOF\n;; esac)\""
 Xs | feat/x | git-guard | deny | export HUSKY=0; git commit -m x
 Xs | feat/x | git-guard | deny | eval 'export HUSKY=0; git commit -m x'
 Xs | feat/x | shell | silent | bash -c 'export HUSKY=0'; git commit -m x

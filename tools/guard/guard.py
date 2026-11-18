@@ -1050,7 +1050,9 @@ _KIT_HOOKS = ".githooks"
 GIT_HOOKS_PATH_MSG = ("git-guard: `git config core.hooksPath` changes where the commit gate's hooks run. "
                       "The kit installs `.githooks`; confirm any other change.")
 # the hook managers' own off switches (husky, lefthook, pre-commit's SKIP) and the git calls whose hooks they skip
-_HOOK_ENV_OFF = {"HUSKY": "0", "LEFTHOOK": "0"}
+# the values that switch a hook runner off: husky 9 `HUSKY=0`; lefthook 1.x `LEFTHOOK=0` or `LEFTHOOK=false` (its
+# documentation; 0.9.0)
+_HOOK_ENV_OFF = {"HUSKY": frozenset({"0"}), "LEFTHOOK": frozenset({"0", "false"})}
 _HOOK_ENV_SUBS = frozenset("commit push merge pull rebase am cherry-pick revert".split())
 
 
@@ -1098,7 +1100,7 @@ def _git_env_bypass(env: list[str], seg: list[str]) -> Optional[str]:
         return None
     for word in env:
         name, _eq, value = word.partition("=")
-        if sub in _HOOK_ENV_SUBS and (_HOOK_ENV_OFF.get(name) == value or name == "SKIP"):
+        if sub in _HOOK_ENV_SUBS and (value in _HOOK_ENV_OFF.get(name, ()) or name == "SKIP"):
             return f"`{word}` in the environment of `git {sub}` skips the hooks"
         if ((name.startswith("GIT_CONFIG_KEY_") and value.lower() == _HOOKS_PATH_KEY)
                 or (name == "GIT_CONFIG_PARAMETERS" and _HOOKS_PATH_KEY in value.lower())):
@@ -1113,26 +1115,41 @@ def _git_env_gate(command: str) -> Optional[Decision]:
     try:
         exported: list[str] = []
         assigned: dict = {}  # NAME -> `NAME=value` of a plain assignment, which an `export NAME` exports later
-        allexport = False  # `set -a`: every later assignment is exported
-        for toks, inherited in zip(nested_commands(command), nested_envs(command)):
+        allexport = [False]  # `set -a`: every later assignment is exported
+
+        def environment(toks) -> bool:
+            """Take an assignment, export or `set -a` line into the state; False for any other command."""
             if all(_ASSIGN_RE.match(t) for t in toks):
                 for t in toks:
                     assigned[t.partition("=")[0]] = t
-                if allexport:
+                if allexport[0]:
                     exported.extend(toks)
-                continue
+                return True
             if toks[0] in ("export", "declare", "typeset"):
                 flags = "".join(t[1:] for t in toks[1:] if t.startswith("-"))
                 if toks[0] == "export" or "x" in flags:  # `declare -x`, `typeset -x` export as well
                     exported.extend(t for t in toks[1:] if _ASSIGN_RE.match(t))
                     exported.extend(assigned[t] for t in toks[1:] if t in assigned)
-                continue
+                return True
             if toks[0] == "set":
                 for t in toks[1:]:
                     if t.startswith(("-", "+")) and "a" in t[1:] and not t.startswith("--"):
-                        allexport = t[0] == "-"
+                        allexport[0] = t[0] == "-"
                     elif t == "allexport" and toks[toks.index(t) - 1] in ("-o", "+o"):
-                        allexport = toks[toks.index(t) - 1] == "-o"
+                        allexport[0] = toks[toks.index(t) - 1] == "-o"
+                return True
+            if toks[0] == "eval" and len(toks) > 1:
+                # 0.9.0: the script of an eval runs in this shell, so its exports reach the commands after it in
+                # the line; the reader reads the script after them, so it is taken in here, where the eval stands
+                start = 2 if toks[1] == "--" else 1
+                for _sep, words in simple_commands(" ".join(toks[start:])):  # its own commands, not its nests
+                    inner = [w for w in drop_redirections(words) if w not in _NC_SHELL_WORDS]
+                    if inner:
+                        environment(inner)
+            return False
+
+        for toks, inherited in zip(nested_commands(command), nested_envs(command)):
+            if environment(toks):
                 continue
             for i in sorted(command_word_indexes(toks)):
                 if os.path.basename(toks[i]) == "git":
@@ -2381,6 +2398,7 @@ def _hi_sub_end(text: str, i: int) -> int:
     """Index of the character that closes the substitution opened at text[i] (`$(` or a backtick), or len(text)."""
     tick = text[i] == "`"
     depth, j = 1, i + (1 if tick else 2)
+    cases = 0  # 0.9.0: open `case … in` statements; a `)` among them ends a pattern
     while j < len(text):
         c = text[j]
         if c == "\\":
@@ -2388,7 +2406,14 @@ def _hi_sub_end(text: str, i: int) -> int:
             continue
         if tick and c == "`":
             return j
+        if not tick and c in "ce" and _case_word(text, j, cases > 0):
+            cases += 1 if c == "c" else -1
+            j += 4
+            continue
         if not tick and c in "()":
+            if c == ")" and cases and depth == 1:
+                j += 1
+                continue
             depth += 1 if c == "(" else -1
             if depth == 0:
                 return j
@@ -2976,6 +3001,8 @@ def _nc_read(text: str, depth: int, out: list, seen: set, local: bool = False,
             inputs.extend(_nc_inputs(raw))
         piped = rows[k + 1][1] if k + 1 < len(rows) and seps[k + 1].strip(" \n") in ("|", "|&") else None
         fed, runner = _nc_fed(raw, toks, piped, bodies)
+        if not fed and toks in ([], ["}"]):
+            fed, runner = _nc_group_fed(rows, seps, k, bodies)
         fed_env = own if runner is toks else env + _nc_hook_env(runner or [])
         nested.extend((s, fed_env) for s in fed)
         if not toks:
@@ -3111,7 +3138,18 @@ def _nc_take_heredocs(text: str, bodies: list) -> str:
     return "".join(out)
 
 
-_SHELL_CONTEXTS = ("sh", "(", "`")  # where a here-document belongs to a command of the text at hand
+_SHELL_CONTEXTS = ("sh", "(", "`", "case")  # where a here-document belongs to a command of the text at hand
+_CASE_RE = re.compile(r"case\s+\S+\s+in(?=\s|$)")
+_ESAC_RE = re.compile(r"esac(?=[\s;&|)`]|$)")
+
+
+def _case_word(text: str, i: int, in_case: bool) -> bool:
+    """At text[i] a word `case WORD in` opens a case statement, or (in one) `esac` closes it: only where a word
+    starts, so `showcase` and `esac.txt` are none."""
+    if i and text[i - 1] not in _HI_WORD_START:
+        return False
+    return bool(_ESAC_RE.match(text, i)) if in_case and text[i] == "e" else (
+        text[i] == "c" and bool(_CASE_RE.match(text, i)))
 
 
 def _quote_state(text: str, start: int, end: int, stack: list) -> int:
@@ -3141,6 +3179,14 @@ def _quote_state(text: str, start: int, end: int, stack: list) -> int:
         elif c == "#" and (i == 0 or text[i - 1] in _HI_WORD_START):  # a comment, as _hi_prepare reads it
             j = text.find("\n", i)
             i = len(text) if j < 0 else j
+            continue
+        elif c in "ce" and _case_word(text, i, top == "case"):
+            # 0.9.0: inside `case … in … esac` a `)` ends a pattern, not the `$( … )` around it
+            if c == "c":
+                stack.append("case")
+            else:
+                stack.pop()
+            i += 4
             continue
         elif c == "$" and text[i + 1 : i + 2] == "'":
             stack.append("$'")
@@ -3186,6 +3232,34 @@ def _nc_fed(raw: list[str], toks: list[str], piped: Optional[list], bodies: list
             return ([] if args[:1] == ["-v"] else [" ".join(args).replace("\\n", "\n")]), piped
     if _nc_pipe_shell(piped):
         raise CommandNotRead(_PIPE_NOT_READ)
+    return [], None
+
+
+def _nc_group_fed(rows: list, seps: list, k: int, bodies: list) -> tuple[list[str], Optional[list]]:
+    """0.9.0: the here-document bodies of the `}` or `)` that closes a group `{ …; }` or a subshell `( … )` at
+    rows[k] are the standard input of the commands inside: the first shell among them that reads standard input
+    gets them as its script (`{ cd repo && bash; } <<EOF`). `{ cat; } <<EOF` stays data."""
+    raw, toks = rows[k]
+    marks = [_NC_HEREDOC_MARK_RE.match(t) for t in raw]
+    own = [bodies[int(m.group(1))] for m in marks if m and int(m.group(1)) < len(bodies)]
+    if not own:
+        return [], None
+    brace = toks == ["}"]
+    if not brace and seps[k].strip() != ")":
+        return [], None
+    depth = 0
+    for j in range(k - 1, -1, -1):  # back to the word or bracket that opens the group
+        inner = rows[j][1]
+        if brace and inner[:1] == ["}"] or not brace and seps[j].strip() == ")":
+            depth += 1
+        opens = inner[:1] == ["{"] if brace else seps[j].strip() == "("
+        if opens and depth:
+            depth -= 1
+        elif opens:
+            for _raw, words in rows[j:k]:
+                if words and _nc_runs_stdin(words):
+                    return own, words
+            return [], None
     return [], None
 
 
@@ -3253,14 +3327,23 @@ def _ssh_command(args) -> Optional[list]:
     """The words after the host of an ssh call ([] when there are none), or None when ssh names no host or runs
     no command at all (`-N`). Only the letters in front of the first one that takes a value are options: the
     rest of the word is its value (`-oStrictHostKeyChecking=No`, `-lNina`)."""
-    k = 0
+    k = _ssh_options(args, 0)
+    if k is None or k >= len(args):
+        return None
+    # 0.9.0: an option behind the host is ssh's own too (`ssh build -T`): the command starts after them
+    j = _ssh_options(args, k + 1)
+    return None if j is None else list(args[j:])
+
+
+def _ssh_options(args, k: int) -> Optional[int]:
+    """The index of the first word from args[k] on that is no ssh option (past a `--`), or None for `-N` (no
+    command at all)."""
     while k < len(args):
         t = args[k]
         if t == "--":
-            k += 1
-            break
+            return k + 1
         if not t.startswith("-") or len(t) < 2:
-            break
+            return k
         for n, c in enumerate(t[1:], 1):
             if c == "N":
                 return None
@@ -3268,7 +3351,7 @@ def _ssh_command(args) -> Optional[list]:
                 k += 0 if t[n + 1 :] else 1  # a value glued on (`-p2222`) or in the next word
                 break
         k += 1
-    return list(args[k + 1 :]) if k < len(args) else None
+    return k
 
 
 # sudo(8): options that take a value; `-s` and `-i` without a command run the target user's shell

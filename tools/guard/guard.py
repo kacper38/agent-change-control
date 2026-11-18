@@ -922,7 +922,7 @@ def _search_pattern(seg: list[str], k: int) -> tuple[Optional[int], list[str]]:
                     files.append(t[at + 1 :])
     if named:
         return None, files
-    shorts, longs = _SEARCH_FLAGS.get("grep" if name in ("egrep", "fgrep", "zgrep") else name, ("", frozenset()))
+    table = _SEARCH_OPTIONS.get("grep" if name in ("egrep", "fgrep", "zgrep") else name)
     value_next = False  # 0.9.0: the word after an option that takes a value is that value, not the pattern
     for m in range(start, len(seg)):
         t = seg[m]
@@ -933,53 +933,113 @@ def _search_pattern(seg: list[str], k: int) -> tuple[Optional[int], list[str]]:
             return (m + 1 if name != "git" and m + 1 < len(seg) else None), files
         if not t.startswith("-") or t == "-":
             return m, files
-        value_next = _search_option_takes_next(t, shorts, longs)
+        reading = _search_option(t, table) if table else "unknown"
+        if reading == "unknown":  # F22: what it takes is not known, so neither is the pattern (as 0.8.0)
+            return None, files
+        value_next = reading == "next"
     return None, files
 
 
-# 0.9.0: the options of the search tools that take no value (each tool's --help: GNU grep 3.11, ripgrep 14, the
-# silver searcher 2.2, ack 3.7, git grep 2.4x). Any other option is read as one that takes the next word, so an
-# option missing here leaves the real pattern read as a path or as a command, which errs towards asking.
-_GREP_LONG_FLAGS = (
-    "--extended-regexp --fixed-strings --basic-regexp --perl-regexp --ignore-case --no-ignore-case --word-regexp"
-    " --line-regexp --no-messages --invert-match --version --help --count --color --colour --files-without-match"
-    " --files-with-matches --only-matching --quiet --silent --byte-offset --with-filename --no-filename"
-    " --line-number --no-line-number --line-buffered --initial-tab --null --null-data --text --recursive"
-    " --dereference-recursive"
-)
-_SEARCH_FLAGS: dict = {
-    "grep": ("abcEFGHhiIlLnoPqrRsTUvVwxyzZ0123456789", frozenset(_GREP_LONG_FLAGS.split())),
-    "rg": ("abcFHhiIlLnNopPqsSuUvVwxz0123456789.", frozenset((
-        _GREP_LONG_FLAGS + " --hidden --no-hidden --no-ignore --no-ignore-vcs --no-ignore-dot --no-ignore-global"
-        " --no-ignore-parent --follow --files --smart-case --case-sensitive --no-heading --heading --json --vimgrep"
-        " --multiline --pcre2 --search-zip --stats --trim --unrestricted --column --no-column --passthru --no-config"
-        " --one-file-system --binary --crlf --debug --trace --pretty --sort-files --no-unicode --invert-match"
-        " --count-matches --type-list --files-with-matches").split())),
-    "ag": ("acfHilLnQsStuUvwz0", frozenset((
-        _GREP_LONG_FLAGS + " --hidden --literal --nocolor --case-sensitive --smart-case --files-with-matches"
-        " --files-without-matches --follow --skip-vcs-ignores --unrestricted --search-binary --stats --nobreak"
-        " --noheading --heading --column --numbers --nonumbers --vimgrep --one-device --search-zip"
-        " --print-long-lines --filename --nofilename --all-types --all-text --print0 --silent").split())),
-    "ack": ("cfhHiIlLnosvwx1", frozenset((
-        _GREP_LONG_FLAGS + " --smart-case --nocolor --nocolour --column --nocolumn --heading --noheading --break"
-        " --nobreak --group --nogroup --follow --nofollow --flush --literal --passthru --print0 --sort-files"
-        " --show-types --noenv --nopager --known-types --nofilter").split())),
-    "git": ("aiIvwFEGPnhHlLcoqrzWp", frozenset((
-        _GREP_LONG_FLAGS + " --cached --untracked --no-index --index --recurse-submodules --textconv --no-textconv"
-        " --full-name --name-only --break --heading --show-function --function-context --all-match --and --or"
-        " --not --column --exclude-standard --no-exclude-standard").split())),
+class _SearchTable:
+    """The options of one search tool: short letters and long names that take no value (flags; an option whose
+    value can only be glued, `--color[=WHEN]`, is one), short letters and long names that take a value (glued
+    or the next word), and short letters whose optional value can only be glued (git grep -O)."""
+
+    def __init__(self, flag_shorts: str, value_shorts: str, flag_longs: str, value_longs: str,
+                 glued_shorts: str = "") -> None:
+        self.flag_shorts = flag_shorts
+        self.value_shorts = value_shorts
+        self.glued_shorts = glued_shorts
+        self.flag_longs = frozenset(flag_longs.split())
+        self.value_longs = frozenset(value_longs.split())
+
+
+# Fix pass, F22: three readings of an option, not two. Sources: each tool's own --help, as listed in the fix
+# order's options.tsv: ripgrep 15, GNU grep 3.12 (`ggrep`, also for grep, egrep, fgrep, zgrep), git grep 2.55. An
+# option in neither list (a newer flag, a unique prefix such as `--no-mess`, a flag of the BSD grep of macOS such as
+# -S) leaves the pattern of the call unknown: no word is left out of the secret check, no pattern is protected for
+# egress-guard (what 0.8.0 did). For ag and ack the order holds no help text: the flags of the 0.9.0 build stay
+# (the silver searcher 2.2, ack 3.7) and no value option is known, so any other option leaves the pattern unknown.
+_SEARCH_OPTIONS: dict = {
+    "grep": _SearchTable(
+        "EFGPiwxzsvVbnHhoqaIrRLlcTZU0123456789", "efmdDBAC",
+        "--extended-regexp --fixed-strings --basic-regexp --perl-regexp --ignore-case --no-ignore-case"
+        " --word-regexp --line-regexp --null-data --no-messages --invert-match --version --help --byte-offset"
+        " --line-number --line-buffered --with-filename --no-filename --only-matching --quiet --silent --text"
+        " --recursive --dereference-recursive --files-without-match --files-with-matches --count --initial-tab"
+        " --null --no-group-separator --binary --color --colour",
+        "--regexp --file --max-count --label --binary-files --directories --devices --include --exclude"
+        " --exclude-from --exclude-dir --before-context --after-context --context --group-separator"),
+    "rg": _SearchTable(
+        "zsFivxUPSawLubhnN0opqHIclV", "efEmjgdtTABCMr",
+        "--search-zip --case-sensitive --crlf --fixed-strings --ignore-case --invert-match --line-regexp --mmap"
+        " --multiline --multiline-dotall --no-unicode --null-data --pcre2 --smart-case --stop-on-nonmatch --text"
+        " --word-regexp --auto-hybrid-regex --no-pcre2-unicode --binary --follow --glob-case-insensitive --hidden"
+        " --ignore-file-case-insensitive --no-ignore --no-ignore-dot --no-ignore-exclude --no-ignore-files"
+        " --no-ignore-global --no-ignore-parent --no-ignore-vcs --no-require-git --one-file-system --unrestricted"
+        " --block-buffered --byte-offset --column --heading --help --include-zero --line-buffered --line-number"
+        " --no-line-number --max-columns-preview --null --only-matching --passthru --pretty --quiet --trim"
+        " --vimgrep --with-filename --no-filename --sort-files --count --count-matches --files-with-matches"
+        " --files-without-match --json --debug --no-ignore-messages --no-messages --stats --trace --files"
+        " --no-config --pcre2-version --type-list --version",
+        "--regexp --file --pre --pre-glob --dfa-size-limit --encoding --engine --max-count --regex-size-limit"
+        " --threads --glob --iglob --ignore-file --max-depth --max-filesize --type --type-not --type-add"
+        " --type-clear --after-context --before-context --color --colors --context --context-separator"
+        " --field-context-separator --field-match-separator --hostname-bin --hyperlink-format --max-columns"
+        " --path-separator --replace --sort --sortr --generate"),
+    "git": _SearchTable(
+        "viwaIrEGFPnhHlLzocpWq0123456789", "CBAfem",
+        "--cached --no-cached --no-index --index --untracked --no-untracked --exclude-standard"
+        " --no-exclude-standard --recurse-submodules --no-recurse-submodules --invert-match --no-invert-match"
+        " --ignore-case --no-ignore-case --word-regexp --no-word-regexp --text --no-text --textconv --no-textconv"
+        " --recursive --no-recursive --extended-regexp --no-extended-regexp --basic-regexp --no-basic-regexp"
+        " --fixed-strings --no-fixed-strings --perl-regexp --no-perl-regexp --line-number --no-line-number"
+        " --column --no-column --full-name --no-full-name --files-with-matches --no-files-with-matches"
+        " --name-only --no-name-only --files-without-match --no-files-without-match --null --no-null"
+        " --only-matching --no-only-matching --count --no-count --break --no-break --heading --no-heading"
+        " --show-function --no-show-function --function-context --no-function-context --and --or --not --quiet"
+        " --no-quiet --all-match --no-all-match --ext-grep --no-ext-grep"
+        # optional values, glued only (`--[no-]color[=<when>]`, `--[no-]open-files-in-pager[=<pager>]`), and the
+        # negations of options with a value, which take none (git parse-options: `--[no-]context <n>`)
+        " --color --no-color --open-files-in-pager --no-open-files-in-pager --no-context --no-threads"
+        " --no-max-count",
+        "--max-depth --context --before-context --after-context --threads --max-count",
+        glued_shorts="O"),
+    "ag": _SearchTable(
+        "acfHilLnQsStuUvwz0", "",
+        "--hidden --literal --nocolor --case-sensitive --smart-case --files-with-matches --files-without-matches"
+        " --follow --skip-vcs-ignores --unrestricted --search-binary --stats --nobreak --noheading --heading"
+        " --column --numbers --nonumbers --vimgrep --one-device --search-zip --print-long-lines --filename"
+        " --nofilename --all-types --all-text --print0 --silent --ignore-case --word-regexp --invert-match"
+        " --count --version --help",
+        ""),
+    "ack": _SearchTable(
+        "cfhHiIlLnosvwx1", "",
+        "--smart-case --nocolor --nocolour --column --nocolumn --heading --noheading --break --nobreak --group"
+        " --nogroup --follow --nofollow --flush --literal --passthru --print0 --sort-files --show-types --noenv"
+        " --nopager --known-types --nofilter --ignore-case --word-regexp --invert-match --count --version --help",
+        ""),
 }
 
 
-def _search_option_takes_next(t: str, shorts: str, longs: frozenset) -> bool:
-    """A search tool's option takes the next word as its value: a long option without `=` that is no flag, or a
-    short cluster whose first letter that is no flag stands last (`-A 3`, `-rnA 3`); `-A3` holds its value."""
+def _search_option(t: str, table: _SearchTable) -> str:
+    """How a search tool reads one option word: "flag" (passed over; also any option whose value is glued to it,
+    `--color=always`, `-A3`, `-rnA3`), "next" (its value is the next word: `-A 3`, `-rnA 3`, `--glob x`), or
+    "unknown" (an option, or a letter of a short cluster, in neither list)."""
     if t.startswith("--"):
-        return "=" not in t and t not in longs
+        name, glued, _value = t.partition("=")
+        if name in table.value_longs:
+            return "flag" if glued else "next"
+        return "flag" if name in table.flag_longs else "unknown"
     for n, c in enumerate(t[1:], 1):
-        if c not in shorts:
-            return n == len(t) - 1
-    return False
+        if c in table.flag_shorts:
+            continue
+        if c in table.glued_shorts:
+            return "flag"
+        if c in table.value_shorts:
+            return "next" if n == len(t) - 1 else "flag"
+        return "unknown"
+    return "flag"
 
 
 def _secret_reader_seg(seg: list[str], cwd: str, writes: list[str], reads: list[str]) -> None:

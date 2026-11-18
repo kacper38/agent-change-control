@@ -1324,6 +1324,49 @@ Fm | feat/x@client | egress-guard | ask | grep 'ollama' f; 'ollama' run m
 Fm | feat/x@client | egress-guard | ask | grep ollama f | 'ollama' run m
 """  # noqa: E501 (a row holds its command as written)
 # --- fix rows: end ---
+# --- fix rows, addendum 1: begin (rows-b-fix-add.txt, 2026-11-18) ---
+ROWS_FIX_ADD = r"""
+# Guard 0.9.0, fix pass, addendum 1 (2026-11-18): found by the orchestrating session on the first fix commit.
+# Row: id | branch[@client] | rule | expected | command
+#
+# --- F22 (weaker than 0.8.0 and than the build head, since the fix of F09): an option the table of flags does
+#     not name is not known to take a value. `rg --mmap TOKEN .env` reads .env; with `--mmap` taken for an
+#     option that takes the next word, TOKEN was read as its value and .env as the pattern, which K3 leaves
+#     out. Measured against the tools' own help (rg 15, GNU grep 3.12, git 2.55): 48 of their 248 flags gave a
+#     silent read of .env. -S is a flag of the grep macOS ships (follow symbolic links); GNU tools take a
+#     unique prefix of a long option (`--no-mess`).
+F22 | feat/x | secret-shell | ask | rg --mmap TOKEN .env
+F22 | feat/x | secret-shell | ask | rg --no-require-git TOKEN .env
+F22 | feat/x | secret-shell | ask | rg --stop-on-nonmatch TOKEN .env
+F22 | feat/x | secret-shell | ask | rg -n --block-buffered TOKEN .env
+F22 | feat/x | secret-shell | ask | grep --binary TOKEN .env
+F22 | feat/x | secret-shell | ask | ggrep --no-group-separator TOKEN .env
+F22 | feat/x | secret-shell | ask | grep -S TOKEN .env
+F22 | feat/x | secret-shell | ask | grep -rS TOKEN .env
+F22 | feat/x | secret-shell | ask | git grep --no-color TOKEN .env
+F22 | feat/x | secret-shell | ask | git grep --no-index --no-color TOKEN .env
+F22 | feat/x | secret-shell | ask | git grep -O TOKEN .env
+F22 | feat/x | secret-shell | ask | grep --no-mess TOKEN .env
+F22 | feat/x | secret-shell | ask | grep --future-flag TOKEN .env
+F22 | feat/x | secret-shell | ask | rg --future-flag TOKEN ~/.ssh/id_rsa
+F22 | feat/x | secret-shell | ask | ag --future-flag TOKEN .env
+F22 | feat/x | secret-shell | ask | ack --future-flag TOKEN .env
+F22 | feat/x | secret-shell | ask | bash -c 'rg --mmap TOKEN .env'
+F22 | feat/x | secret-shell | ask | sudo grep --binary TOKEN .env
+# the neighbours that hold today and keep holding: the file behind a known option still asks, a pattern that
+# only looks like a secret name stays silent
+Fs | feat/x | secret-shell | ask | grep -m 1 TOKEN .env
+Fs | feat/x | secret-shell | ask | rg -g '*.md' TOKEN .env
+Fs | feat/x | secret-shell | ask | grep --color TOKEN .env
+Fs | feat/x | secret-shell | ask | grep --color=always TOKEN .env
+Fs | feat/x | secret-shell | ask | rg --color always TOKEN .env
+Fs | feat/x | secret-shell | ask | grep --future=x TOKEN .env
+Fs | feat/x | secret-shell | ask | git grep -n TOKEN -- .env
+Fs | feat/x | shell | silent | grep -rn --color .env docs
+Fs | feat/x | shell | silent | rg --hidden --no-ignore .env
+Fs | feat/x | shell | silent | git grep --untracked -n .env -- docs
+"""  # noqa: E501 (a row holds its command as written)
+# --- fix rows, addendum 1: end ---
 
 _FILE_INPUT = {
     "Read": lambda p: {"file_path": p},
@@ -1348,6 +1391,7 @@ def _rows(text: str) -> list:
 
 TABLE = _rows(ROWS_B) + _rows(ROWS_B4) + _rows(ROWS_B4_AZ) + _rows(ROWS_B5) + _rows(ROWS_C)
 FIX_TABLE = _rows(ROWS_FIX)  # the fix pass: F01 to F20 were due, Fs and Fm held at the build's head
+FIX_ADD_TABLE = _rows(ROWS_FIX_ADD)  # addendum 1 of the fix pass: F22 was due, Fs held
 FILE_TABLE = [tuple(p.strip() for p in line.split(" | ", 4)) for line in FILE_ROWS.splitlines() if line.strip()]
 
 
@@ -1371,6 +1415,13 @@ def test_row(guard, monkeypatch, rid, branch, boundary, rule, expected, command)
 @pytest.mark.parametrize("rid, branch, boundary, rule, expected, command", FIX_TABLE,
                          ids=[f"{row[0]}-{n}" for n, row in enumerate(FIX_TABLE)])
 def test_fix_row(guard, monkeypatch, rid, branch, boundary, rule, expected, command):
+    got = _answers(guard, monkeypatch, branch, boundary, rule, command)
+    assert {k: v for k, v in got.items() if v != expected} == {}, command
+
+
+@pytest.mark.parametrize("rid, branch, boundary, rule, expected, command", FIX_ADD_TABLE,
+                         ids=[f"{row[0]}-{n}" for n, row in enumerate(FIX_ADD_TABLE)])
+def test_fix_add_row(guard, monkeypatch, rid, branch, boundary, rule, expected, command):
     got = _answers(guard, monkeypatch, branch, boundary, rule, command)
     assert {k: v for k, v in got.items() if v != expected} == {}, command
 

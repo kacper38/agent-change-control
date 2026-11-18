@@ -4,7 +4,8 @@
 # this repository with the two commits below fetched. It writes nothing into a checkout: the two guard copies
 # and all logs go to the folder given as the first argument, which must lie outside the repository. Nothing
 # under test is run: the tools hand each recorded call to the rule functions.
-# The logs hold real commands of real work. They stay in that folder; numbers may go into a commit.
+# The logs hold real commands of real work. They stay in that folder. What this script prints itself holds no
+# command text, no branch name and no path, so its output can be kept as evidence.
 # usage: sh a_mac_closeout.sh <scratch folder outside the repository> [days]
 set -u
 OUT="${1:?usage: sh a_mac_closeout.sh <scratch folder outside the repository> [days]}"
@@ -25,8 +26,8 @@ OLD="$OUT/guard-0.7.1.py"
 NEW="$OUT/guard-0.8.0.py"
 git -C "$REPO" show "$OLD_REV:tools/guard/guard.py" > "$OLD" || exit 1
 git -C "$REPO" show "$NEW_REV:tools/guard/guard.py" > "$NEW" || exit 1
-echo "== guards"
-grep -n '^VERSION' "$OLD" "$NEW"
+echo "== guards ($OLD_REV and $NEW_REV)"
+grep -n '^VERSION' "$OLD" "$NEW" | sed -e "s#$OUT/##"
 
 echo
 echo "== self-test of the replay tool. Expected: 7 tool calls, weaker 0, stronger 5 occurrences in 3 distinct cells"
@@ -55,7 +56,7 @@ sed -e "s#$OUT/##" "$OUT/hooktime.log"
 
 echo
 echo "== left to do by hand"
-echo "1. read $OUT/replay-own.log and replay-client.log: each stronger call is a prompt or a denial 0.8.0 adds;"
-echo "   say per kind whether it is wanted. A weaker cell is a defect and needs a fix first."
+echo "1. read replay-own.log and replay-client.log in the scratch folder: each stronger call is a prompt or a"
+echo "   denial 0.8.0 adds; say per kind whether it is wanted. A weaker cell is a defect and needs a fix first."
 echo "2. python3 tools/tracker/tracker.py review 50 --pr 54"
 echo "3. the numbers, not the command text, go into a DECISIONS.md line (docs/HANDOVER-2026-11-18.md, Next steps)"

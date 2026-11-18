@@ -15,8 +15,9 @@ Prints the counts, then two totals the after-build scripts look for:
 Then the same per rule, and the calls behind them with how often each occurred.
 
 The calls are real commands of real work, some of them from other repositories. The output belongs in a
-local scratch folder. Numbers may go into a commit or a pull request; command text may not. --no-text leaves
-the text out; --log writes every changed cell as one JSON line to a local file.
+local scratch folder. Numbers may go into a commit or a pull request; command text and branch names may not.
+--no-text leaves both out, so that output can be kept as evidence; --log writes every changed cell as one JSON
+line to a local file.
 
 Not replayed: the rule `fan-out`, which counts spawns per session and would count this replay too.
 """
@@ -218,10 +219,10 @@ def report(changed, crashes, total, days, opts):
         print(f"{name} | {change} | {count} | {cells}")
     lists = (("stronger, by occurrences", stronger, opts["show"]), ("weaker, every cell", weaker, None))
     for title, cells, limit in lists:
-        print(f"=== {title}: occurrences | rule | change | tool | branch" + (" | call" if opts["text"] else ""))
+        print(f"=== {title}: occurrences | rule | change | tool" + (" | branch | call" if opts["text"] else ""))
         for count, name, a, b, tool, branch, tool_input in sorted(cells, key=lambda c: -c[0])[:limit]:
-            line = f"{count} | {name} | {a}->{b} | {tool} | {branch}"
-            print(line + (f" | {head(tool, tool_input, opts['width'])}" if opts["text"] else ""))
+            line = f"{count} | {name} | {a}->{b} | {tool}"
+            print(line + (f" | {branch} | {head(tool, tool_input, opts['width'])}" if opts["text"] else ""))
     if opts["log"]:
         with open(opts["log"], "w", encoding="utf-8") as handle:
             for count, name, a, b, tool, branch, tool_input in changed:

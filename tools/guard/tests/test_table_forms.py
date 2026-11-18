@@ -1164,6 +1164,14 @@ Fs | feat/x | shell | silent | genv -S 'ls -la'
 Fs | feat/x | shell | silent | genv FOO=1 ls
 
 # --- F02: a subshell as the feeder of a shell that reads its script from a pipe (section 4.7; the group form asks)
+F02 | feat/x | delete-guard | ask | (cat run.sh) | bash
+F02 | feat/x | git-guard | ask | (cat run.sh) | bash
+F02 | feat/x | delete-guard | ask | ( cd scripts && cat run.sh ) | bash
+F02 | feat/x | delete-guard | ask | (cat a.sh; cat b.sh) | sh
+F02 | feat/x | delete-guard | ask | (cat run.sh | grep -v '^#') | bash
+F02 | feat/x | delete-guard | ask | ( (cat run.sh) ) | bash
+F02 | feat/x | delete-guard | ask | (cat run.sh) |& bash
+F02 | feat/x | delete-guard | ask | (echo 'rm -rf build') | bash
 Fs | feat/x | delete-guard | ask | { cat run.sh; } | bash
 Fs | feat/x | delete-guard | ask | cat run.sh | bash
 Fs | feat/x | shell | silent | (echo hello) | cat
@@ -1173,6 +1181,13 @@ Fs | feat/x | shell | silent | echo 'ls -la' | bash
 
 # --- F03: the shell behind the pipe stands inside a subshell, a group or a compound, or is one the pipe table
 #     did not name (`fish`, `ash` read commands from standard input like the others)
+F03 | feat/x | delete-guard | ask | cat run.sh | (bash)
+F03 | feat/x | git-guard | ask | cat run.sh | (bash)
+F03 | feat/x | delete-guard | ask | cat run.sh | ( cd x && bash )
+F03 | feat/x | delete-guard | ask | cat run.sh | { cd x; bash; }
+F03 | feat/x | delete-guard | ask | cat run.sh | if true; then bash; fi
+F03 | feat/x | delete-guard | ask | cat run.sh | fish
+F03 | feat/x | delete-guard | ask | cat run.sh | ash
 Fs | feat/x | delete-guard | ask | cat run.sh | { bash; }
 Fs | feat/x | shell | silent | cat data.txt | ( cd x && wc -l )
 Fs | feat/x | shell | silent | cat data.txt | { grep x; }

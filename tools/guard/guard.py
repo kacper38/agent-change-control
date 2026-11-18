@@ -3366,6 +3366,8 @@ def _nc_read(text: str, depth: int, out: list, seen: set, local: bool = False,
                 raw = raw[: kept[cut]]
                 toks = toks[:cut]
         rows.append((raw, toks))
+    if cmds is not None and _nc_compound_pipe(rows, seps):
+        raise CommandNotRead(_PIPE_NOT_READ)
     # (script, the environment it inherits); substitutions outside quotes are simple commands of their own in the
     # lexer already, and a substitution runs in the environment of this text
     nested = [(s, env) for s in subs]
@@ -3639,8 +3641,45 @@ def _nc_group_fed(rows: list, seps: list, k: int, bodies: list) -> tuple[list[st
     return [], None
 
 
-_PIPE_SHELLS = frozenset("sh bash zsh dash ksh".split())
+# F03: fish and ash read commands from standard input too, as _NC_STDIN_SHELLS has it (fish(1), fish 4.x: "if no
+# file is given, commands are read from standard input"; ash, BusyBox 1.36, as POSIX sh(1))
+_PIPE_SHELLS = frozenset("sh bash zsh dash ksh fish ash".split())
 _PIPE_NOT_READ = "a shell reads its script from a pipe whose content the guard cannot read"
+
+
+def _nc_compound_pipe(rows: list, seps: list) -> bool:
+    """F02, F03: a pipe with a subshell, group or compound on one side, and a shell that reads its program from
+    the pipe on the other: `(cat run.sh) | bash`, `cat run.sh | (bash)`, `cat run.sh | { cd x; bash; }`, `… | if
+    true; then bash; fi`. _nc_fed reads a pipe between two simple commands only; here what goes through the pipe
+    is not read, so the line asks."""
+    for r in range(1, len(rows)):
+        sep = seps[r].strip(" \n")
+        bar = sep.find("|")
+        if bar < 0 or sep.replace("(", "").replace(")", "") not in ("|", "|&"):
+            continue
+        left = rows[r - 1][1]
+        compound = ")" in sep[:bar] or left[:1] in (["}"], ["fi"], ["done"], ["esac"])
+        depth = 0
+        receivers = []
+        for j in range(r, len(rows)):
+            s = seps[j].strip(" \n")
+            if j > r:
+                depth -= s.count(")")
+                if depth <= 0:
+                    break
+            toks = rows[j][1]
+            receivers.append(toks)
+            depth += (s[bar + 1 :] if j == r else s).count("(")
+            if toks[:1] and toks[0] in _COMPOUND_OPENERS:
+                depth += 1
+            depth += sum(1 for t in toks[1:] if t == "{")  # `then {`, `{ {`: an inner group opens too
+            if j > r and toks[:1] and toks[0] in _COMPOUND_CLOSERS:
+                depth -= 1
+            if depth <= 0:
+                break
+        if (compound or len(receivers) > 1 or "(" in sep[bar:]) and any(_nc_pipe_shell(t) for t in receivers if t):
+            return True
+    return False
 
 
 def _nc_pipe_shell(toks) -> bool:

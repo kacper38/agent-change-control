@@ -1091,6 +1091,14 @@ Fs | feat/x@client | egress-guard | ask | grep -E 'a|ollama|b' "$(ollama)"
 Fs | feat/x@client | egress-guard | ask | ssh h grep -E 'a|ollama run m|b' f
 
 # --- F11 (weaker than 0.8.0): a report of a secret name inside a group or a compound whose output is piped on
+F11 | feat/x | secret-shell | ask | { ls .env; } | xargs cat
+F11 | feat/x | secret-shell | ask | { echo .env; } | xargs cat
+F11 | feat/x | secret-shell | ask | if true; then echo .env; fi | xargs cat
+F11 | feat/x | secret-shell | ask | for f in a; do ls .env; done | xargs cat
+F11 | feat/x | secret-shell | ask | { ls .env; echo x; } | xargs cat
+F11 | feat/x | secret-shell | ask | { { ls .env; }; } | xargs cat
+F11 | feat/x | secret-shell | ask | { ls .env; } |& xargs cat
+F11 | feat/x | secret-shell | ask | { ls .env; } | while read f; do cat "$f"; done
 Fs | feat/x | shell | silent | ls .env
 Fs | feat/x | shell | silent | ls -la .env && echo ok
 Fs | feat/x | shell | silent | test -f .env && echo yes
@@ -1103,8 +1111,15 @@ Fs | feat/x | secret-shell | ask | ( ls .env ) | xargs cat
 
 # --- F12 (weaker than 0.8.0): a line the reader cannot split (an apostrophe in a comment, `$'…\'…'`) has no
 #     quiet report: the pipe behind the report is not seen in it
+F12 | feat/x | secret-shell | ask | ls .env | xargs cat # it's
+F12 | feat/x | secret-shell | ask | ls .env | xargs cat; echo $'it\'s'
 
 # --- F13 (weaker than 0.8.0): `$_` is the last word of the command before it: it hands the name on
+F13 | feat/x | secret-shell | ask | ls .env; cat "$_"
+F13 | feat/x | secret-shell | ask | test -f .env && cat "$_"
+F13 | feat/x | secret-shell | ask | echo .env; cat $_
+F13 | feat/x | secret-shell | ask | stat .env; head -1 "$_"
+F13 | feat/x | secret-shell | ask | test -f .env; . "${_}"
 Fs | feat/x | shell | silent | ls .env; echo done
 Fs | feat/x | shell | silent | test -f .env && echo "$HOME"
 

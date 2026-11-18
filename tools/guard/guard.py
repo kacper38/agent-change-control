@@ -1087,18 +1087,55 @@ def _report_words(toks) -> tuple:
     return tuple(words[k:])
 
 
+_LAST_ARG_RE = re.compile(r"\$_(?![A-Za-z0-9_])|\$\{_\}")
+_COMPOUND_OPENERS = frozenset({"{", "if", "while", "until", "for", "case", "select"})
+_COMPOUND_CLOSERS = frozenset({"}", "fi", "done", "esac"})
+
+
+def _compound_outputs(cmds: list) -> tuple[list, dict]:
+    """For each simple command of the lexer's list, the groups, subshells and compounds around it (by the index
+    of the command that opens them), and for each of these whether its output goes on through a pipe; a
+    construct that never closes counts as piped on."""
+    stack: list[int] = []
+    enclosing: list = []
+    piped_on: dict = {}
+    for k, (sep, toks) in enumerate(cmds):
+        s = sep.strip(" ")
+        closes = (toks[:1] and toks[0] in _COMPOUND_CLOSERS) or s == ")"
+        if closes and stack:
+            opener = stack.pop()
+            nxt = cmds[k + 1][0].strip(" ") if k + 1 < len(cmds) else ""
+            piped_on[opener] = piped_on.get(opener, False) or nxt in ("|", "|&")
+        if s == "(":
+            stack.append(k)
+        if toks[:1] and toks[0] in _COMPOUND_OPENERS:
+            stack.append(k)
+        # `{ { ls .env; }; }`: the words of one command can open more than one group
+        for t in toks[1:]:
+            if t != "{":
+                break
+            stack.append(k)
+        enclosing.append(list(stack))
+    return enclosing, piped_on
+
+
 def _quiet_reports(command: str) -> tuple:
     """The report commands (_REPORT_HEADS, `git check-ignore|ls-files|status`) that stand as simple commands at
     the top level of the line and whose output goes to no other command (no pipe after them, no substitution
     around them): `ls .env | xargs cat` and `cat $(ls .env)` read the file. A line with a here-document is read
     as before."""
-    if "<<" in command:
+    if "<<" in command or _LAST_ARG_RE.search(command):  # F13: `$_` hands the last word of a report on
         return ()
-    cmds = simple_commands(command)
+    cmds = _hi_lex(command)
+    if cmds is None:  # F12: a line the lexer cannot split shows no pipe; no report of it is quiet
+        return ()
+    enclosing, piped_on = _compound_outputs(cmds)
     out = []
     for k, (sep, toks) in enumerate(cmds):
         nxt = cmds[k + 1][0].strip(" ") if k + 1 < len(cmds) else ""
         if sep.strip(" ") not in _QUIET_SEPS or nxt in ("|", "|&", "("):
+            continue
+        if any(piped_on.get(o, True) for o in enclosing[k]):  # F11: `{ ls .env; } | xargs cat`
             continue
         words = _report_words(toks)
         if not words:

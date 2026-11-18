@@ -3885,18 +3885,21 @@ def _nc_compound_pipe(rows: list, seps: list) -> bool:
     """F02, F03: a pipe with a subshell, group or compound on one side, and a shell that reads its program from
     the pipe on the other: `(cat run.sh) | bash`, `cat run.sh | (bash)`, `cat run.sh | { cd x; bash; }`, `… | if
     true; then bash; fi`. _nc_fed reads a pipe between two simple commands only; here what goes through the pipe
-    is not read, so the line asks."""
+    is not read, so the line asks. Second fix round: a separator is read by its characters (`|⏎(`), and a row of
+    redirections only behind a closer (`(cat run.sh) 2>/dev/null | bash`) stands for the subshell it closes."""
+    compact = [s.replace(" ", "").replace("\n", "") for s in seps]
     for r in range(1, len(rows)):
-        sep = seps[r].strip(" \n")
+        sep = compact[r]
         bar = sep.find("|")
         if bar < 0 or sep.replace("(", "").replace(")", "") not in ("|", "|&"):
             continue
         left = rows[r - 1][1]
-        compound = ")" in sep[:bar] or left[:1] in (["}"], ["fi"], ["done"], ["esac"])
+        compound = (")" in sep[:bar] or left[:1] in (["}"], ["fi"], ["done"], ["esac"])
+                    or (not left and ")" in compact[r - 1]))
         depth = 0
         receivers = []
         for j in range(r, len(rows)):
-            s = seps[j].strip(" \n")
+            s = compact[j]
             if j > r:
                 depth -= s.count(")")
                 if depth <= 0:
@@ -3919,13 +3922,17 @@ def _nc_compound_pipe(rows: list, seps: list) -> bool:
 def _nc_pipe_shell(toks) -> bool:
     """Decision ad (0.9.0): a shell of _PIPE_SHELLS at a command word of the command behind a pipe reads its
     program from it (no -c, no script operand), on this machine: one behind a container or remote tool is not
-    decided and is left as before."""
+    decided and is left as before. Second fix round: every shell _nc_runs_stdin knows on this machine, so also
+    `$SHELL`, `${SHELL}`, `sudo -s|-i` and `su` without a command."""
     words = sorted(command_word_indexes(toks))
     for i in words:
-        name = tool_name(toks[i])
+        name, args = tool_name(toks[i]), list(toks[i + 1 :])
         if name in _NC_ELSEWHERE:
             return False
-        if name in _PIPE_SHELLS and _hi_shell_reads_stdin(list(toks[i + 1 :])):
+        shell = name in _PIPE_SHELLS or os.path.basename(toks[i]) in _NC_STDIN_SHELLS
+        if shell and _hi_shell_reads_stdin(args):
+            return True
+        if (name == "sudo" and _sudo_runs_shell(args)) or (name == "su" and _su_runs_shell(args)):
             return True
     return False
 

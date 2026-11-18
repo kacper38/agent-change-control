@@ -1,0 +1,49 @@
+start 2026-11-18T15:08:58Z
+== guards (e5826b7 and 6ff07cf)
+guard-0.7.1.py:35:VERSION = "0.7.1"
+guard-0.8.0.py:36:VERSION = "0.8.0"
+
+== self-test of the replay tool. Expected: 7 tool calls, weaker 0, stronger 5 occurrences in 3 distinct cells
+tool calls: 7 | distinct: 5 | Bash 5, Read 2
+weaker: 0 occurrences in 0 distinct cells
+stronger: 5 occurrences in 3 distinct cells (0.0 a day over 36500 days, of 7 calls)
+
+== replay over the real commands of 45 days, 0.7.1 against 0.8.0, boundary own
+replay exit 0 (0: nothing weaker, 1: something weaker)
+transcripts: 577 changed in the last 45 days
+tool calls: 18061 | distinct: 17636 | Bash 13693, Write 918, Edit 1246, Read 2141, Agent 63
+guards: 0.7.1 | 0.8.0 | boundary own | branch as recorded per call (6327 calls without one judged as feat/x)
+weaker: 0 occurrences in 0 distinct cells
+stronger: 2 occurrences in 2 distinct cells (0.0 a day over 45 days, of 18061 calls)
+=== stronger per rule: rule | change | occurrences | distinct
+git-guard | silent->ask | 2 | 2
+=== stronger, by occurrences: occurrences | rule | change | tool | branch | call
+
+== the same calls judged inside a client boundary (egress-guard speaks only there)
+replay exit 0
+weaker: 0 occurrences in 0 distinct cells
+stronger: 12 occurrences in 12 distinct cells (0.3 a day over 45 days, of 18064 calls)
+=== stronger per rule: rule | change | occurrences | distinct
+egress-guard | silent->ask | 10 | 10
+git-guard | silent->ask | 2 | 2
+=== stronger, by occurrences: occurrences | rule | change | tool | branch | call
+
+== hook timing through the real entry point, median of five runs, before and after
+guard-0.7.1.py
+  plain                 18 B  median    31.6 ms  verdict silent
+  longest row           99 B  median    31.4 ms  verdict silent
+  100 kB            100000 B  median   258.6 ms  verdict silent
+  100 kB capitals   100000 B  median   266.3 ms  verdict silent
+guard-0.8.0.py
+  plain                 18 B  median    34.6 ms  verdict silent
+  longest row           99 B  median    34.7 ms  verdict silent
+  100 kB            100000 B  median   309.5 ms  verdict silent
+  100 kB capitals   100000 B  median   617.8 ms  verdict silent
+
+== left to do by hand
+1. read replay-own.log and replay-client.log in the scratch folder: each stronger call is a prompt or a
+   denial 0.8.0 adds; say per kind whether it is wanted. A weaker cell is a defect and needs a fix first.
+2. python3 tools/tracker/tracker.py review 50 --pr 54
+3. the numbers, not the command text, go into a DECISIONS.md line (docs/HANDOVER-2026-11-18.md, Next steps)
+script exit 0
+end 2026-11-18T15:10:03Z

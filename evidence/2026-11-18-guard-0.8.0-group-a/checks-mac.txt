@@ -1,0 +1,45 @@
+== main worktree: ec23d5d | guard 0.8.0
+
+== time span of the replayed transcripts
+transcripts 577 in 72 project folders
+wired tool calls 18118 dated, 0 undated
+first day 2026-10-14 | last day 2026-11-18 | days with calls 14
+calls per month: 2026-10 12038, 2026-11 6080
+
+== rows of group A on the guard of main (all must hold)
+shell rows exit 0 | total rows 708 | hold 708 | red 0
+file rows exit 0 | total rows 78 | hold 78 | red 0
+
+== draft rows of groups B and C on the guard of main (red is due with the build; compare with item-b.md)
+rows-b.txt | sha256 fa392bca5f44e50f | total rows 298 | hold 134 | red 164
+rows-b4.txt | sha256 f23eafab8dc33308 | total rows 255 | hold 119 | red 136
+rows-b4-az.txt | sha256 13dfa135930530c3 | total rows 123 | hold 62 | red 61
+rows-b5.txt | sha256 ddacf3cdb9e0ed89 | total rows 119 | hold 57 | red 62
+rows-c.txt | sha256 0a611fa833d0aad5 | total rows 139 | hold 69 | red 70
+rows-b5-files.txt | sha256 3ce73c16c2d178d9 | total rows 36 | hold 22 | red 14
+heldout-b.txt | sha256 879ce3ee6189984b
+heldout-b4.txt | sha256 371f1f7b395d88ca
+heldout-b5.txt | sha256 280eb856aedf6a44
+
+== lint and test suites of main, both Pythons, offline
+== ec23d5d docs/guard-0.8.0-replay | guard 0.8.0
+== ruff
+All checks passed!
+ruff exit 0
+== pytest on Python 3.13
+........................................................................ [ 95%]
+................................................................s..sss.s [ 96%]
+s.s..................................................................... [ 98%]
+.............................................ss......................... [ 99%]
+........................                                                 [100%]
+5271 passed, 9 skipped in 53.55s
+pytest 3.13 done in 54 s
+== pytest on Python 3.9
+........................................................................ [ 95%]
+................................................................s..sss.s [ 96%]
+s.s..................................................................... [ 98%]
+.............................................ss......................... [ 99%]
+........................                                                 [100%]
+5271 passed, 9 skipped in 71.56s (0:01:11)
+pytest 3.9 done in 73 s
+script exit 0

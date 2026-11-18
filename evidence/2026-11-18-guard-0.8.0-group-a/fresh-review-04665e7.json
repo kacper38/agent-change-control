@@ -1,0 +1,44 @@
+{
+  "base": "origin/main",
+  "base_sha": "e5826b75bfd31243f4eedff9e9b76651814c8a25",
+  "cost_usd": 0.907912,
+  "diff_sha256": "58c09d79c22ec470d423a37b3e40e54045abf48527d4e2936e62846d78ad2bb6",
+  "duration_ms": 149938,
+  "findings": [
+    {
+      "file": "docs/USING-AT-WORK.md",
+      "line": 67,
+      "severity": "MAJOR",
+      "summary": "The new row says 'a tool that runs the command after it and is in no table, a verb in capitals and the Homebrew names of the GNU tools are not seen (`DECISIONS.md`, 2026-11-18, guard 0.8.0)', and README.md:212 also cites '2026-11-18'. The diff does not touch DECISIONS.md. The decisions this release makes (`git config core.hooksPath` asks unless the value is `.githooks`; any `SKIP=` value denies; capitals are judged twice and the stricter answer stands; egress-guard now asks when it cannot read a line; `git push --prune` and `-d` now ask) and the gaps it leaves open are therefore not recorded. Working agreement items 4 and 7 require them there."
+    },
+    {
+      "file": "tools/guard/guard.py",
+      "line": 921,
+      "severity": "MINOR",
+      "summary": "`_git_env_gate` walks the `nested_commands` tuples in reading order, and `_nc_read` emits every top-level command before it reads any nested script. In `eval 'export HUSKY=0'; git commit -m x` (also `eval 'set -a; HUSKY=0'`), the `git commit` tuple is judged before the nested `export` is added to `exported`, so the call passes silently. `eval` runs in the current shell, so the export does reach git. This undermines the stated guarantee that the hook gate cannot be switched off through the environment. No test covers it."
+    },
+    {
+      "file": "tools/guard/guard.py",
+      "line": 2597,
+      "severity": "MINOR",
+      "summary": "`if \"<<\" not in text or \"\\x00\" in text: return strip_heredocs(text)`: a NUL anywhere in the command turns off the new reading of here-document bodies fed to a shell. With `bash <<EOF\\ngit push --force origin feat\\nEOF` plus a trailing NUL, the body is stripped unread and the guard stays silent. This is no regression from 0.7.1, but the gap is not tested and, as far as the diff shows, not recorded in DECISIONS.md."
+    },
+    {
+      "file": "tools/guard/tests/test_bypass_forms.py",
+      "line": 1075,
+      "severity": "MINOR",
+      "summary": "`CHAIN_BOUND_S = 1.0` asserts wall-clock time (`assert time.perf_counter() - start < CHAIN_BOUND_S`) for eight rules, each judging the command up to twice. On a loaded runner this can fail for reasons unrelated to the code, and a flaky gate encourages people to skip it. Consider counting reads instead (e.g. `_nc_cached`/`_nc_line_runs_stdin` cache info) rather than timing them."
+    }
+  ],
+  "model_requested": "opus",
+  "models": [
+    "claude-opus-5-5"
+  ],
+  "prompt_file": "tools/review/prompt.md",
+  "prompt_sha256": "616a75160af02e49b21b1cf7bc7587a9684aca2130e866ee946ee5b8e13aa7d0",
+  "sha": "04665e7eaf56f22227fa0d8c8857df590f69a30c",
+  "summary": "Guard 0.8.0 widens what the shell rules read: secret paths inside option values, after `@` and after `<`; scripts fed to a shell by a here-document or a pipe; the `gh` and `git` option spellings; the hook gate switched off through the environment or `core.hooksPath`; and tool names written in capitals. No test, assertion or CI step is removed or loosened. Dropping `strip_heredocs` on the reader paths does not weaken anything: the reader still takes out every here-document body except one fed to a shell, and it reads that body as a script. A command containing a NUL falls back to the 0.7.1 behaviour. The diff contains no secrets or client data. Two things need attention before merge. First, the docs cite DECISIONS.md entries dated 2026-11-18 for the new trade-offs and known gaps, but the diff does not change DECISIONS.md. Second, `eval` (which runs in the current shell) can switch the hook gate off without being caught. There is also a NUL-byte fallback that skips the new here-document reading, and a wall-clock test that may be flaky.",
+  "ts": "2026-11-18T10:18:43Z",
+  "verdict": "COMMENT",
+  "verdict_as_answered": "COMMENT"
+}

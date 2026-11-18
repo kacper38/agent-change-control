@@ -1,0 +1,22 @@
+[
+  {
+    "bytes": 6099,
+    "captured_at": "2026-11-18T10:39:34Z",
+    "command": "uv run --offline --no-project --with pytest --python 3.13 python -m pytest -q -p no:cacheprovider -o addopts= tools",
+    "exit_code": 0,
+    "file": "pytest-py313.txt",
+    "name": "pytest-py313",
+    "sha256": "eea3ef98d52a03e613471a17af073fdb5854e450d968b6f2130bea958019a30e",
+    "tool_version": "uv 0.11.32 (x86_64-unknown-linux-gnu)"
+  },
+  {
+    "bytes": 19,
+    "captured_at": "2026-11-18T10:38:33Z",
+    "command": "ruff check tools",
+    "exit_code": 0,
+    "file": "ruff.txt",
+    "name": "ruff",
+    "sha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18",
+    "tool_version": "ruff 0.16.9"
+  }
+]

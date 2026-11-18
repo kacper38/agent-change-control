@@ -1930,12 +1930,15 @@ def _search_patterns(command: str) -> list[str]:
         for toks in nested_commands(command):
             words = sorted(command_word_indexes(toks))
             for k in words:
-                name = tool_name(toks[k])
+                # F07: macOS finds `GREP` as grep (a case-insensitive file system, as fold_names reads it)
+                name = tool_name(toks[k].lower())
                 if name not in _SEARCH_TOOLS and name != "git":
                     continue
-                if any(tool_name(toks[j]) == "ssh" for j in words if j < k):
+                if any(tool_name(toks[j].lower()) == "ssh" for j in words if j < k):
                     continue  # ssh hands its words to the remote shell unquoted: the bars there are pipes
-                idx, _files = _search_pattern(list(toks), k)
+                seg = list(toks)
+                seg[k] = name
+                idx, _files = _search_pattern(seg, k)
                 if idx is not None:
                     out.append(toks[idx])
                 for m in range(k + 1, len(toks)):
@@ -1951,8 +1954,8 @@ def _search_patterns(command: str) -> list[str]:
 
 def _pattern_places(text: str, command: str) -> tuple:
     """K11's reading of a line, once (F21): the spans of the quoted search patterns that hold a separator, merged
-    and sorted, and for each segment the first pass gives, the places (start, end) of the parts of the line that
-    give it."""
+    and sorted, and for each segment the first pass gives, the places (start, end) of its first word in the parts
+    of the line that give it."""
     spans = []
     for p in set(_search_patterns(command)):
         if not _SEP_RE.search(p):
@@ -1976,7 +1979,12 @@ def _pattern_places(text: str, command: str) -> tuple:
             part = text[pos:end]
             segs = _segments_cached(part)
             if len(segs) == 1:
-                where.setdefault(segs[0], []).append((pos, end))
+                # F08: the place of the segment's first word (the part behind the last bar runs on past the closing
+                # quote, `'a|openai api' notes.txt`); a first word the part does not hold as written (quotes taken
+                # out) is read as the whole part
+                at = part.find(segs[0][0]) if segs[0] else -1
+                place = (pos + at, pos + at + len(segs[0][0])) if at >= 0 else (pos, end)
+                where.setdefault(segs[0], []).append(place)
             pos = m.end() if m else end
     return [a for a, _ in merged], [b for _, b in merged], where
 
@@ -1984,8 +1992,9 @@ def _pattern_places(text: str, command: str) -> tuple:
 def _only_in_search_patterns(places: tuple, seg: list[str]) -> bool:
     """Group C (K11, the owner's answer of 2026-11-18): the first pass splits the line at every `|`, also inside a
     quoted word, so the words of a quoted search pattern (`grep -E 'a|openai|b'`) look like a command. A hit is
-    dropped when every place of the line that gives this segment lies inside such a pattern, written between a
-    pair of quotes; a hit anywhere else keeps asking."""
+    dropped when, at every place of the line that gives this segment, its first word lies inside such a pattern,
+    written between a pair of quotes; a hit anywhere else keeps asking, and the reader pass still reads every real
+    command."""
     starts, ends, where = places
     key = tuple(seg)
     found = where.get(key)

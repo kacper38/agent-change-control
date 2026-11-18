@@ -1228,11 +1228,16 @@ Fs | feat/x | shell | silent | doppler secrets --only-names
 Fs | feat/x | secret-shell | ask | doppler secrets get API_KEY
 
 # --- F07: inside a client boundary, a search tool written in capitals: its quoted pattern is text too (K11)
+F07 | feat/x@client | shell | silent | GREP -E 'a|openai|b' notes.txt
+F07 | feat/x@client | shell | silent | RG -n 'aider|codex|gemini' docs
 Fs | feat/x@client | egress-guard | ask | GREP -E 'a|openai|b' notes.txt | OPENAI api models.list
 Fs | feat/x@client | egress-guard | ask | GREP -E 'a|openai|b' notes.txt | openai api models.list
 
 # --- F08: inside a client boundary, the tool's name in the last alternative of a quoted pattern with a blank
 #     behind it (K11)
+F08 | feat/x@client | shell | silent | grep -E 'x | ollama run m' notes.txt
+F08 | feat/x@client | shell | silent | grep -E 'a|openai api' notes.txt
+F08 | feat/x@client | shell | silent | rg -n 'codex|gemini cli' docs
 Fs | feat/x@client | egress-guard | ask | grep -E 'x | ollama run m' notes.txt | ollama run m
 Fs | feat/x@client | egress-guard | ask | grep -E 'a|openai' notes.txt; openai api models.list
 Fs | feat/x@client | egress-guard | ask | grep -E 'x | ollama run m' notes.txt $(ollama list)

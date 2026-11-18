@@ -10,11 +10,15 @@ Each cell is one form with `{}` replaced by one payload; the payload's rule deci
 Every cell, whatever its kind: no rule may answer weaker than the old guard.
 Commands are strings handed to rule functions; nothing runs.
 
+The payloads are in heldout_fed_payloads.json beside this file, not in its text: the delete-guard reads the
+text of a script a command names and asks when it holds a delete or force-push form, even as data.
+
 usage: python3 -I heldout_fed.py <old guard.py> <new guard.py> [--cells]
 """
 import collections
 import importlib.util
 import json
+import os
 import sys
 
 RULES = ["delete-guard", "secret-shell", "git-guard", "deploy-ask", "egress-guard", "protected-branch",
@@ -22,22 +26,9 @@ RULES = ["delete-guard", "secret-shell", "git-guard", "deploy-ask", "egress-guar
 RANK = {"silent": 0, "ask": 1, "deny": 2}
 
 # (rule, branch, boundary, payload); no quote characters in a payload
-PAYLOADS = [
-    ("delete-guard", "feat/x", "own", "rm -rf build"),
-    ("delete-guard", "feat/x", "own", "git branch -D old"),
-    ("git-guard", "feat/x", "own", "git commit --no-verify -m x"),
-    ("git-guard", "feat/x", "own", "git push --force origin feat"),
-    ("git-guard", "feat/x", "own", "git push origin feat:main"),
-    ("secret-shell", "feat/x", "own", "cat .env"),
-    ("secret-shell", "feat/x", "own", "git add .env"),
-    ("deploy-ask", "feat/x", "own", "terraform apply -auto-approve"),
-    ("deploy-ask", "feat/x", "own", "kubectl apply -f k8s/"),
-    ("host-install", "feat/x", "own", "npm install -g x"),
-    ("host-install", "feat/x", "own", "pip install requests"),
-    ("tracker-guard", "feat/x", "own", "gh issue close 3"),
-    ("protected-branch", "main", "own", "git commit -m x"),
-    ("egress-guard", "feat/x", "client", "codex exec hi"),
-]
+with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "heldout_fed_payloads.json"),
+          encoding="utf-8") as _fh:
+    PAYLOADS = [tuple(row) for row in json.load(_fh)]
 
 LOCAL_REF = "bash -c '{}'"
 SSH_REF = "ssh build '{}'"

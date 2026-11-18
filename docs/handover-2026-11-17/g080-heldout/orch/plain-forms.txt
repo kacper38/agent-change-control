@@ -1,0 +1,43 @@
+# plain forms behind the safety net: what does each rule answer today when the name is the command word?
+git push origin +feat
+git push origin HEAD:main
+git push origin feat
+git -c core.hooksPath=/dev/null commit -m x
+git commit --no-verify -m x
+gh issue close 3
+gh issue edit 3 --add-label status/done
+gh label create x
+gh api -X PATCH repos/o/r/issues/3 -f state=closed
+az boards work-item update --id 3 --state Done
+az boards work-item create --title x --type Task
+az boards work-item delete --id 3
+az boards work-item show --id 3
+az boards query --wiql "select [System.Id] from workitems"
+az devops invoke --area wit --resource workitems
+az devops invoke --area wit --resource workitems --http-method PATCH --in-file body.json
+az devops invoke --area git --resource repositories
+az repos pr update --id 3 --status completed
+az repos pr update --id 3 --bypass-policy true
+az repos pr create --title x
+python3 tools/tracker/tracker.py owner done 3
+python3 tools/tracker/tracker.py show 3
+tools/tracker/tracker.py owner ready 3
+gh pr merge 3
+type git
+command -v git
+tldr git commit
+info git
+apropos git
+whatis git
+help git
+whereis git
+ls git
+cat git
+grep -rn git docs
+git update-ref refs/remotes/origin/main abc123
+git update-ref refs/heads/release abc123
+git update-ref --no-deref HEAD abc123
+git update-ref -d refs/heads/feat
+git update-ref --stdin -z
+gh api graphql -f query='mutation { reopenIssue(input: {issueId: "I_1"}) { clientMutationId } }'
+gh api graphql -f query='query { search(query: "mutation testing", type: REPOSITORY, first: 1) { repositoryCount } }'

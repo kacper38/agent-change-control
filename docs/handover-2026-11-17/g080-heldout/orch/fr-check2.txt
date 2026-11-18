@@ -1,0 +1,9 @@
+# where a NUL stands, and which reading it switches off
+"echo 'git commit --no-verify -m x\u0000' | sh"
+"echo hi\u0000; echo 'git commit --no-verify -m x' | sh"
+"echo 'git commit --no-verify -m x' | sh #\u0000"
+"echo hi\u0000; bash <<EOF\ngit push --force origin feat\nEOF"
+"bash <<EOF\ngit commit --no-verify -m x\u0000\nEOF"
+"bash <<EOF\ngit commit --no-verify -m x\nEOF"
+"cat <<EOF > notes.txt\ngit commit --no-verify -m x\u0000\nEOF"
+"bash -c 'git commit --no-verify -m x\u0000'"

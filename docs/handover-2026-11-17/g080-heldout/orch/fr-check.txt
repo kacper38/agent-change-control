@@ -1,0 +1,9 @@
+# the two code findings of the fresh-context review, to be measured before they are written down
+eval 'export HUSKY=0'; git commit -m x
+eval 'set -a; HUSKY=0'; git commit -m x
+export HUSKY=0; git commit -m x
+eval 'export HUSKY=0; git commit -m x'
+"bash <<EOF\ngit push --force origin feat\nEOF"
+"bash <<EOF\ngit push --force origin feat\nEOF\u0000"
+"echo 'git commit --no-verify -m x' | sh\u0000"
+"git commit --no-verify -m x\u0000"

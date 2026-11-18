@@ -1,0 +1,18 @@
+# open question 2: the GitHub API host in capitals
+curl -X PATCH https://api.github.com/repos/o/r/issues/3
+curl -X PATCH https://API.GITHUB.COM/repos/o/r/issues/3
+curl -X PATCH https://Api.GitHub.com/repos/o/r/issues/3 -d '{"state":"closed"}'
+# open question 3: a verb in capitals for brew and gem
+brew list
+brew LIST
+brew uninstall jq
+brew UNINSTALL jq
+gem uninstall rake
+gem UNINSTALL rake
+# open question 6: merging a pull request
+gh pr merge 3
+gh pr merge 3 --admin
+gh pr merge 3 --auto --squash
+gh api -X PUT repos/o/r/pulls/3/merge
+az repos pr update --id 3 --status completed
+az repos pr update --id 3 --bypass-policy true

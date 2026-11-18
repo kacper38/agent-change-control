@@ -1,0 +1,47 @@
+# Guard 0.8.0, group A, second fix round of 2026-11-18: rows from the reviewer's re-check of the fix pass
+# (findings S1, S2, S4). Same format as rows-a.txt, checked by expect.py.
+# Y1, Y2 and Y4 are red at the fix head 894b8cc and held at the build head ae5361b and at 0.7.1: they are new
+# noise of the fix pass and go back to what they were. Ids ending in `s` hold at 894b8cc and must keep holding.
+
+# --- Y1 (S1): a here-document inside "$( … )" is data of the command that reads it, whatever quotes its body holds
+Y1 | feat/x | git-guard | silent | "git commit -m \"$(cat <<'EOF'\nfix: run \"make; git push --force origin main\" later\nEOF\n)\""
+Y1 | feat/x | shell | silent | "git commit -m \"$(cat <<'EOF'\nfix: quote the \"name\nnpm install left-pad is gone\nEOF\n)\""
+Y1 | feat/x | git-guard | silent | "gh pr create --title \"x\" --body \"$(cat <<'EOF'\nrun \"make; git commit --no-verify -m x\" never\nEOF\n)\""
+Ys | feat/x | shell | silent | "git commit -m \"$(cat <<'EOF'\nfix: don't strip the body\n\nIt's the reader's job (see `_nc_read`).\nEOF\n)\""
+Ys | feat/x | shell | silent | "git commit -m \"$(cat <<'EOF'\nfix: the hook said \"git commit --no-verify\" is denied\nEOF\n)\""
+Ys | feat/x | shell | silent | "git commit -m \"$(cat <<EOF\nfix: say \"npm install -g x\" is asked about\nEOF\n)\""
+Ys | feat/x | shell | silent | "gh pr create --title \"docs: don't\" --body \"$(cat <<'EOF'\nrun \"terraform apply\" only after a plan\nEOF\n)\""
+Ys | feat/x | shell | silent | "git commit -m \"$(cat <<'EOF'\nfix: it's \"quoted\"\nEOF\n)\" && git push origin feat"
+Ys | feat/x | git-guard | deny | "git commit -m \"$(cat <<'EOF'\nfix: it's \"quoted\"\nEOF\n)\" && git push --force origin feat"
+Ys | feat/x | secret-shell | ask | "git commit -m \"$(cat <<'EOF'\nfix: \"x\nEOF\n)\"; cat .env"
+Ys | feat/x | git-guard | silent | "echo \"$(cat <<'EOF'\ngit push --force origin feat\nEOF\n)\""
+Ys | feat/x | git-guard | deny | "echo \"$(bash <<'EOF'\ngit push --force origin feat\nEOF\n)\""
+Ys | feat/x | git-guard | deny | "X=$(bash <<'EOF'\ngit commit --no-verify -m x\nEOF\n)"
+
+# --- Y2 (S2): an apostrophe in a comment or in $'…' opens no quote
+Y2 | feat/x | git-guard | silent | "# don't run this\ncat <<EOF > notes.txt\ngit push --force origin main\nnpm install x\nEOF"
+Y2 | feat/x | host-install | silent | "# don't run this\ncat <<EOF > notes.txt\ngit push --force origin main\nnpm install x\nEOF"
+Y2 | feat/x | git-guard | silent | "echo $'it\\'s'; cat <<EOF > notes.txt\ngit push --force origin main\nEOF"
+Y2 | feat/x | shell | silent | "echo done # it's over\ncat <<'EOF' > notes.txt\ngit commit --no-verify -m x\nEOF"
+Ys | feat/x | shell | silent | "echo \"it's fine\"; cat <<EOF > notes.txt\ngit commit --no-verify -m x\nEOF"
+Ys | feat/x | shell | silent | "cat <<'EOF' > notes.txt\nit's a note: \"git commit --no-verify\" is denied\nEOF"
+Ys | feat/x | git-guard | deny | "# it's a comment\ngit commit --no-verify -m x"
+Ys | feat/x | git-guard | deny | "echo $'it\\'s'; git push --force origin feat"
+Ys | feat/x | git-guard | deny | "cat <<EOF > notes.txt\n# don't\nEOF\ngit commit --no-verify -m x"
+Ys | feat/x | shell | silent | "cat <<'EOF' > a.txt\nit's\nEOF\ncat <<'EOF' > b.txt\n\"x\ngit commit --no-verify -m x\nEOF"
+Ys | feat/x | git-guard | deny | "cat <<'EOF' > a.txt\nit's\nEOF\nbash <<'EOF'\ngit commit --no-verify -m x\nEOF"
+
+# --- Y4 (S4): the hook-gate environment in front of one shell stays with the script of that shell
+Y4 | feat/x | shell | silent | HUSKY=0 bash -c 'echo ok' && bash -c 'git commit -m x'
+Y4 | feat/x | shell | silent | "HUSKY=0 bash <<EOF\nnpm test\nEOF\nbash -c 'git commit -m x'"
+Ys | feat/x | git-guard | deny | HUSKY=0 bash -c 'git commit -m x'
+Ys | feat/x | git-guard | deny | HUSKY=0 bash -c 'echo ok; git commit -m x'
+Ys | feat/x | git-guard | deny | export HUSKY=0; bash -c 'git commit -m x'
+Ys | feat/x | git-guard | deny | bash -c 'export HUSKY=0'; git commit --no-verify -m x
+
+# --- the rows of the first fix pass that this round must not lose
+Ys | feat/x | git-guard | deny | "bash -c 'bash <<EOF\ngit push --force origin feat\nEOF'"
+Ys | feat/x | git-guard | deny | "bash -c \"bash <<EOF\ngit commit --no-verify -m x\nEOF\""
+Ys | feat/x | git-guard | deny | "bash -c \"echo \\\"it's\\\"; bash <<EOF\ngit push --force origin feat\nEOF\""
+Ys | feat/x | git-guard | silent | "bash -c 'cat <<EOF > notes.txt\ngit push --force origin feat\nEOF'"
+Ys | feat/x | shell | silent | "bash -c 'cat <<EOF\nhello\nEOF'"

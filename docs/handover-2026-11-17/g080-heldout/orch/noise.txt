@@ -1,0 +1,27 @@
+# everyday commands with a here-document that is data: the commit and pull request forms of Claude Code,
+# comments and quotes in front of a here-document. Verdicts must stay as at 0.7.1 and at the build head.
+"git commit -m \"$(cat <<'EOF'\nfix: run \"make; git push --force origin main\" later\nEOF\n)\""
+"git commit -m \"$(cat <<'EOF'\nfix: quote the \"name\nnpm install left-pad is gone\nEOF\n)\""
+"git commit -m \"$(cat <<'EOF'\nfix: don't strip the body\n\nIt's the reader's job (see `_nc_read`).\nEOF\n)\""
+"git commit -m \"$(cat <<'EOF'\nfeat: add \"deny\" for `git push --force`\n\nCo-Authored-By: X <x@example.org>\nEOF\n)\""
+"git commit -m \"$(cat <<'EOF'\nfix: the hook said \"git commit --no-verify\" is denied\nEOF\n)\""
+"git commit -m \"$(cat <<EOF\nfix: say \"npm install -g x\" is asked about\nEOF\n)\""
+"gh pr create --title \"x\" --body \"$(cat <<'EOF'\n## Summary\n- the guard denies \"git push --force origin main\"\n- it's read like `bash -c`\nEOF\n)\""
+"gh pr create --title \"docs: don't\" --body \"$(cat <<'EOF'\nrun \"terraform apply\" only after a plan\nEOF\n)\""
+"# don't run this\ncat <<EOF > notes.txt\ngit push --force origin main\nnpm install x\nEOF"
+"echo $'it\\'s'; cat <<EOF > notes.txt\ngit push --force origin main\nEOF"
+"echo \"it's fine\"; cat <<EOF > notes.txt\ngit commit --no-verify -m x\nEOF"
+"echo done # it's over\ncat <<'EOF' > notes.txt\ngit commit --no-verify -m x\nEOF"
+"cat <<'EOF' > notes.txt\nit's a note: \"git commit --no-verify\" is denied\nEOF"
+"python3 - <<'EOF'\nprint(\"it's: git push --force origin main\")\nEOF"
+"cat > notes.txt <<EOF\ndon't: git push --force origin main\nEOF\necho \"it's written\""
+HUSKY=0 bash -c 'echo ok' && bash -c 'git commit -m x'
+"HUSKY=0 bash <<EOF\nnpm test\nEOF\nbash -c 'git commit -m x'"
+HUSKY=0 npm ci && git commit -m x
+SKIP=1 make test; git commit -m x
+echo x | ssh h0 ssh h1 ssh h2 ssh h3 ls
+"ssh build -T <<EOF\ngit push --force origin feat\nEOF"
+git commit -m "it's \"done\""
+git commit -m 'fix: handle "<<" in the reader'
+echo "a << b" && git status
+echo 'x' > "it's.txt"

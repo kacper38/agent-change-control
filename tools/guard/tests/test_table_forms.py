@@ -1125,6 +1125,10 @@ Fs | feat/x | shell | silent | test -f .env && echo "$HOME"
 
 # --- F14 (weaker than 0.8.0): git takes `--no-dry-run` and its prefixes as the dry run taken back (measured,
 #     git 2.55: `git clean -n --no-dry-run` refuses for want of -f, `-n --no-d` too; `--dry-r` is a dry run)
+F14 | feat/x | delete-guard | ask | git clean -n --no-dry-run -fdx
+F14 | feat/x | delete-guard | ask | git clean --dry-run --no-dry-run -fdx
+F14 | feat/x | delete-guard | ask | git clean -fd -n --no-d
+F14 | feat/x | delete-guard | ask | git worktree prune -n --no-dry-run
 Fs | feat/x | shell | silent | git clean -n
 Fs | feat/x | shell | silent | git clean -n -fd
 Fs | feat/x | shell | silent | git clean --dry-run -fdx

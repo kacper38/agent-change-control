@@ -478,25 +478,57 @@ def _truncate_in_the_open(command: str) -> bool:
 _DELETE_HELP = frozenset({"--help", "-h", "--version"})
 
 
-def _git_clean_dry(rest: list[str]) -> bool:
-    """`git clean` with -n or --dry-run (also in a cluster, `-fdn`); the letters after an `e` in a cluster, and
-    the word after `-e`, are an exclude pattern (`-f -e -n` deletes) (git-clean(1))."""
+def _long_dry(t: str) -> Optional[str]:
+    """How a long option of git's dry-run family reads (git 2.55 parse-options, measured: a long option may be
+    shortened to any unambiguous prefix, `--no-` takes it back): "dry" for `--dry-run` and its prefixes (`--d`,
+    `--dry-r`), "wet" for `--no-dry-run` and its prefixes down to `--no-d`, "unplaced" for `--n`, `--no` and
+    `--no-` (which negation they mean the line does not show), None for any other word."""
+    if len(t) < 3 or not t.startswith("--") or "=" in t:
+        return None
+    if "--dry-run".startswith(t):
+        return "dry"
+    if "--no-dry-run".startswith(t):
+        return "wet" if len(t) >= len("--no-d") else "unplaced"
+    return None
+
+
+def _git_dry(rest: list[str], value_shorts: str, value_longs: tuple) -> bool:
+    """A git call of the dry-run family (`git clean`, `git worktree prune`) that previews only: the last of
+    -n / --dry-run and --no-dry-run wins (git 2.55, measured: `git clean -n --no-dry-run` deletes), a word of
+    the family that cannot be placed reads as no preview, and the scan stops at `--`. A short cluster ends at a
+    letter of `value_shorts` (its value follows, glued or as the next word); the word after a long option of
+    `value_longs` is its value."""
+    dry = False
     skip = False
     for t in rest:
         if skip:
             skip = False
-        elif t == "--":
+            continue
+        if t == "--":
+            break
+        state = _long_dry(t)
+        if state == "unplaced":
             return False
-        elif t == "--dry-run":
-            return True
-        elif t in ("-e", "--exclude"):
+        if state is not None:
+            dry = state == "dry"
+        elif t in value_longs:
             skip = True
         elif t.startswith("-") and not t.startswith("--"):
-            letters = t[1:].split("e", 1)
-            if "n" in letters[0]:
-                return True
-            skip = len(letters) > 1 and not letters[1]
-    return False
+            letters = t[1:]
+            for i, c in enumerate(letters):
+                if c in value_shorts:
+                    skip = i == len(letters) - 1
+                    break
+                if c == "n":
+                    dry = True
+    return dry
+
+
+def _git_clean_dry(rest: list[str]) -> bool:
+    """`git clean` with -n or --dry-run (also in a cluster, `-fdn`) that no later --no-dry-run takes back; the
+    letters after an `e` in a cluster, and the word after `-e`, are an exclude pattern (`-f -e -n` deletes)
+    (git-clean(1), git 2.55)."""
+    return _git_dry(rest, "e", ("--exclude",))
 
 
 def _delete_preview(toks) -> bool:
@@ -524,7 +556,8 @@ def _delete_preview(toks) -> bool:
         if sub == "clean":
             return _git_clean_dry(rest)
         if sub == "worktree" and rest[:1] == ["prune"]:
-            return "-n" in rest or "--dry-run" in rest
+            # git-worktree(1), git 2.55: prune takes -n, -v, --expire <time>
+            return _git_dry(rest[1:], "", ("--expire",))
         return False
     if name == "kubectl":
         return _dry_run("kubectl", toks[1:])

@@ -1304,6 +1304,9 @@ Fs | feat/x@client | egress-guard | ask | echo 'a|openai|b'
 Fs | feat/x@client | shell | silent | grep -E 'a|openai' notes.txt
 
 # --- F16: `doppler run --command '…'` runs the text in a shell (Doppler's docs), like `doppler run -- …`
+F16 | feat/x | delete-guard | ask | doppler run --command 'rm -rf x'
+F16 | feat/x | delete-guard | ask | doppler run --command='rm -rf x'
+F16 | feat/x | git-guard | deny | doppler run --command 'git push --force origin feat'
 Fs | feat/x | delete-guard | ask | doppler run -- rm -rf x
 Fs | feat/x | shell | silent | doppler run -- ls
 Fs | feat/x | shell | silent | doppler run --command 'ls -la'

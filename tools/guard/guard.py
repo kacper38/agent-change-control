@@ -3397,6 +3397,8 @@ _NC_SCRIPT_OPTIONS: dict = {
     "nix-shell": ("", frozenset({"--run", "--command"})),
     "npx": ("", frozenset({"-c", "--call"})),
     "npm": ("exec", frozenset({"-c", "--call"})),
+    # F16: Doppler CLI 3, `doppler run --help`: "--command  command to execute (e.g. 'echo hello')", run in a shell
+    "doppler": ("run", frozenset({"--command"})),
 }
 _NC_FD = frozenset({"fd", "fdfind"})
 _NC_FD_EXEC = frozenset("-x -X --exec --exec-batch".split())  # fd runs the command after these per match

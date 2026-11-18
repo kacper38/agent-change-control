@@ -955,12 +955,14 @@ class _SearchTable:
     or the next word), and short letters whose optional value can only be glued (git grep -O)."""
 
     def __init__(self, flag_shorts: str, value_shorts: str, flag_longs: str, value_longs: str,
-                 glued_shorts: str = "") -> None:
+                 glued_shorts: str = "", glued_longs: str = "") -> None:
         self.flag_shorts = flag_shorts
         self.value_shorts = value_shorts
         self.glued_shorts = glued_shorts
         self.flag_longs = frozenset(flag_longs.split())
         self.value_longs = frozenset(value_longs.split())
+        # long options known with a glued value only; written bare, the tools read them two ways
+        self.glued_longs = frozenset(glued_longs.split())
 
 
 # Fix pass, F22: three readings of an option, not two. Sources: each tool's own --help, as listed in the fix
@@ -978,7 +980,10 @@ _SEARCH_OPTIONS: dict = {
         " --recursive --dereference-recursive --files-without-match --files-with-matches --count --initial-tab"
         " --null --no-group-separator --binary --color --colour",
         "--regexp --file --max-count --label --binary-files --directories --devices --include --exclude"
-        " --exclude-from --exclude-dir --before-context --after-context --context --group-separator"),
+        " --exclude-from --exclude-dir --before-context --after-context --group-separator",
+        # F25: GNU grep 3.12 takes `--context NUM`, the BSD grep 2.6.0 of macOS only `--context[=num]` (the next
+        # word is its pattern, measured): bare, the pattern is not known
+        glued_longs="--context"),
     "rg": _SearchTable(
         "zsFivxUPSawLubhnN0opqHIclV", "efEmjgdtTABCMr",
         "--search-zip --case-sensitive --crlf --fixed-strings --ignore-case --invert-match --line-regexp --mmap"
@@ -1037,6 +1042,8 @@ def _search_option(t: str, table: _SearchTable) -> str:
     "unknown" (an option, or a letter of a short cluster, in neither list)."""
     if t.startswith("--"):
         name, glued, _value = t.partition("=")
+        if name in table.glued_longs:
+            return "flag" if glued else "unknown"
         if name in table.value_longs:
             return "flag" if glued else "next"
         return "flag" if name in table.flag_longs else "unknown"

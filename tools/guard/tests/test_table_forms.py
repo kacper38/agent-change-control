@@ -1487,6 +1487,37 @@ Fs | feat/x | delete-guard | ask | git clean --exclude -n -f
 Fs | feat/x | delete-guard | ask | git clean -e -n -f
 """  # noqa: E501 (a row holds its command as written)
 # --- fix rows, addendum 3: end ---
+# --- fix rows, addendum 4: begin (rows-b-fix-add4.txt, 2026-11-18) ---
+ROWS_FIX_ADD4 = r"""
+# Guard 0.9.0, fix pass, addendum 4 (2026-11-18): found by the orchestrating session while the pass ran.
+# Row: id | branch[@client] | rule | expected | command
+#
+# --- F25 (weaker than 0.8.0 since the fix of F22): the grep macOS ships takes the value of --context only
+#     glued (`--context[=num]`), so the next word is the pattern. Measured on a scratch file, BSD grep 2.6.0:
+#     `grep --context TOKEN f` searches f for TOKEN (exit 0, the lines printed); GNU grep 3.12 refuses the same
+#     line ("invalid context length argument"). The short -C needs its number in both.
+F25 | feat/x | secret-shell | ask | grep --context TOKEN .env
+F25 | feat/x | secret-shell | ask | grep -rn --context TOKEN .env
+F25 | feat/x | secret-shell | ask | egrep --context TOKEN .env
+F25 | feat/x | secret-shell | ask | grep --context TOKEN ~/.ssh/id_rsa
+F25 | feat/x | secret-shell | ask | sudo grep --context TOKEN .env
+F25 | feat/x | secret-shell | ask | bash -c 'grep --context TOKEN .env'
+# --- F26 (weaker than 0.8.0, in the build since K7): `git status -v` prints the staged change of the path it
+#     names, and `-vv` the change in the work tree: the content of the file, not its name. Measured in a scratch
+#     repository, git 2.55: -v, --verbose and --v (a unique prefix) on a staged file, -vv and -v -v on a changed
+#     one. `git check-ignore -v` names the rule that matches, no content (a K7 row).
+# the neighbours that hold today and keep holding
+Fs | feat/x | shell | silent | git status .env
+Fs | feat/x | shell | silent | git status --short -- .env
+Fs | feat/x | shell | silent | git status --porcelain .env
+Fs | feat/x | shell | silent | git ls-files -s .env
+Fs | feat/x | shell | silent | git check-ignore -v .env
+Fs | feat/x | shell | silent | grep -C 3 .env docs
+Fs | feat/x | shell | silent | grep --context=3 .env docs
+Fs | feat/x | secret-shell | ask | grep --context=3 TOKEN .env
+Fs | feat/x | secret-shell | ask | grep -C 3 TOKEN .env
+"""  # noqa: E501 (a row holds its command as written)
+# --- fix rows, addendum 4: end ---
 
 _FILE_INPUT = {
     "Read": lambda p: {"file_path": p},
@@ -1514,6 +1545,7 @@ FIX_TABLE = _rows(ROWS_FIX)  # the fix pass: F01 to F20 were due, Fs and Fm held
 FIX_ADD_TABLE = _rows(ROWS_FIX_ADD)  # addendum 1 of the fix pass: F22 was due, Fs held
 FIX_ADD2_TABLE = _rows(ROWS_FIX_ADD2)  # addendum 2 of the fix pass: F23 was due, Fs held
 FIX_ADD3_TABLE = _rows(ROWS_FIX_ADD3)  # addendum 3 of the fix pass: F24 was due, Fs held
+FIX_ADD4_TABLE = _rows(ROWS_FIX_ADD4)  # addendum 4 of the fix pass: F25 and F26 were due, Fs held
 FILE_TABLE = [tuple(p.strip() for p in line.split(" | ", 4)) for line in FILE_ROWS.splitlines() if line.strip()]
 
 
@@ -1558,6 +1590,13 @@ def test_fix_add2_row(guard, monkeypatch, rid, branch, boundary, rule, expected,
 @pytest.mark.parametrize("rid, branch, boundary, rule, expected, command", FIX_ADD3_TABLE,
                          ids=[f"{row[0]}-{n}" for n, row in enumerate(FIX_ADD3_TABLE)])
 def test_fix_add3_row(guard, monkeypatch, rid, branch, boundary, rule, expected, command):
+    got = _answers(guard, monkeypatch, branch, boundary, rule, command)
+    assert {k: v for k, v in got.items() if v != expected} == {}, command
+
+
+@pytest.mark.parametrize("rid, branch, boundary, rule, expected, command", FIX_ADD4_TABLE,
+                         ids=[f"{row[0]}-{n}" for n, row in enumerate(FIX_ADD4_TABLE)])
+def test_fix_add4_row(guard, monkeypatch, rid, branch, boundary, rule, expected, command):
     got = _answers(guard, monkeypatch, branch, boundary, rule, command)
     assert {k: v for k, v in got.items() if v != expected} == {}, command
 

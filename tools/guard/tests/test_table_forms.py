@@ -1196,6 +1196,10 @@ Fs | feat/x | shell | silent | cat run.sh | bash -c 'wc -l'
 Fs | feat/x | shell | silent | cat data.txt | bash process.sh
 
 # --- F04: for `gh auth`, `-h` is --hostname and no help probe (read in `gh auth token --help`, gh 2.92.0)
+F04 | feat/x | secret-shell | ask | gh auth token -h github.com
+F04 | feat/x | secret-shell | ask | gh auth token -h ghe.example.org -u me
+F04 | feat/x | secret-shell | ask | gh auth status -h github.com --show-token
+F04 | feat/x | secret-shell | ask | gh auth status -h github.com -t
 Fs | feat/x | secret-shell | ask | gh auth token --hostname github.com
 Fs | feat/x | secret-shell | ask | gh auth status --show-token
 Fs | feat/x | shell | silent | gh auth token --help

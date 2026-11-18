@@ -1179,7 +1179,8 @@ def secret_store_what(seg: list[str]) -> Optional[str]:
         first = next((t for t in args if not t.startswith("-")), None)
         if first is not None and first not in _PASS_SUBS:
             return "`pass NAME` prints a stored password"
-    if _help_probe(args):
+    # F04: under `gh auth`, -h is --hostname, no help word (`gh auth token --help`, gh 2.92.0)
+    if _help_probe([t for t in args if t != "-h"] if head == "gh" and _leading(args, ("auth",)) else args):
         return None
     for words, cond in _SECRET_STORES.get(head, ()):
         if _leading(args, words) and (cond is None or cond(args)):

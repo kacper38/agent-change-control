@@ -1261,7 +1261,9 @@ SECRET_STORE_MSG = ("secret-shell: {what}. A secret printed into the session lea
 # list or test the file, or report git's view of the name
 _REPORT_HEADS = frozenset({"echo", "printf", "ls", "stat", "test", "[", "[["})
 _REPORT_GIT_SUBS = frozenset({"check-ignore", "ls-files", "status"})
-_QUIET_SEPS = frozenset({"", ";", "&&", "||", "&", "\n"})  # a simple command of the line itself, not of a nest
+# second fix round: a separator is read by its characters; without spaces and line breaks these are plain, any
+# other (`|`, `|&`, an operator the check does not know) hands the output on
+_PLAIN_SEPS = frozenset({"", ";", "&&", "||", "&"})
 
 
 def _report_words(toks) -> tuple:
@@ -1279,39 +1281,46 @@ _COMPOUND_OPENERS = frozenset({"{", "if", "while", "until", "for", "case", "sele
 _COMPOUND_CLOSERS = frozenset({"}", "fi", "done", "esac"})
 
 
-def _compound_outputs(cmds: list) -> tuple[list, dict]:
-    """For each simple command of the lexer's list, the groups, subshells and compounds around it (by the index
-    of the command that opens them), and for each of these whether its output goes on through a pipe; a
-    construct that never closes counts as piped on."""
-    stack: list[int] = []
+_GROUP_CLOSER = {"{": "}", "if": "fi", "while": "done", "until": "done", "for": "done", "select": "done"}
+
+
+def _plain_sep(sep: str) -> bool:
+    """The lexer's separator hands no output on: read by its characters, never compared whole (`|⏎` is a pipe)."""
+    return sep.replace(" ", "").replace("\n", "") in _PLAIN_SEPS
+
+
+def _compound_outputs(cmds: list) -> Optional[tuple[list, dict]]:
+    """For each simple command of the lexer's list, the groups and compounds around it (by the index of the
+    command that opens them), and for each of these whether its output is handed on by the separator behind its
+    closer; a construct that never closes counts as handed on. None when a closer is not the word of the
+    construct it would close (the line is not read completely). The caller has turned down every line with a
+    bracket, so neither subshells nor `case` reach this."""
+    stack: list[tuple[int, str]] = []
     enclosing: list = []
-    piped_on: dict = {}
-    for k, (sep, toks) in enumerate(cmds):
-        s = sep.strip(" ")
-        closes = (toks[:1] and toks[0] in _COMPOUND_CLOSERS) or s == ")"
-        if closes and stack:
-            opener = stack.pop()
-            nxt = cmds[k + 1][0].strip(" ") if k + 1 < len(cmds) else ""
-            # F23: `(` behind a closer is a process substitution its output goes into (`{ …; } > >(xargs cat)`)
-            piped_on[opener] = piped_on.get(opener, False) or nxt in ("|", "|&", "(")
-        if s == "(":
-            stack.append(k)
-        if toks[:1] and toks[0] in _COMPOUND_OPENERS:
-            stack.append(k)
-        # `{ { ls .env; }; }`: the words of one command can open more than one group
-        for t in toks[1:]:
-            if t != "{":
+    handed_on: dict = {}
+    for k, (_sep, toks) in enumerate(cmds):
+        if toks[:1] and toks[0] in _COMPOUND_CLOSERS:
+            if not stack or stack[-1][1] != toks[0]:
+                return None
+            opener = stack.pop()[0]
+            handed_on[opener] = not _plain_sep(cmds[k + 1][0] if k + 1 < len(cmds) else "")
+        # `{ { ls .env; }; }`, `then if true`: the leading words of one command can open more than one construct
+        for t in toks:
+            if t in _GROUP_CLOSER:
+                stack.append((k, _GROUP_CLOSER[t]))
+                if t in ("for", "select"):
+                    break
+            elif t not in _NC_SHELL_WORDS:
                 break
-            stack.append(k)
-        enclosing.append(list(stack))
-    return enclosing, piped_on
+        enclosing.append([o for o, _ in stack])
+    return enclosing, handed_on
 
 
 def _quiet_reports(command: str) -> tuple:
-    """The report commands (_REPORT_HEADS, `git check-ignore|ls-files|status`) that stand as simple commands at
-    the top level of the line and whose output goes to no other command (no pipe after them, no substitution
-    around them): `ls .env | xargs cat` and `cat $(ls .env)` read the file. A line with a here-document is read
-    as before."""
+    """The report commands (_REPORT_HEADS, `git check-ignore|ls-files|status`) whose output goes to no other
+    command: `ls .env | xargs cat` and `cat $(ls .env)` read the file. Second fix round: a report is quiet only
+    on a line the check reads completely; a line with a here-document, `$_`, a backtick, a bracket in a separator
+    (subshell, substitution, function, `case` pattern, array) or a `function` or `coproc` has none."""
     if "<<" in command or _LAST_ARG_RE.search(command):  # F13: `$_` hands the last word of a report on
         return ()
     # F23: the lexer ends a command at the `&` of `2>&1`, `>&1`, `<&0`, `2>&-`, so the pipe behind it belonged to a
@@ -1319,13 +1328,20 @@ def _quiet_reports(command: str) -> tuple:
     cmds = _hi_lex(_hi_prepare(command)[0])
     if cmds is None:  # F12: a line the lexer cannot split shows no pipe; no report of it is quiet
         return ()
-    enclosing, piped_on = _compound_outputs(cmds)
+    for sep, toks in cmds:
+        if any(c in sep for c in "()`"):
+            return ()
+        if _report_words(toks)[:1] in (("function",), ("coproc",)):
+            return ()
+    outputs = _compound_outputs(cmds)
+    if outputs is None:
+        return ()
+    enclosing, handed_on = outputs
     out = []
     for k, (sep, toks) in enumerate(cmds):
-        nxt = cmds[k + 1][0].strip(" ") if k + 1 < len(cmds) else ""
-        if sep.strip(" ") not in _QUIET_SEPS or nxt in ("|", "|&", "("):
+        if not _plain_sep(sep) or not _plain_sep(cmds[k + 1][0] if k + 1 < len(cmds) else ""):
             continue
-        if any(piped_on.get(o, True) for o in enclosing[k]):  # F11: `{ ls .env; } | xargs cat`
+        if any(handed_on.get(o, True) for o in enclosing[k]):  # F11: `{ ls .env; } | xargs cat`
             continue
         words = _report_words(toks)
         if not words:

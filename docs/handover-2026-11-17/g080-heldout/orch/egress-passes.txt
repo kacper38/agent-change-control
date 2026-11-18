@@ -1,0 +1,9 @@
+grep -n -E 'gemini|openai|ollama' README.md
+grep -E 'openai|ollama' README.md
+cat notes.txt | grep -E 'a|openai|b'
+mytool 'grep x notes.txt | ollama run m'
+ssh build 'grep x notes.txt | ollama run m'
+ggrep -E 'a|openai|b' notes.txt
+rg --pre 'ollama run m' x docs
+grep -E 'x | ollama run m' notes.txt
+grep x notes.txt | ollama run m

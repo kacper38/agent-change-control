@@ -1210,6 +1210,21 @@ Fs | feat/x | shell | silent | gh auth status -h github.com
 #     value, a body file (`--input`; measured with gh 2.92.0: the file is sent and a visible query field is not),
 #     a `$'…'` value with an escape, a body on standard input. Every query field is read. The endpoint written
 #     as `/graphql` or with the host reaches the same API (measured). httpie's `:=` gives the field as raw JSON
+F05 | feat/x | tracker-guard | ask | gh api graphql -f query="$(cat q.graphql)"
+F05 | feat/x | tracker-guard | ask | gh api graphql -f query=$(cat q.graphql)
+F05 | feat/x | tracker-guard | ask | gh api graphql -F query="$(jq -r .q req.json)"
+F05 | feat/x | tracker-guard | ask | gh api graphql -f query="`cat q.graphql`"
+F05 | feat/x | tracker-guard | ask | gh api graphql --raw-field query="$(cat q.graphql)"
+F05 | feat/x | tracker-guard | ask | gh api graphql -f "query=$(cat q.graphql)"
+F05 | feat/x | tracker-guard | ask | gh api graphql -f query='{ viewer { login } }' --input q.json
+F05 | feat/x | tracker-guard | ask | gh api graphql -f query='{ viewer { login } }' -F query=@q.graphql
+F05 | feat/x | tracker-guard | deny | gh api graphql -f query='{ viewer { login } }' -f query='mutation { closeIssue(input: {issueId: "X"}) { clientMutationId } }'
+F05 | feat/x | tracker-guard | deny | gh api /graphql -f query='mutation { closeIssue(input: {issueId: "X"}) { clientMutationId } }'
+F05 | feat/x | tracker-guard | deny | gh api https://api.github.com/graphql -f query='mutation { closeIssue(input: {issueId: "X"}) { clientMutationId } }'
+F05 | feat/x | tracker-guard | deny | gh api --method POST /graphql -f query='mutation { closeIssue(input: {issueId: "X"}) { clientMutationId } }'
+F05 | feat/x | tracker-guard | ask | gh api graphql -f query=$'mut\x61tion { closeIssue(input: {issueId: "X"}) { clientMutationId } }'
+F05 | feat/x | tracker-guard | deny | http https://api.github.com/graphql query:='"mutation { closeIssue(input: {issueId: \"X\"}) { clientMutationId } }"'
+F05 | feat/x | tracker-guard | ask | http https://api.github.com/graphql < q.json
 Fs | feat/x | tracker-guard | ask | gh api graphql -f query="$Q"
 Fs | feat/x | tracker-guard | ask | gh api graphql -f query="${Q}"
 Fs | feat/x | tracker-guard | ask | gh api graphql --input q.json

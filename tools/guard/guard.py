@@ -2597,15 +2597,34 @@ def _graphql_verdict(query: Optional[str], via: str) -> Optional[Decision]:
 
 
 def _graphql_value(value: str) -> Optional[str]:
-    """The document a field value holds, or None when it names a file (`@q.graphql`) or is only a variable."""
-    if value.startswith("@") or re.fullmatch(r"\$\{?\w+\}?", value.strip()):
+    """The document a field value holds, or None when the line does not show it: a file (`@q.graphql`), a value
+    that starts with `$` (a variable, a command substitution, or `$'…'`, whose escapes the words no longer show:
+    F05) or with a backtick."""
+    if value.lstrip().startswith(("@", "$", "`")):
         return None
     return value
 
 
+def _graphql_join(values: list) -> tuple:
+    """(found, document) from the query values of one call: every one is read (F05), and one the line does not
+    show makes the whole document unknown."""
+    if not values:
+        return False, None
+    if any(v is None for v in values):
+        return True, None
+    return True, "\n".join(values)
+
+
+def _gh_graphql_path(path: str) -> bool:
+    """`gh api` reaches the GraphQL API as `graphql`, `/graphql` or with the host (measured, gh 2.92.0)."""
+    return path.lower().rstrip("/") in ("graphql", "/graphql") or bool(_GRAPHQL_URL_RE.search(path))
+
+
 def _gh_graphql_query(seg: list[str], start: int) -> tuple:
-    """(found, document) of `gh api graphql`: the value of its `query` field in every spelling of gh's field
-    flags (`-f query=…`, `-fquery=…`, `--raw-field=query=…`); `--input` names a file, read as no document."""
+    """(found, document) of `gh api graphql`: the values of its `query` fields in every spelling of gh's field
+    flags (`-f query=…`, `-fquery=…`, `--raw-field=query=…`); `--input` sends a file and the fields go
+    (measured, gh 2.92.0), read as no document."""
+    values: list = []
     k = start
     while k < len(seg):
         t = seg[k]
@@ -2619,25 +2638,38 @@ def _gh_graphql_query(seg: list[str], start: int) -> tuple:
         elif t[:2] in ("-f", "-F") and len(t) > 2:
             value = t[2:]
         if value is not None and value.startswith("query="):
-            return True, _graphql_value(value[len("query="):])
+            values.append(_graphql_value(value[len("query="):]))
         k += 1
-    return False, None
+    return _graphql_join(values)
 
 
 def _http_graphql_query(seg: list[str], head: str) -> tuple:
     """(found, document) of a curl, wget or httpie call: the `query` of the JSON body, or of httpie's `query=`
     item; a body from a file or one that is no JSON with a query is read as no document."""
     bodies = []
+    values: list = []
+    httpie = head not in ("curl", "wget")
     for k, t in enumerate(seg[1:], 1):
         name, eq, value = t.partition("=")
         if name in ("-T", "--upload-file", "--post-file"):
             return True, None  # the body is a file
+        if httpie and t.lstrip("0123456789").startswith("<"):
+            return True, None  # F05: httpie sends its standard input as the body (`http …/graphql < q.json`)
         if name in _CURL_MUTATING_FLAGS or t.startswith("--data"):
             bodies.append(value if eq else (seg[k + 1] if k + 1 < len(seg) else ""))
         elif t[:2] == "-d" and len(t) > 2:
             bodies.append(t[2:])
-        elif head not in ("curl", "wget") and name == "query" and eq:
-            return True, _graphql_value(value)
+        elif httpie and name == "query" and eq:
+            values.append(_graphql_value(value))
+        elif httpie and name == "query:" and eq:
+            # F05: httpie's `query:=…` is raw JSON (httpie 3, "Raw JSON fields"); a string is the document
+            try:
+                raw = json.loads(value)
+            except (ValueError, RecursionError):  # no JSON the guard can read: the document is not known
+                raw = None
+            values.append(raw if isinstance(raw, str) else None)
+    if values:
+        return _graphql_join(values)
     for body in bodies:
         if body.startswith("@"):
             return True, None
@@ -2684,7 +2716,7 @@ def _tracker_seg(seg: list[str]) -> Optional[Decision]:
         if method is None:  # `-XPATCH`: the value glued on
             method = next((t[2:] for t in seg[at[0] + 1 :] if t.startswith("-X") and len(t) > 2), "GET")
         method = method.upper()
-        if path == "graphql":
+        if _gh_graphql_path(path):
             found, doc = _gh_graphql_query(seg, at[0] + 1)
             d = _graphql_verdict(doc, "gh api graphql") if found else None
             if d:

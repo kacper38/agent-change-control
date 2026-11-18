@@ -1,4 +1,5 @@
 import ast
+import builtins
 import datetime as dt
 import io
 import json
@@ -862,3 +863,105 @@ def test_a_session_without_tokens(ledger, tmp_path):
     assert lines[0].split()[2] == "$0.00" and lines[1].split()[1] == "$0.00"
     entry = ledger.build_entry({"session_id": "s-1", "transcript_path": t}, str(tmp_path / "telemetry"), OPUS)
     assert entry["cost_usd_own"] is None  # nothing to add up: the ledger records none, the view prints $0.00
+
+
+# second fix pass E: a file whose read fails after it has opened
+class FailsAfterFirstLine:
+    """A stand-in file whose iteration raises OSError after its first line, as a failing disk does."""
+
+    def __init__(self, real):
+        self.real = real
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.real.close()
+
+    def __iter__(self):
+        for n, line in enumerate(self.real):
+            if n == 1:
+                raise OSError(5, "Input/output error")
+            yield line
+
+
+@pytest.fixture
+def failing_open(ledger, monkeypatch):
+    """Returns a function that makes `open` in the ledger fail on reading the given path."""
+    real_open = builtins.open
+
+    def choose(path):
+        def fake(name, *a, **k):
+            fh = real_open(name, *a, **k)
+            return FailsAfterFirstLine(fh) if str(name) == str(path) else fh
+        monkeypatch.setattr(ledger, "open", fake, raising=False)
+    return choose
+
+
+@pytest.fixture
+def disk(tmp_path, monkeypatch, ledger):
+    """A session of $2 with two agents of $1 (one tool call) and $3, every transcript two lines long."""
+    t = make_session(tmp_path, [user("p", 1), asst(sec=2, req="m1", inp=2_000_000, out=0)],
+                     [("", "a1", [user("b", 3), asst([tool_use("t1")], sec=5, req="x1", inp=1_000_000, out=0)], None),
+                      ("", "a2", [user("b", 6), asst(sec=8, req="x2", inp=3_000_000, out=0)], None)])
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("KZ_TELEMETRY_DIR", str(tmp_path / "telemetry"))
+    monkeypatch.setattr(ledger, "load_prices", lambda *a, **k: OPUS)
+    return pathlib.Path(t)
+
+
+def test_an_agent_transcript_whose_read_fails(ledger, disk, failing_open):
+    failing_open(disk.with_suffix("") / "subagents" / "agent-a1.jsonl")
+    code, out, err = run(ledger, ["agents", "--session", "s-1"])
+    lines = out.splitlines()
+    assert (code, err) == (0, "")
+    # the row that could not be read has no start time, so it comes last under the session
+    assert lines[2].split()[:5] == ["-", "-", "-", "-", "-"]
+    assert lines[1].split()[1:4] == ["2s", "$3.00", "0"] and lines[0].split()[1:4] == ["1s", "$2.00", "0"]
+    assert lines[3].split()[1:3] == ["$5.00", "0"]  # the total of the rows that were read
+    assert lines[-1] == "not read: files 1, lines 0 (what they held is missing above)"
+
+
+def test_the_main_transcript_whose_read_fails(ledger, disk, failing_open):
+    failing_open(disk)
+    code, out, err = run(ledger, ["agents", "--session", "s-1"])
+    lines = out.splitlines()
+    assert (code, err) == (0, "")
+    assert lines[0].split()[:5] == ["-", "-", "-", "-", "-"] and lines[0].endswith("session s-1")
+    assert lines[3].split()[1:3] == ["$4.00", "1"]
+    assert lines[-1] == "not read: files 1, lines 0 (what they held is missing above)"
+
+
+def test_a_watched_transcript_whose_read_fails(ledger, disk, failing_open):
+    failing_open(disk.with_suffix("") / "subagents" / "agent-a1.jsonl")
+    code, out, err = watch(ledger, str(disk), stop_on_second_call(), tdir=disk.parents[3] / "telemetry")
+    assert (code, err) == (0, "") and out.endswith(LEAVE)
+    assert "not read: files 1, lines 0" in out
+
+
+def test_a_spawn_log_whose_read_fails(ledger, disk, failing_open):
+    log = write_lines(disk.parents[3] / "telemetry" / "spawns.jsonl", [
+        {"event": "SubagentStart", "session": "s-1", "agent_id": "a7", "agent": "logged"},
+        {"event": "SubagentStart", "session": "s-1", "agent_id": "a8", "agent": "lost"}])
+    failing_open(log)
+    code, out, err = run(ledger, ["agents", "--session", "s-1"])
+    assert (code, err) == (0, "")
+    assert "logged  (no transcript)" in out and "lost" not in out  # the row read before the failure is kept
+    assert out.splitlines()[-1] == "not read: files 1, lines 0 (what they held is missing above)"
+
+
+def test_a_transcript_moved_away_between_the_two_reads(ledger, disk, monkeypatch, tmp_path):
+    chosen = str(disk.with_suffix("") / "subagents" / "agent-a1.jsonl")
+    real = ledger.scan_transcript
+
+    def scan_then_move(path):
+        scan = real(path)
+        if path == chosen:
+            os.replace(path, str(tmp_path / "moved.jsonl"))
+        return scan
+    monkeypatch.setattr(ledger, "scan_transcript", scan_then_move)
+    code, out, err = run(ledger, ["agents", "--session", "s-1"])
+    lines = out.splitlines()
+    assert (code, err) == (0, "")
+    assert lines[1].split()[2] == "$0.00"  # parse_transcript found no file: no usage and one parse error
+    assert lines[-1] == "not read: files 0, lines 1 (what they held is missing above)"

@@ -829,24 +829,27 @@ def _spawn_log(session: str, tdir: str) -> tuple:
     except OSError:  # there but unreadable: the view goes on with the transcripts, counted
         return types, starts, 1, 0
     bad = 0
-    with fh:
-        for line in fh:
-            if not line.strip():
-                continue
-            try:
-                row = json.loads(line)
-            except (ValueError, RecursionError):  # no JSON or nested too deep: counted as a line not read
-                bad += 1
-                continue
-            if not isinstance(row, dict) or row.get("event") != "SubagentStart" or row.get("session") != session:
-                continue
-            aid = row.get("agent_id")
-            if not isinstance(aid, str) or not aid:
-                continue
-            if isinstance(row.get("agent"), str) and row["agent"]:
-                types.setdefault(aid, row["agent"])
-            when, was = _when(row.get("ts")), starts.get(aid)
-            starts[aid] = when if was is None or (when is not None and when < was) else was
+    try:
+        with fh:
+            for line in fh:
+                if not line.strip():
+                    continue
+                try:
+                    row = json.loads(line)
+                except (ValueError, RecursionError):  # no JSON or nested too deep: counted as a line not read
+                    bad += 1
+                    continue
+                if not isinstance(row, dict) or row.get("event") != "SubagentStart" or row.get("session") != session:
+                    continue
+                aid = row.get("agent_id")
+                if not isinstance(aid, str) or not aid:
+                    continue
+                if isinstance(row.get("agent"), str) and row["agent"]:
+                    types.setdefault(aid, row["agent"])
+                when, was = _when(row.get("ts")), starts.get(aid)
+                starts[aid] = when if was is None or (when is not None and when < was) else was
+    except OSError:  # it opened, then the read failed: one file not read, the rows read so far are kept
+        return types, starts, 1, bad
     return types, starts, 0, bad
 
 
@@ -864,15 +867,18 @@ def _workflow_name(session_dir: str, run: str) -> str:
 
 
 def _transcript_row(path: str, prices: dict, kind: str) -> dict:
-    """The figures of one transcript (4.3); `read` is False when the file could not be opened."""
-    scan = scan_transcript(path)
+    """The figures of one transcript (4.3); `read` is False when the file could not be opened or read."""
+    marks: dict = {}
+    try:
+        scan = scan_transcript(path)
+        usage, errors = parse_transcript(path, prices, marks) if scan is not None else ({}, 0)
+    except OSError:  # it opened, then the read failed (a failing disk): the row of a file that does not open
+        scan = None
     row = {"kind": kind, "path": path, "read": scan is not None, "state": "-", "seconds": None, "cost": None,
            "tools": None, "model": None, "mark": False, "marks": {}, "usage": {}, "models": {}, "errors": 0,
            "start": None, "end": None}
     if scan is None:
         return row
-    marks: dict = {}
-    usage, errors = parse_transcript(path, prices, marks)
     models, cost = _priced(usage, prices)
     row.update(state=scan["session_state" if kind == "session" else "agent_state"], seconds=scan["seconds"],
                cost=cost, tools=scan["tools"], model=_model_label(models), mark=bool(marks), marks=marks,

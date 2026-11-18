@@ -673,6 +673,300 @@ def recount(tdir: str, write: bool, out, now: Optional[_dt.datetime] = None) -> 
     return 1 if counts["errors"] else 0
 
 
+AGENT_END_TOOLS = ("StructuredOutput", "SubagentHandback")  # the tools an agent ends its run on
+INTERRUPTED = "[Request interrupted"
+
+
+def _when(value) -> Optional[_dt.datetime]:
+    """A transcript timestamp as an aware time (no offset reads as UTC), None for anything that is no ISO text."""
+    if not isinstance(value, str):
+        return None
+    try:
+        when = _dt.datetime.fromisoformat(value[:-1] + "+00:00" if value.endswith("Z") else value)
+    except ValueError:  # other text in the key: the line has no time, the rest of it still counts
+        return None
+    return when if when.tzinfo else when.replace(tzinfo=_dt.timezone.utc)
+
+
+def _user_ends_agent(content, end_ids: set) -> bool:
+    """True when a user line closes an agent's run: an interruption, or the result of a call of AGENT_END_TOOLS."""
+    if isinstance(content, str):
+        return content.startswith(INTERRUPTED)
+    for block in content if isinstance(content, list) else []:
+        if not isinstance(block, dict):
+            continue
+        text, tid = block.get("text"), block.get("tool_use_id")
+        if block.get("type") == "text" and isinstance(text, str) and text.startswith(INTERRUPTED):
+            return True
+        if block.get("type") == "tool_result" and isinstance(tid, str) and tid in end_ids:
+            return True
+    return False
+
+
+def scan_transcript(path: str) -> Optional[dict]:
+    """One pass for what parse_transcript does not give: first and last time, tool calls, the inferred end state.
+    None when the file cannot be opened. Lines that are no JSON object are skipped (parse_transcript counts them)."""
+    try:
+        fh = open(path, encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    first = last = None
+    call_ids: set = set()
+    loose_calls = 0
+    end_ids: set = set()
+    agent_state, talked, cost_state_after, cost_state_any = "running", False, False, False
+    with fh:
+        for line in fh:
+            try:
+                d = json.loads(line) if line.strip() else None
+            except ValueError:
+                continue
+            if not isinstance(d, dict):
+                continue
+            when = _when(d.get("timestamp"))
+            if when is not None:
+                first = when if first is None else first
+                last = when
+            kind = d.get("type")
+            if kind == "cost-state":
+                cost_state_after = cost_state_any = True
+            if kind not in ("assistant", "user"):  # system, attachment, last-prompt, ...: looked through
+                continue
+            talked, cost_state_after = True, False
+            msg = d.get("message") if isinstance(d.get("message"), dict) else {}
+            content = msg.get("content")
+            if kind == "user":
+                agent_state = "finished" if _user_ends_agent(content, end_ids) else "running"
+                continue
+            for block in content if isinstance(content, list) else []:
+                if not isinstance(block, dict) or block.get("type") != "tool_use":
+                    continue
+                tid = block.get("id")
+                if not isinstance(tid, str):
+                    loose_calls += 1
+                    continue
+                call_ids.add(tid)
+                if block.get("name") in AGENT_END_TOOLS:
+                    end_ids.add(tid)
+            agent_state = "running" if msg.get("stop_reason") in (None, "tool_use", "pause_turn") else "finished"
+    seconds = None if first is None else (last - first) // _dt.timedelta(seconds=1)
+    session_state = "finished" if (cost_state_after if talked else cost_state_any) else "running"
+    return {"start": first, "end": last, "seconds": seconds, "tools": len(call_ids) + loose_calls,
+            "agent_state": agent_state, "session_state": session_state}
+
+
+def _clean(text) -> str:
+    """Text from a file, safe to print: every character that is not printable becomes `?`."""
+    return "".join(c if c.isprintable() else "?" for c in str(text))
+
+
+def _cut(text: str, width: int) -> str:
+    return text if len(text) <= width else text[:max(width - 3, 0)] + "..."
+
+
+def _priced(per_model: dict, prices: dict) -> tuple:
+    """(models with tokens and their cost, cost or None) for one transcript's usage, as the ledger's own count."""
+    models = session_models({"main": per_model, "sub": {}}, prices)
+    return models, (own_cost(models) if models else 0.0)
+
+
+def _model_label(models: dict) -> str:
+    """The model with the most turns without `claude-`, ` +N` for N further models, cut to 14; `-` for none."""
+    if not models:
+        return "-"
+    top = sorted(models, key=lambda m: (-models[m]["turns"], m))[0]
+    name = top[len("claude-"):] if top.startswith("claude-") else top
+    return _cut(_clean(name + (f" +{len(models) - 1}" if len(models) > 1 else "")), 14)
+
+
+def _read_meta(path: str) -> tuple:
+    """(meta dict, 1 if the file exists and is unreadable or no JSON object else 0)."""
+    try:
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            meta = json.load(fh)
+    except FileNotFoundError:  # most agents have one, an older one may not: normal, nothing to count
+        return {}, 0
+    except (OSError, ValueError):  # there but unreadable or cut off: the row goes on without it, counted
+        return {}, 1
+    return (meta, 0) if isinstance(meta, dict) else ({}, 1)
+
+
+def _spawn_log(session: str, tdir: str) -> tuple:
+    """({agent id: type}, {agent id: earliest start or None}, files not read, lines not read) from the
+    SubagentStart rows of this session in <tdir>/spawns.jsonl."""
+    types: dict = {}
+    starts: dict = {}
+    try:
+        fh = open(os.path.join(tdir, "spawns.jsonl"), encoding="utf-8", errors="replace")
+    except FileNotFoundError:  # no guard installed or no agent spawned yet: normal
+        return types, starts, 0, 0
+    except OSError:  # there but unreadable: the view goes on with the transcripts, counted
+        return types, starts, 1, 0
+    bad = 0
+    with fh:
+        for line in fh:
+            if not line.strip():
+                continue
+            try:
+                row = json.loads(line)
+            except ValueError:
+                bad += 1
+                continue
+            if not isinstance(row, dict) or row.get("event") != "SubagentStart" or row.get("session") != session:
+                continue
+            aid = row.get("agent_id")
+            if not isinstance(aid, str) or not aid:
+                continue
+            if isinstance(row.get("agent"), str) and row["agent"]:
+                types.setdefault(aid, row["agent"])
+            when, was = _when(row.get("ts")), starts.get(aid)
+            starts[aid] = when if was is None or (when is not None and when < was) else was
+    return types, starts, 0, bad
+
+
+def _workflow_name(session_dir: str, run: str) -> str:
+    """The name in workflows/scripts/<name>-<run>.js, found by comparing file names; else the run id."""
+    suffix = f"-{run}.js"
+    try:
+        names = sorted(os.listdir(os.path.join(session_dir, "workflows", "scripts")))
+    except OSError:  # no scripts folder: the run id is the label
+        names = []
+    for name in names:
+        if name.endswith(suffix) and len(name) > len(suffix):
+            return name[:-len(suffix)]
+    return run
+
+
+def _transcript_row(path: str, prices: dict, kind: str) -> dict:
+    """The figures of one transcript (4.3); `read` is False when the file could not be opened."""
+    scan = scan_transcript(path)
+    row = {"kind": kind, "path": path, "read": scan is not None, "state": "-", "seconds": None, "cost": None,
+           "tools": None, "model": None, "mark": False, "marks": {}, "usage": {}, "models": {}, "errors": 0,
+           "start": None, "end": None}
+    if scan is None:
+        return row
+    marks: dict = {}
+    usage, errors = parse_transcript(path, prices, marks)
+    models, cost = _priced(usage, prices)
+    row.update(state=scan["session_state" if kind == "session" else "agent_state"], seconds=scan["seconds"],
+               cost=cost, tools=scan["tools"], model=_model_label(models), mark=bool(marks), marks=marks,
+               usage=usage, models=models, errors=errors, start=scan["start"], end=scan["end"])
+    return row
+
+
+def _sum_workflow(row: dict, agents: list, prices: dict) -> None:
+    """A workflow row as the subtotal of the agents shown under it at any depth."""
+    read = [a for a in agents if a["read"]]
+    usage: dict = {}
+    for a in read:
+        merge(usage, a["usage"])
+    starts = [a["start"] for a in read if a["start"] is not None]
+    ends = [a["end"] for a in read if a["end"] is not None]
+    costs = [a["cost"] for a in read]
+    row.update(cost=None if None in costs else sum(costs, 0.0), tools=sum(a["tools"] for a in read),
+               model=_model_label(_priced(usage, prices)[0]), mark=any(a["mark"] for a in read),
+               start=min(starts) if starts else None,
+               seconds=(max(ends) - min(starts)) // _dt.timedelta(seconds=1) if starts else None)
+
+
+def read_agents(transcript: str, tdir: str, prices: dict) -> dict:
+    """One session as a tree of rows (section 4 of the agent-view brief), read from local files, printing nothing.
+    `rows` are in print order; each has kind, depth, parent (index of its parent row), label, state, seconds,
+    cost (unrounded, None without one), tools and model."""
+    session = os.path.basename(transcript)[:-len(".jsonl")]
+    session_dir = os.path.join(os.path.dirname(transcript), session)
+    sub_dir = os.path.join(session_dir, "subagents")
+    types, spawn_starts, files_bad, lines_bad = _spawn_log(session, tdir)
+    top = _transcript_row(transcript, prices, "session")
+    top["label"] = f"session {_clean(session)}"
+    agents, workflows = [], {}
+    for path, _ in agent_transcripts(sub_dir):  # os.walk of a missing folder yields nothing
+        row = _transcript_row(path, prices, "agent")
+        row["agent_id"] = os.path.basename(path)[len("agent-"):-len(".jsonl")]
+        meta, bad = _read_meta(path[:-len(".jsonl")] + ".meta.json")
+        files_bad += bad
+        atype = meta.get("agentType") if isinstance(meta.get("agentType"), str) else None
+        atype = _clean(atype or types.get(row["agent_id"]) or "agent")
+        desc = meta.get("description")
+        row["label"] = f"{atype}  {_cut(_clean(desc), 30)}" if isinstance(desc, str) and desc else atype
+        row["parent_id"] = meta.get("parentAgentId") if isinstance(meta.get("parentAgentId"), str) else None
+        parts = os.path.relpath(path, sub_dir).split(os.sep)
+        if parts[0] == "workflows" and len(parts) > 2:  # workflows/<run>/.../agent-*.jsonl
+            run = parts[1]
+            if run not in workflows:
+                done = os.path.exists(os.path.join(session_dir, "workflows", run + ".json"))
+                workflows[run] = {"kind": "workflow", "path": os.path.join(sub_dir, "workflows", run), "read": True,
+                                  "state": "finished" if done else "running",
+                                  "label": f"workflow  {_clean(_workflow_name(session_dir, run))}"}
+            row["workflow"] = workflows[run]
+        if not row["read"]:
+            files_bad += 1
+        lines_bad += row["errors"]
+        agents.append(row)
+    # where each row hangs: its parent agent (no loops), else its workflow, else the session
+    first_of: dict = {}
+    for row in agents:
+        first_of.setdefault(row["agent_id"], row)
+    parent_of: dict = {}
+    for row in agents:
+        up = first_of.get(row["parent_id"])
+        walk = up
+        while walk is not None and walk is not row:
+            walk = parent_of.get(id(walk))
+        if up is not None and walk is None:
+            parent_of[id(row)] = up
+    children: dict = {}
+    for row in agents:
+        parent = parent_of.get(id(row)) or row.get("workflow") or top
+        children.setdefault(id(parent), []).append(row)
+    for run_row in workflows.values():
+        children.setdefault(id(top), []).append(run_row)
+    seen_ids = {row["agent_id"] for row in agents}
+    for aid in sorted(set(spawn_starts) - seen_ids):
+        children.setdefault(id(top), []).append({
+            "kind": "missing", "path": aid, "agent_id": aid, "read": False, "state": "-", "seconds": None,
+            "cost": None, "tools": None, "model": None, "mark": False, "start": spawn_starts[aid],
+            "label": f"{_clean(types.get(aid) or 'agent')}  (no transcript)"})
+
+    def below(row: dict) -> list:
+        """Every row under `row`, at any depth."""
+        out = []
+        for child in children.get(id(row), []):
+            out += [child] + below(child)
+        return out
+
+    for run_row in workflows.values():
+        _sum_workflow(run_row, below(run_row), prices)
+    epoch = _dt.datetime.min.replace(tzinfo=_dt.timezone.utc)
+    rows: list = []
+
+    def place(row: dict, depth: int, parent: Optional[int]) -> None:
+        """Append `row` and, ordered by start time (none last, then by path), the rows under it."""
+        row.update(depth=depth, parent=parent)
+        rows.append(row)
+        here = len(rows) - 1
+        for child in sorted(children.get(id(row), []),
+                            key=lambda r: (r["start"] is None, r["start"] or epoch, r["path"])):
+            place(child, depth + 1, here)
+
+    place(top, 0, None)
+    counted = [r for r in rows if r["kind"] in ("session", "agent") and r["read"]]
+    costs = [r["cost"] for r in counted]
+    marks: dict = {}
+    unpriced_models: set = set()
+    for r in counted:
+        for name, n in r["marks"].items():
+            marks[name] = marks.get(name, 0) + n
+        unpriced_models.update(m for m, v in r["models"].items() if v["cost_usd"] is None)
+    agent_rows = [r for r in rows if r["kind"] in ("agent", "missing")]
+    total = {"cost": None if None in costs else sum(costs, 0.0), "tools": sum(r["tools"] for r in counted),
+             "mark": any(r["mark"] for r in counted), "agents": len(agent_rows),
+             "running": sum(r["state"] == "running" for r in agent_rows)}
+    return {"session": session, "rows": rows, "total": total, "marks": marks,
+            "unpriced_models": sorted(unpriced_models), "workflows": bool(workflows),
+            "files_not_read": files_bad + (not top["read"]), "lines_not_read": lines_bad + top["errors"]}
+
+
 def main(argv: list, stdin=None, out=None, err=None) -> int:
     stdin, out, err = stdin or sys.stdin, out or sys.stdout, err or sys.stderr
     ap = argparse.ArgumentParser(prog="ledger", add_help=False)

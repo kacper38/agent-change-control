@@ -1,0 +1,120 @@
+git push -uf origin feat
+git push -fu origin feat
+git push -vf origin feat
+git push -of origin feat
+git push -o f origin feat
+git push --forc origin feat
+git push --force-w origin feat
+git push --force-if origin feat
+git push --forc=x origin feat
+git push --mir origin
+git push --al origin
+git push --delet origin feat
+git push --pru origin
+git push -d origin feat
+git push -ud origin feat
+git push --no-veri origin feat
+git commit -anm x
+git commit -nam x
+git commit -qn -m x
+git commit -mn
+git commit -Sn -m x
+git commit -uno -m x
+git commit -u -n -m x
+git commit -t tmpl -n
+git commit --no-veri -m x
+git commit --no-verif -m x
+git rebase --no-veri main
+git pull --no-verif
+git am --no-verif x.patch
+git merge --no-verif feat
+git -c core.hooksPath=/dev/null commit -m x
+git -c core.hookspath= push origin feat
+git -c CORE.HOOKSPATH=x status
+git --config-env=core.hooksPath=X commit -m x
+git -c core.hooksPath=.githooks commit -m x
+git -C repo -c core.hooksPath=/tmp/h commit -m x
+GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.hooksPath GIT_CONFIG_VALUE_0=/dev/null git commit -m x
+env GIT_CONFIG_PARAMETERS="'core.hooksPath'='/dev/null'" git commit -m x
+export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.hooksPath GIT_CONFIG_VALUE_0=/dev/null; git commit -m x
+bash -c 'git -c core.hooksPath=/dev/null commit -m x'
+git config core.hooksPath /dev/null
+git config --global core.hooksPath /tmp/h
+git -C repo config core.hooksPath x
+git config set core.hooksPath x
+git config --unset core.hooksPath
+git config unset core.hooksPath
+git config --unset-all core.hooksPath
+git config --replace-all core.hooksPath x
+git config --file=.git/config core.hooksPath x
+git config --local --add core.hooksPath x
+git config --remove-section core
+git config --rename-section core old
+git config core.hooksPath ""
+HUSKY=0 git commit -m x
+env HUSKY=0 git commit -m x
+export HUSKY=0; git commit -m x
+export HUSKY=0 && git push origin feat
+HUSKY=0; export HUSKY; git commit -m x
+export HUSKY; HUSKY=0 git status; git commit -m x
+declare -x HUSKY=0; git commit -m x
+typeset -x HUSKY=0; git commit -m x
+set -a; HUSKY=0; git commit -m x
+HUSKY=0 bash -c 'git commit -m x'
+env HUSKY=0 sh -c 'git commit -m x'
+"HUSKY=0 bash <<EOF\ngit commit -m x\nEOF"
+HUSKY=0 xargs git commit -m
+SKIP=lint git commit -m x
+LEFTHOOK=0 git push origin feat
+HUSKY=0 git cherry-pick abc
+sudo HUSKY=0 git commit -m x
+bash -c 'export HUSKY=0; git commit -m x'
+export HUSKY=0; bash -c 'git commit -m x'
+git -c alias.ci='commit --no-verify' ci -m x
+git -c 'alias.c=!git commit --no-verify -m x' c
+# must stay silent
+git commit -m x
+git commit -am "msg"
+git commit --amend --no-edit
+git push -u origin feat
+git push --set-upstream origin feat
+git push --follow-tags origin feat
+git push --atomic origin feat
+git push --dry-run origin feat
+git push -n origin feat
+git push --no-thin origin feat
+git push --porcelain origin feat
+git push --progress origin feat
+git push --quiet origin feat
+git push --verbose origin feat
+git push --signed origin feat
+git merge --no-ff feat
+git merge --no-verify-signatures feat
+git pull --no-rebase
+git pull --rebase --autostash
+git rebase --no-autosquash main
+git rebase -i --autosquash main
+git fetch --prune
+git remote prune origin
+git config user.name x
+git config core.hooksPath .githooks
+git -C /tmp/t config core.hooksPath .githooks
+git config --get core.hooksPath
+git config core.hooksPath
+git config get core.hooksPath
+git config --list
+git config -l
+HUSKY=0 npm ci
+SKIP=lint npm test
+HUSKY=0 git status
+git commit -m "-n is the dry run"
+git commit -F msg.txt
+git commit -c HEAD
+git commit -C HEAD --reset-author
+git log -n 5
+git diff --no-ext-diff
+git stash push -m x
+git am --3way x.patch
+git commit --no-status -m x
+git commit --no-post-rewrite -m x
+git commit -m x --no-gpg-sign

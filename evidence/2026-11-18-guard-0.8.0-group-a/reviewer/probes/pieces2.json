@@ -1,0 +1,9 @@
+{
+  "heredoc_tiny": ["bash <<EOF\n", "a\n", "EOF"],
+  "printf_semi": ["printf '", "a;", "' | sh"],
+  "echo_semi": ["echo '", "a;", "' | bash"],
+  "echo_nl": ["echo '", "a\\n", "' | bash"],
+  "heredoc_semi": ["bash <<EOF\n", "a;", "\nEOF"],
+  "cat_semi": ["cat <<EOF | bash\n", "a;b|", "\nEOF"],
+  "plain_semi": ["", "a;", "true"]
+}

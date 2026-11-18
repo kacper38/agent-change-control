@@ -17,6 +17,7 @@ Usage:
   guard.py rules | help | version
 """
 
+import copy
 import datetime as _dt
 import functools
 import json
@@ -32,7 +33,7 @@ import time
 from collections.abc import Mapping
 from typing import Callable, Optional
 
-VERSION = "0.7.1"
+VERSION = "0.8.0"
 
 # ----------------------------------------------------------------------------
 # Harness normalization
@@ -390,6 +391,15 @@ def _git_discards(sub: str, rest: list[str]) -> bool:
     return len(plain) >= 2 and not any(_checkout_new_branch(t) for t in rest)
 
 
+def _git_push_deletes(sub: str, rest: list[str]) -> bool:
+    """`git push` that removes remote branches: -d in a cluster, --delete, --prune (it removes remote branches
+    without a local counterpart) or a prefix git takes for one (`--delet`, `--de`) (0.8.0)."""
+    if sub != "push":
+        return False
+    longs, shorts = _git_options(sub, rest)
+    return "d" in shorts or _git_prefix(longs, ("delete", "prune"))
+
+
 def delete_what(command: str) -> Optional[str]:
     """What a command line would delete, read from the tokens of every simple command it runs, or None."""
     for toks in nested_commands(command):
@@ -407,7 +417,8 @@ def delete_what(command: str) -> Optional[str]:
                 raise CommandNotRead(_TOO_MANY_TOOLS)
             if name == "git":
                 sub, rest = _git_subcommand(list(toks[i:]))
-                if sub and (_GIT_DELETE_RE.match(" ".join(["git", sub, *rest])) or _git_discards(sub, rest)):
+                if sub and (_GIT_DELETE_RE.match(" ".join(["git", sub, *rest])) or _git_discards(sub, rest)
+                            or _git_push_deletes(sub, rest)):
                     return f"`git {sub}` discards work"
                 continue
             hit = subcommand_hit(list(toks[i + 1 :]), *entry)
@@ -422,9 +433,11 @@ def _truncate_in_the_open(command: str) -> bool:
     (`gtruncate -s 0 f`, `hdfs dfs -truncate 0 /f`, `echo truncate users | pgcli`): prose stands in quotes,
     and no list names every tool that takes the text. The reader of the token pass decides what a word is, so
     an escaped quote, a comment and a `$( … )` inside double quotes are read as the shell reads them."""
-    if any(_SQL_TRUNCATE_RE.search(m.group(3)) for m in _HEREDOC_RE.finditer(command)):
+    if any(_SQL_TRUNCATE_RE.search(m.group(4)) for m in _HEREDOC_RE.finditer(command)):
         return True
-    return any(_OPEN_WORD_RE.match(t) for toks in nested_commands(strip_heredocs(command)) for t in toks)
+    # the reader takes the here-document bodies out itself (0.8.0); a second strip would read the line after a
+    # stripped operator as a body
+    return any(_OPEN_WORD_RE.match(t) for toks in nested_commands(command) for t in toks)
 
 
 def _delete_judge(ev: Event) -> Optional[str]:
@@ -439,11 +452,12 @@ def _delete_judge(ev: Event) -> Optional[str]:
         p = script if os.path.isabs(script) else os.path.join(ev.cwd, script)
         try:
             with open(p, encoding="utf-8", errors="replace") as fh:
-                if DELETE_RE.search(fh.read()):
-                    return f"script {script} contains a delete/discard pattern"
+                content = fh.read()
+            if DELETE_RE.search(content) or DELETE_RE.search(fold_names(content)):  # as written and folded (0.8.0)
+                return f"script {script} contains a delete/discard pattern"
         except (OSError, ValueError):
             continue  # not a readable file (missing, a directory, a NUL byte in the name): nothing to scan
-    return delete_what(strip_heredocs(ev.command))
+    return delete_what(ev.command)  # the reader takes the here-document bodies out itself (0.8.0)
 
 
 def rule_delete_guard(ev: Event, cfg: dict) -> Optional[Decision]:
@@ -503,14 +517,16 @@ def _expand(tok: str, cwd: str) -> str:
     return t if os.path.isabs(t) else os.path.normpath(os.path.join(cwd, t))
 
 
+# groups: 1 the dash of `<<-`, 2 the quote, 3 the delimiter, 4 the body. 0.8.0: a `<<-` body ends at a closing
+# line indented by tabs, as the shell ends it
 _HEREDOC_RE = re.compile(
-    r"<<-?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1[^\n]*\n(.*?)(?:\n\2(?:\n|$)|\Z)", re.DOTALL
+    r"<<(-)?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\2[^\n]*\n(.*?)(?:\n(?(1)\t*)\3(?:\n|$)|\Z)", re.DOTALL
 )
 
 
 def strip_heredocs(command: str) -> str:
     """Drop here-document bodies: they are data for a command, not commands (the delete-guard keeps them)."""
-    return _HEREDOC_RE.sub(lambda m: m.group(0)[: m.start(3) - m.start(0)], command)
+    return _HEREDOC_RE.sub(lambda m: m.group(0)[: m.start(4) - m.start(0)], command)
 
 
 # ----------------------------------------------------------------------------
@@ -535,7 +551,20 @@ _SECRET_DIRS = {".azure"}
 
 
 def secret_class(path: Optional[str]) -> Optional[str]:
-    """'secret' (deny on write, ask on read), 'tfvars' (ask on write), or None."""
+    """'secret' (deny on write, ask on read), 'tfvars' (ask on write), or None: the stricter class of the path
+    as written and of the path in lower case, secret over tfvars over none (0.8.0). A file system that ignores
+    case opens `.env` for `.ENV`; `.env.EXAMPLE` keeps asking (as written a secret name), `.ENV.EXAMPLE` is an
+    example file, and `~/.AZURE/prod.tfvars` is in a secret directory."""
+    cls = _secret_class_as_written(path)
+    if cls != "secret" and path and path != path.lower():
+        lower = _secret_class_as_written(path.lower())
+        if lower == "secret" or cls is None:  # the stricter of the two readings: secret over tfvars over none
+            cls = lower
+    return cls
+
+
+def _secret_class_as_written(path: Optional[str]) -> Optional[str]:
+    """secret_class for the path exactly as given (the tables compare case)."""
     if not path:
         return None
     base = os.path.basename(path.rstrip("/"))
@@ -591,6 +620,52 @@ _WRITERS_LAST = {"cp", "mv", "install", "scp", "rsync", "ln"}
 _WRITERS_ALL = {"tee", "truncate", "touch", "chmod", "chown"}
 
 
+# options whose value is a pattern to leave out or to match, not a file that is read (the manuals of tar, rsync,
+# grep, rg, fd, ag, git ls-files): `tar --exclude=.env` stays silent
+_PATTERN_VALUE_OPTIONS = frozenset("--exclude --exclude-dir --exclude-from --include --glob --iglob --ignore"
+                                   " --filter".split())
+# the reader marks an unquoted input redirection `<` with \x01 (_hi_prepare), so a quoted `'<.env'` is none:
+# `<f`, `0<f`, `<>f` (read and write); not `<<`, `<<<`, `<&3`, `<(…)`
+_INPUT_REDIRECT_RE = re.compile(r"^\d*<\x01>?(\S+)$")
+_BARE_INPUT_RE = re.compile(r"^\d*<\x01>?$")  # `< f`: the file is the next word
+
+
+def _path_candidates(t: str) -> list[str]:
+    """The paths one argument word can name (0.8.0): the bare word; the value of `--name=value` or `-n=value`
+    unless the option names a pattern; the rest of a short option glued to its value (`-T.env`, `-d@.env`);
+    the path behind `@` (`@f`, `name@f`, `name=@f`, `;type=…` cut off: curl, httpie). A word with `://` is a
+    URL and is read as before: the bare word only."""
+    if "://" in t:
+        return [] if t.startswith("-") else [t]
+    if t.startswith("-"):
+        name, eq, value = t.partition("=")
+        if eq:
+            if name in _PATTERN_VALUE_OPTIONS:
+                return []
+            word = value
+        elif t.startswith("--") or len(t) < 3:
+            return []
+        else:
+            word = t[2:]
+    else:
+        word = t
+    out = [word]
+    _name, at, path = word.partition("@")
+    if at and path:
+        out.append(path.split(";", 1)[0].strip("\"'"))  # curl takes a quoted name too: `file=@".env"` (0.8.0)
+    return out
+
+
+def _secret_reads(seg: list[str], cwd: str, skip: list[str]) -> list[str]:
+    """The secret files the argument words of one simple command name, past those in `skip` (written ones)."""
+    out = []
+    for t in seg[1:]:
+        for p in _path_candidates(t):
+            if p and p not in skip and secret_class(_expand(p, cwd)) == "secret":
+                out.append(p)
+    return out
+
+
 def _secret_seg(seg: list[str], cwd: str, writes: list[str], reads: list[str]) -> None:
     """Add the secret files one simple command writes and reads to the two lists."""
     head = os.path.basename(seg[0])
@@ -602,14 +677,14 @@ def _secret_seg(seg: list[str], cwd: str, writes: list[str], reads: list[str]) -
         targets = paths
     elif head == "sed" and any(t.startswith("-i") for t in seg):
         targets = paths
-    elif head == "git" and len(seg) > 1 and seg[1] in ("add", "stage"):
-        targets = paths[1:] if paths and paths[0] in ("add", "stage") else paths
+    elif head == "git":
+        sub, rest = _git_subcommand(seg)  # past git's own options: `git -C sub add .env` (0.8.0)
+        if sub in ("add", "stage"):
+            targets = [t for t in rest if not t.startswith("-") and t != "--"]
     for t in targets:
         if secret_class(_expand(t, cwd)) == "secret":
             writes.append(t)
-    for t in paths:
-        if t not in targets and secret_class(_expand(t, cwd)) == "secret":
-            reads.append(t)
+    reads.extend(_secret_reads(seg, cwd, targets))
 
 
 _SEARCH_TOOLS = frozenset("grep egrep fgrep zgrep rg ag ack".split())
@@ -693,8 +768,11 @@ def rule_secret_shell(ev: Event, cfg: dict) -> Optional[Decision]:
         _secret_seg(seg, ev.cwd, writes, reads)
     if writes:
         return _secret_verdict(writes, reads)
-    # the reader pass adds to the same lists, so one message names every file of both passes
-    failed = reader_pass(command, lambda seg: _secret_reader_seg(seg, ev.cwd, writes, reads), "secret-shell")
+    # the reader pass adds to the same lists, so one message names every file of both passes; the reader gets
+    # the here-documents and reads a body only where a shell runs it (0.8.0)
+    failed = reader_pass(ev.command, lambda seg: _secret_reader_seg(seg, ev.cwd, writes, reads), "secret-shell")
+    if failed is None:  # the read went through, so its input redirections are known (`cat <.env`)
+        reads.extend(p for p in nested_inputs(ev.command) if secret_class(_expand(p, ev.cwd)) == "secret")
     return combine([d for d in (_secret_verdict(writes, reads), failed) if d])
 
 
@@ -702,7 +780,8 @@ def rule_secret_shell(ev: Event, cfg: dict) -> Optional[Decision]:
 # git-guard: no force push, no push to a protected branch, no --no-verify
 # ----------------------------------------------------------------------------
 
-_GIT_GLOBAL_WITH_VALUE = {"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--exec-path"}
+_GIT_GLOBAL_WITH_VALUE = {"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--exec-path",
+                          "--config-env"}  # 0.8.0: `--config-env <name>=<envvar>` (git(1))
 _PUSH_OPT_WITH_VALUE = {"-o", "--push-option", "--receive-pack", "--exec", "--repo", "--recurse-submodules"}
 _FORCE_FLAGS = {"-f", "--force", "--force-with-lease", "--force-if-includes"}
 GIT_MSG = (
@@ -723,6 +802,154 @@ def _git_subcommand(seg: list[str]) -> tuple[Optional[str], list[str]]:
     if i >= len(seg):
         return None, []
     return seg[i], seg[i + 1 :]
+
+
+# 0.8.0: git accepts a unique prefix of a long option (`--no-verif`, `--force-with-leas`; measured) and short
+# options in one word (`-uf`, `-nm x`). These subcommands run a hook that --no-verify skips (githooks(5))
+_NO_VERIFY_SUBS = frozenset("commit push merge pull am rebase".split())
+_PUSH_FORCE_NAMES = ("force", "force-with-lease", "force-if-includes")
+# short options that take a value (git-commit(1), git-push(1)): the letters after one are its value, or the next
+# word is; commit's -u and -S take an optional value glued on (`-uno` is --untracked-files=no)
+_GIT_SHORT_VALUED = {"commit": ("mFCct", "uS"), "push": ("o", "")}
+
+
+def _git_options(sub: str, rest: list[str]) -> tuple[list[str], set]:
+    """The long option names (cut at `=`) and the short option letters among a git subcommand's words in front
+    of `--`; the value of a short option that takes one is no option (`-mn` is the message `n`)."""
+    valued, optional = _GIT_SHORT_VALUED.get(sub, ("", ""))
+    longs: list[str] = []
+    shorts: set = set()
+    skip = False
+    for t in rest:
+        if skip:
+            skip = False
+            continue
+        if t == "--":
+            break
+        if t.startswith("--"):
+            name = t[2:].split("=", 1)[0]
+            if name:
+                longs.append(name)
+        elif t.startswith("-") and len(t) > 1:
+            for k, c in enumerate(t[1:], 1):
+                shorts.add(c)
+                if c in valued:
+                    skip = k == len(t) - 1  # nothing glued on: the next word is the value
+                    break
+                if c in optional:
+                    break
+    return longs, shorts
+
+
+def _git_prefix(longs: list[str], names: tuple) -> bool:
+    """A long option as written is one of `names` or a prefix of one: git takes a unique prefix for the option,
+    and refuses a prefix two options share, so the over-match costs nothing."""
+    return any(n.startswith(x) for x in longs for n in names)
+
+
+# 0.8.0: the hook gate through configuration and the environment. The key is case-insensitive (measured); the
+# kit's own hook directory is the one silent value
+_HOOKS_PATH_KEY = "core.hookspath"
+_KIT_HOOKS = ".githooks"
+GIT_HOOKS_PATH_MSG = ("git-guard: `git config core.hooksPath` changes where the commit gate's hooks run. "
+                      "The kit installs `.githooks`; confirm any other change.")
+# the hook managers' own off switches (husky, lefthook, pre-commit's SKIP) and the git calls whose hooks they skip
+_HOOK_ENV_OFF = {"HUSKY": "0", "LEFTHOOK": "0"}
+_HOOK_ENV_SUBS = frozenset("commit push merge pull rebase am cherry-pick revert".split())
+
+
+def _git_sets_hooks_path(own: list[str]) -> bool:
+    """git's own options (the words between `git` and the subcommand) set core.hooksPath for the call:
+    `-c core.hooksPath=…` with any value but `.githooks`, or `--config-env=core.hooksPath=VAR` (git(1))."""
+    for k, t in enumerate(own):
+        if t == "-c" and k + 1 < len(own):
+            key, _eq, value = own[k + 1].partition("=")
+            if key.lower() == _HOOKS_PATH_KEY and value != _KIT_HOOKS:
+                return True
+        elif t.startswith("--config-env=") and t[len("--config-env=") :].partition("=")[0].lower() == _HOOKS_PATH_KEY:
+            return True
+        elif t == "--config-env" and k + 1 < len(own) and own[k + 1].partition("=")[0].lower() == _HOOKS_PATH_KEY:
+            return True  # the value as the next word (measured: git 2.43.0 accepts it)
+    return False
+
+
+def _git_config_writes_hooks_path(rest: list[str]) -> bool:
+    """`git config` sets or unsets core.hooksPath: `[set] core.hooksPath <value>`, `--unset`, `--unset-all`,
+    `unset`, with any scope option in front. The value `.githooks` and the reads (`--get`, `get`, the name alone,
+    `--list`) are none (git-config(1))."""
+    for k, t in enumerate(rest[:-1]):  # dropping or renaming the section `core` drops core.hooksPath (0.8.0)
+        if t in ("--remove-section", "--rename-section", "remove-section", "rename-section") \
+                and rest[k + 1].lower() == "core":
+            return True
+    keys = [k for k, t in enumerate(rest) if t.lower() == _HOOKS_PATH_KEY]
+    if not keys:
+        return False
+    before = rest[: keys[0]]
+    if any(t in ("--unset", "--unset-all", "unset") for t in before):
+        return True
+    if any(t.startswith(("--get", "--list")) or t in ("-l", "get", "list") for t in before):
+        return False
+    values = [t for t in rest[keys[0] + 1 :] if not t.startswith("-")]
+    return bool(values) and values[0] != _KIT_HOOKS
+
+
+def _git_env_bypass(env: list[str], seg: list[str]) -> Optional[str]:
+    """What the environment of one git call (assignments in front of it, `env NAME=value`, earlier exports) does
+    to the hooks: HUSKY=0, LEFTHOOK=0 or SKIP=… for a git call that runs hooks; GIT_CONFIG_KEY_<n> or
+    GIT_CONFIG_PARAMETERS naming core.hooksPath for any git call."""
+    sub, _rest = _git_subcommand(seg)
+    if sub is None:
+        return None
+    for word in env:
+        name, _eq, value = word.partition("=")
+        if sub in _HOOK_ENV_SUBS and (_HOOK_ENV_OFF.get(name) == value or name == "SKIP"):
+            return f"`{word}` in the environment of `git {sub}` skips the hooks"
+        if ((name.startswith("GIT_CONFIG_KEY_") and value.lower() == _HOOKS_PATH_KEY)
+                or (name == "GIT_CONFIG_PARAMETERS" and _HOOKS_PATH_KEY in value.lower())):
+            return f"`{name}` sets core.hooksPath for `git {sub}` and skips the hooks"
+    return None
+
+
+def _git_env_gate(command: str) -> Optional[Decision]:
+    """The hook gate through the environment, read from the reader's token lists: the words in front of a git
+    command word and the `export NAME=value` of an earlier simple command of the line (a plain `NAME=value;`
+    does not reach git). segments() drops these words, so only the reader sees them."""
+    try:
+        exported: list[str] = []
+        assigned: dict = {}  # NAME -> `NAME=value` of a plain assignment, which an `export NAME` exports later
+        allexport = False  # `set -a`: every later assignment is exported
+        for toks, inherited in zip(nested_commands(command), nested_envs(command)):
+            if all(_ASSIGN_RE.match(t) for t in toks):
+                for t in toks:
+                    assigned[t.partition("=")[0]] = t
+                if allexport:
+                    exported.extend(toks)
+                continue
+            if toks[0] in ("export", "declare", "typeset"):
+                flags = "".join(t[1:] for t in toks[1:] if t.startswith("-"))
+                if toks[0] == "export" or "x" in flags:  # `declare -x`, `typeset -x` export as well
+                    exported.extend(t for t in toks[1:] if _ASSIGN_RE.match(t))
+                    exported.extend(assigned[t] for t in toks[1:] if t in assigned)
+                continue
+            if toks[0] == "set":
+                for t in toks[1:]:
+                    if t.startswith(("-", "+")) and "a" in t[1:] and not t.startswith("--"):
+                        allexport = t[0] == "-"
+                    elif t == "allexport" and toks[toks.index(t) - 1] in ("-o", "+o"):
+                        allexport = toks[toks.index(t) - 1] == "-o"
+                continue
+            for i in sorted(command_word_indexes(toks)):
+                if os.path.basename(toks[i]) == "git":
+                    # the environment the script inherits from the shell that runs it, the words in front, exports
+                    env = list(inherited) + [t for t in toks[:i] if _ASSIGN_RE.match(t)] + exported
+                    what = _git_env_bypass(env, list(toks[i:]))
+                    if what:
+                        return "deny", GIT_MSG.format(what=what)
+    except CommandNotRead:  # reader_pass reads the same memo next and asks with the reason
+        return None
+    except Exception as exc:  # main() turns a crash into exit 1, which both harnesses let run silently: ask instead
+        return "ask", READER_MSG.format(rule="git-guard", what=f"the command could not be read ({type(exc).__name__})")
+    return None
 
 
 def current_branch(cwd: str) -> Optional[str]:
@@ -751,13 +978,20 @@ def _git_guard_seg(seg: list[str], cwd: str, protected: set, elsewhere: bool = F
     sub, rest = _git_subcommand(seg)
     if sub is None:
         return None
-    if "--no-verify" in rest or (sub == "commit" and "-n" in rest):
+    longs, shorts = _git_options(sub, rest)
+    if ("--no-verify" in rest or (sub == "commit" and ("-n" in rest or "n" in shorts))
+            or (sub in _NO_VERIFY_SUBS and _git_prefix(longs, ("no-verify",)))):
         return "deny", GIT_MSG.format(what=f"`git {sub} --no-verify` skips the commit gate")
+    if _git_sets_hooks_path(seg[1 : len(seg) - len(rest) - 1]):
+        return "deny", GIT_MSG.format(what=f"`git {sub}` sets core.hooksPath for the call and skips the hooks")
+    if sub == "config" and _git_config_writes_hooks_path(rest):
+        return "ask", GIT_HOOKS_PATH_MSG
     if sub != "push":
         return None
-    if any(t in _FORCE_FLAGS or t.startswith("--force-with-lease=") for t in rest):
+    if (any(t in _FORCE_FLAGS or t.startswith("--force-with-lease=") for t in rest) or "f" in shorts
+            or _git_prefix(longs, _PUSH_FORCE_NAMES)):
         return "deny", GIT_MSG.format(what="force push")
-    if "--all" in rest or "--mirror" in rest:
+    if "--all" in rest or "--mirror" in rest or _git_prefix(longs, ("mirror", "all")):
         return "deny", GIT_MSG.format(what="`git push --all/--mirror` can rewrite a protected branch")
     positional: list[str] = []
     skip = False
@@ -801,17 +1035,23 @@ def rule_git_guard(ev: Event, cfg: dict) -> Optional[Decision]:
         return None
     protected = protected_branches(cfg)
     command = strip_heredocs(ev.command)
+    asks = []  # 0.8.0: the first pass can ask (`git config core.hooksPath`); a later deny of the line still wins
     for seg in segments(command):
         d = _git_guard_seg(seg, ev.cwd, protected)
-        if d:
+        if d and d[0] == "deny":
             return d
-    here = _local_simple_commands(command)
+        if d:
+            asks.append(d)
+    here = _local_simple_commands(ev.command)  # the reader takes the here-document bodies out itself (0.8.0)
 
     def judge(seg: list[str]) -> Optional[Decision]:
         # a simple command the local reading does not find runs elsewhere: the host's branch says nothing there
         return _git_guard_seg(seg, ev.cwd, protected, elsewhere=here is not None and tuple(seg) not in here)
 
-    return reader_pass(command, judge, "git-guard")
+    gate = _git_env_gate(ev.command)
+    if gate and gate[0] == "deny":
+        return gate
+    return combine(asks + [d for d in (gate, reader_pass(ev.command, judge, "git-guard")) if d])
 
 
 def _local_simple_commands(command: str) -> Optional[set]:
@@ -1098,7 +1338,8 @@ def rule_deploy_ask(ev: Event, cfg: dict) -> Optional[Decision]:
         return None
     try:
         text = strip_heredocs(ev.command)
-        what = _deploy_text(text) or deploy_what(text)  # the 0.6.0 verdict OR the token verdict
+        # the 0.6.0 verdict OR the token verdict; the reader takes the here-document bodies out itself (0.8.0)
+        what = _deploy_text(text) or deploy_what(ev.command)
     except CommandNotRead as exc:  # too deep or too many tools: ask rather than pass it unread
         what = str(exc)
     except Exception as exc:  # main() turns a crash into exit 1, which both harnesses let run silently: ask instead
@@ -1119,7 +1360,8 @@ _LLM_HOSTS_RE = re.compile(
     r"|router\.huggingface\.co|\.endpoints\.huggingface\.cloud|\.hf\.space"
     # 0.7.1: ten more inference APIs, each host read in the vendor's own docs on 2026-11-17
     r"|api\.together\.ai|api\.groq\.com|api\.deepseek\.com|api\.x\.ai|api\.cohere\.com|api\.fireworks\.ai"
-    r"|api\.cerebras\.ai|api\.perplexity\.ai|api\.replicate\.com|api\.deepinfra\.com"
+    r"|api\.cerebras\.ai|api\.perplexity\.ai|api\.replicate\.com|api\.deepinfra\.com",
+    re.IGNORECASE,  # 0.8.0: a host name is never case-sensitive (`API.OPENAI.COM`)
 )
 EGRESS_MSG = (
     "Client boundary (KZ_BOUNDARY=client): {what} would send material to another vendor's endpoint. "
@@ -1133,11 +1375,21 @@ def rule_egress_guard(ev: Event, cfg: dict) -> Optional[Decision]:
     if str(cfg.get("boundary") or "own") != "client":
         return None
     for seg in segments(strip_heredocs(ev.command)):
-        head = os.path.basename(seg[0])
-        if head in _OTHER_LLM_CLIS:
-            return "ask", EGRESS_MSG.format(what=f"`{head}`")
-        if head in ("curl", "wget", "http", "https", "xh") and _LLM_HOSTS_RE.search(" ".join(seg)):
-            return "ask", EGRESS_MSG.format(what=f"`{head}` to an LLM API host")
+        d = _egress_seg(seg)
+        if d:
+            return d
+    # 0.8.0: the full reading (not the local one): a container or another host still sends the data out
+    return reader_pass(ev.command, _egress_seg, "egress-guard")
+
+
+def _egress_seg(seg: list[str]) -> Optional[Decision]:
+    """The egress-guard verdict on the words from one command word: another vendor's LLM tool, or an HTTP
+    client with an LLM API host among its words."""
+    head = os.path.basename(seg[0])
+    if head in _OTHER_LLM_CLIS:
+        return "ask", EGRESS_MSG.format(what=f"`{head}`")
+    if head in ("curl", "wget", "http", "https", "xh") and _LLM_HOSTS_RE.search(" ".join(seg)):
+        return "ask", EGRESS_MSG.format(what=f"`{head}` to an LLM API host")
     return None
 
 # ----------------------------------------------------------------------------
@@ -1234,7 +1486,7 @@ def rule_protected_branch(ev: Event, cfg: dict) -> Optional[Decision]:
             if d:
                 return d
         # the local reading: a commit behind ssh or inside a container happens in another checkout
-        return reader_pass(command, lambda seg: _commit_on_protected(seg, ev.cwd, protected), "protected-branch",
+        return reader_pass(ev.command, lambda seg: _commit_on_protected(seg, ev.cwd, protected), "protected-branch",
                            local=True)
     return None
 
@@ -1512,7 +1764,30 @@ def rule_tracker_guard(ev: Event, cfg: dict) -> Optional[Decision]:
         d = _tracker_seg(seg)
         if d:
             return d
-    return reader_pass(command, _tracker_seg, "tracker-guard")
+    return reader_pass(ev.command, _tracker_seg, "tracker-guard")  # the reader takes the bodies out (0.8.0)
+
+
+def _gh_words(seg: list[str]) -> list[int]:
+    """The indexes of the first two plain words of a gh call (the command group and the verb). gh accepts
+    `-R`/`--repo` before the group and between group and verb (`gh -R o/r issue close 3`, `gh issue --repo o/r
+    close 3`); its value is skipped in every spelling: `-R v`, `-Rv`, `--repo v`, `--repo=v` (0.8.0)."""
+    out: list[int] = []
+    k = 1
+    while k < len(seg) and len(out) < 2:
+        t = seg[k]
+        if t in ("-R", "--repo"):
+            k += 1  # the value is the next word
+        elif not t.startswith("-"):
+            out.append(k)
+        k += 1
+    return out
+
+
+def _gh_api_mutating(t: str) -> bool:
+    """A gh api write flag in any spelling gh accepts: `-f k=v`, `-fk=v`, `-F…`, `--field=k=v`, `--raw-field=…`,
+    `--input v`, `--input=v` (gh api --help)."""
+    return (t in _GH_API_MUTATING_FLAGS or t.startswith(("--field=", "--raw-field=", "--input="))
+            or (t[:2] in ("-f", "-F") and len(t) > 2))
 
 
 def _tracker_seg(seg: list[str]) -> Optional[Decision]:
@@ -1522,15 +1797,17 @@ def _tracker_seg(seg: list[str]) -> Optional[Decision]:
         d = _az_tracker_guard(seg)
         if d:
             return d
-    if head == "gh" and len(seg) >= 3 and seg[1] == "issue" and seg[2] in _GH_ISSUE_REPLACEMENT:
-        return "deny", TRACKER_MSG.format(what=f"`gh issue {seg[2]}` bypasses the tracker",
-                                          use=_GH_ISSUE_REPLACEMENT[seg[2]])
-    if head == "gh" and len(seg) >= 3 and seg[1] == "label" and seg[2] in ("create", "edit", "delete", "clone"):
-        return "deny", TRACKER_MSG.format(what=f"`gh label {seg[2]}` bypasses the tracker",
+    at = _gh_words(seg) if head == "gh" else []
+    group, verb = ([seg[k] for k in at] + ["", ""])[:2]
+    if group == "issue" and verb in _GH_ISSUE_REPLACEMENT:
+        return "deny", TRACKER_MSG.format(what=f"`gh issue {verb}` bypasses the tracker",
+                                          use=_GH_ISSUE_REPLACEMENT[verb])
+    if group == "label" and verb in ("create", "edit", "delete", "clone"):
+        return "deny", TRACKER_MSG.format(what=f"`gh label {verb}` bypasses the tracker",
                                           use="`tracker owner labels-sync` (a human runs it)")
-    if head == "gh" and len(seg) >= 3 and seg[1] == "api":
+    if group == "api":
         path, skip = "", False
-        for t in seg[2:]:
+        for t in seg[at[0] + 1 :]:
             if skip:
                 skip = False
             elif t in _GH_API_VALUE_FLAGS:
@@ -1538,8 +1815,11 @@ def _tracker_seg(seg: list[str]) -> Optional[Decision]:
             elif not t.startswith("-"):
                 path = t
                 break
-        method = (_flag_value(seg, {"-X", "--method"}) or "GET").upper()
-        mutating = method != "GET" or any(t in _GH_API_MUTATING_FLAGS for t in seg)
+        method = _flag_value(seg, {"-X", "--method"})
+        if method is None:  # `-XPATCH`: the value glued on
+            method = next((t[2:] for t in seg[at[0] + 1 :] if t.startswith("-X") and len(t) > 2), "GET")
+        method = method.upper()
+        mutating = method != "GET" or any(_gh_api_mutating(t) for t in seg)
         if _ISSUE_API_RE.search(path) and mutating:
             return "deny", TRACKER_MSG.format(what=f"`gh api {method} {path}` writes issues or labels",
                                               use="the tracker verbs")
@@ -1696,10 +1976,25 @@ def _hi_sub_end(text: str, i: int) -> int:
     return len(text)
 
 
-def _hi_prepare(text: str) -> tuple[str, list[str]]:
+def _hi_glued(out: list[str]) -> bool:
+    """The unquoted `<` or `>` at hand is glued to a word in front of it that is no file descriptor number
+    (`cat<f`, `bash<<EOF`; not `2>f`, the second `<` of `<<`, or a word start)."""
+    if not out or out[-1] in ("<", ">", "<\x01"):
+        return False
+    for p in reversed(out):
+        if len(p) == 1 and p in _HI_WORD_START:
+            break
+        if not p.isdigit():
+            return True
+    return False
+
+
+def _hi_prepare(text: str, mark: bool = False) -> tuple[str, list[str]]:
     """One quote-aware pass before the lexer. Drops backslash-newline and comments, takes the `&` out of a
     redirection (2>&1, >&2, &>) so it does not split the command, and collects the body of every $( … ) and
-    backtick substitution written inside double quotes: the host shell runs it."""
+    backtick substitution written inside double quotes: the host shell runs it. 0.8.0: an unquoted `<` or `>`
+    glued to the word in front of it is split off (`cat<.env`, `bash<<EOF`); with `mark` (the reader) an unquoted
+    input redirection `<` gets the mark \x01, so a quoted word that starts with `<` is no redirection."""
     out: list[str] = []
     subs: list[str] = []
     quote = ""
@@ -1729,12 +2024,22 @@ def _hi_prepare(text: str) -> tuple[str, list[str]]:
             i = n if j < 0 else j
             continue
         elif c in "<>" and text[i + 1 : i + 2] == "&":  # 2>&1, >&2, <&3, 2>&-
+            if _hi_glued(out):
+                out.append(" ")
             out.append(c)
             i += 2
             continue
         elif c == "&" and text[i + 1 : i + 2] == ">":  # &>, &>>
             i += 1
             continue
+        elif c in "<>":
+            glued = _hi_glued(out)
+            if glued:
+                out.append(" ")
+            if mark and c == "<" and text[i + 1 : i + 2] not in ("<", "(") and (glued or out[-1:] != ["<"]):
+                out.append("<\x01")  # an input redirection: `<f`, `< f`, `<>f`
+                i += 1
+                continue
         out.append(c)
         i += 1
     return "".join(out), subs
@@ -1826,6 +2131,10 @@ def _hi_script(script: str, head: str, depth: int) -> Optional[str]:
     return host_install_what(script, depth + 1)
 
 
+# shell options whose value is the next word (bash(1): -o, -O, --rcfile, --init-file; 0.8.0 adds all but -o)
+_HI_SHELL_VALUED = frozenset("-o +o -O +O --rcfile --init-file".split())
+
+
 def _hi_shell_reads_stdin(args: list[str]) -> bool:
     """A shell reads its program from stdin: no -c script, and no operand unless -s is given."""
     if _hi_dash_c(args) is not None:
@@ -1834,14 +2143,15 @@ def _hi_shell_reads_stdin(args: list[str]) -> bool:
     for t in args:
         if skip:
             skip = False
-        elif options and t in ("-o", "+o"):
+        elif options and t in _HI_SHELL_VALUED:
             skip = True
         elif options and t == "--":
             options = False
         elif options and t.startswith(("-", "+")):
             s_flag = s_flag or (not t.startswith("--") and "s" in t[1:])
         else:
-            return s_flag  # an operand is a script file, unless -s reads the program from stdin
+            # an operand is a script file, unless -s reads the program from stdin or it names stdin (0.8.0)
+            return s_flag or t in ("/dev/stdin", "/dev/fd/0")
     return True
 
 
@@ -2040,8 +2350,9 @@ def rule_host_install(ev: Event, cfg: dict) -> Optional[Decision]:
         found = _hi_judge(seg, 0)
         return ("ask", HOST_INSTALL_MSG.format(what=found)) if found else None
 
-    # the local reading: what this machine runs; a container or remote tool ends the simple command
-    return reader_pass(command, judge, "host-install", local=True)
+    # the local reading: what this machine runs; a container or remote tool ends the simple command. The reader
+    # takes the here-document bodies out itself and reads one only where a local shell runs it (0.8.0)
+    return reader_pass(ev.command, judge, "host-install", local=True)
 
 
 # ----------------------------------------------------------------------------
@@ -2062,7 +2373,7 @@ _MAX_COMMAND_WORDS = 64
 _TOO_MANY_WORDS = (f"one simple command has more than {_MAX_COMMAND_WORDS} places where a command can stand "
                    "and was not read")
 _REDIRECT_TOKEN_RE = re.compile(r"^\d*[<>]")
-_BARE_REDIRECT_TOKEN_RE = re.compile(r"^\d*(<|>|>>|<<|<<-|<<<|<>)$")
+_BARE_REDIRECT_TOKEN_RE = re.compile(r"^\d*(<|>|>>|<<|<<-|<<<|<>|<\x01|<\x01>)$")  # \x01: _hi_prepare's mark
 # the reader's own tables (the host-install ones stay as they are): names whose -c or here-string hands a script
 # to a shell, by basename; `$SHELL` is a word the reader sees unexpanded
 _NC_SHELLS = frozenset("sh bash zsh dash ksh fish ash su script flock $SHELL ${SHELL}".split())
@@ -2112,6 +2423,14 @@ _NC_SCRIPT_WORDS = frozenset("ssh watch parallel trap tmux".split())
 _NC_FIND_EXEC = frozenset("-exec -execdir -ok -okdir".split())
 _NC_HELP = frozenset("-h -help --help".split())
 _NC_FALLBACK_SPLIT_RE = re.compile(r"\|\||&&|[;|\n()`]")
+# 0.8.0: a script fed to a shell. These shells read their program from standard input when they get no -c
+# script and no script file (_hi_shell_reads_stdin); a here-document body or the words of an echo or printf piped
+# into one are its script. The reader marks each here-document operator with the number of its body.
+_NC_STDIN_SHELLS = frozenset("sh bash zsh dash ksh fish ash $SHELL ${SHELL}".split())
+_NC_HEREDOC_MARK_RE = re.compile(r"^\d*<<-?\x00(\d+)\x00$")
+_NC_ECHO_OPTION_RE = re.compile(r"^-[neE]+$")
+# ssh options that take a value (ssh(1), OpenSSH 9): the first plain word after the options is the host
+_SSH_VALUED = frozenset("BbcDEeFIiJLlmOoPpQRSWw")
 
 
 def nested_commands(command: str, local: bool = False) -> tuple[tuple[str, ...], ...]:
@@ -2126,33 +2445,75 @@ def nested_commands(command: str, local: bool = False) -> tuple[tuple[str, ...],
     got = _nc_cached(command, local)
     if isinstance(got, CommandNotRead):
         raise CommandNotRead(str(got))
-    return got
+    return got[0]
+
+
+def nested_inputs(command: str, local: bool = False) -> tuple[str, ...]:
+    """The files the simple commands of nested_commands read through an input redirection (`<f`, `0<f`,
+    `< f`), from the same memoised read; the token tuples carry no redirection. Raises as nested_commands."""
+    got = _nc_cached(command, local)
+    if isinstance(got, CommandNotRead):
+        raise CommandNotRead(str(got))
+    return got[1]
 
 
 @functools.lru_cache(maxsize=16)
 def _nc_cached(command: str, local: bool = False):
-    """nested_commands' memo: the token tuples, or the CommandNotRead that stopped the read."""
+    """nested_commands' memo: the token tuples and the input files, or the CommandNotRead that stopped the read."""
     out: list[tuple[str, ...]] = []
+    inputs: list[str] = []
+    envs: list[tuple[str, ...]] = []
     try:
-        _nc_read(command, 0, out, set(), local)
+        _nc_read(command, 0, out, set(), local, inputs, [], envs)
     except CommandNotRead as exc:  # kept as a value so the second rule does not read the line again
         return exc
-    return tuple(out)
+    return tuple(out), tuple(inputs), tuple(envs)
 
 
-def _nc_read(text: str, depth: int, out: list, seen: set, local: bool = False) -> None:
-    """Append the simple commands of one line to out, then read what each nests one level deeper."""
+def nested_envs(command: str) -> tuple[tuple[str, ...], ...]:
+    """For each token tuple of nested_commands (the full reading), the hook-gate assignments it inherits from the
+    simple commands that run its script (`HUSKY=0 bash -c '…'`), from the same memoised read. Raises as
+    nested_commands."""
+    got = _nc_cached(command, False)
+    if isinstance(got, CommandNotRead):
+        raise CommandNotRead(str(got))
+    return got[2]
+
+
+def _nc_inputs(raw: list[str]) -> list[str]:
+    """The files of the input redirections among the words of one simple command."""
+    out = []
+    for k, t in enumerate(raw):
+        if _BARE_INPUT_RE.match(t):
+            out.extend(raw[k + 1 : k + 2])
+        else:
+            m = _INPUT_REDIRECT_RE.match(t)
+            if m:
+                out.append(m.group(1))
+    return out
+
+
+def _nc_read(text: str, depth: int, out: list, seen: set, local: bool = False,
+             inputs: Optional[list] = None, bodies: Optional[list] = None, envs: Optional[list] = None,
+             env: tuple = ()) -> None:
+    """Append the simple commands of one line to out, then read what each nests one level deeper. `bodies`
+    holds the here-document bodies of the whole read, so a mark in a nested script still finds its body; `envs`
+    gets, for each tuple of out, `env`: the hook-gate assignments the script inherits (0.8.0)."""
     if depth > _HI_MAX_DEPTH:
         if text.strip():
             raise CommandNotRead(_HI_NOT_READ)
         return
-    prepared, subs = _hi_prepare(text)
+    if bodies is None:
+        bodies = []
+    prepared, subs = _hi_prepare(_nc_take_heredocs(text, bodies), mark=True)
     cmds = _hi_lex(prepared)
     if cmds is None:  # an unbalanced quote: raw words between separators, brackets and backticks, ends unquoted
         parts = [[w for w in (t.strip("'\"\\") for t in tokens(p)) if w] for p in _NC_FALLBACK_SPLIT_RE.split(prepared)]
+        seps = [""] * len(parts)  # separators unknown: no pipe is read
     else:
         parts = [toks for _sep, toks in cmds]
-    nested = list(subs)  # substitutions outside quotes are simple commands of their own in the lexer already
+        seps = [sep for sep, _toks in cmds]
+    rows = []
     for raw in parts:
         kept = _nc_kept(raw)
         toks = [raw[k] for k in kept]
@@ -2161,15 +2522,30 @@ def _nc_read(text: str, depth: int, out: list, seen: set, local: bool = False) -
             if cut is not None:  # the words from the container or remote tool on run elsewhere
                 raw = raw[: kept[cut]]
                 toks = toks[:cut]
-        nested.extend(_nc_here_strings(raw))  # taken from the words before the redirections go: `<<<` is one
+        rows.append((raw, toks))
+    # (script, the environment it inherits); substitutions outside quotes are simple commands of their own in the
+    # lexer already, and a substitution runs in the environment of this text
+    nested = [(s, env) for s in subs]
+    for k, (raw, toks) in enumerate(rows):
+        own = env + _nc_hook_env(toks)
+        # taken from the words before the redirections go: `<<<` is one
+        nested.extend((s, own) for s in _nc_here_strings(raw))
+        if inputs is not None:
+            inputs.extend(_nc_inputs(raw))
+        piped = rows[k + 1][1] if k + 1 < len(rows) and seps[k + 1].strip(" \n") in ("|", "|&") else None
+        fed, runner = _nc_fed(raw, toks, piped, bodies)
+        fed_env = own if runner is toks else env + _nc_hook_env(runner or [])
+        nested.extend((s, fed_env) for s in fed)
         if not toks:
             continue
         out.append(tuple(toks))
-        nested.extend(_nc_scripts(toks))
-    for script in nested:
-        if script not in seen:  # one read per distinct script: a repeated nest costs nothing twice
-            seen.add(script)
-            _nc_read(script, depth + 1, out, seen, local)
+        if envs is not None:
+            envs.append(env)
+        nested.extend((s, own) for s in _nc_scripts(toks))
+    for script, script_env in nested:
+        if (script, script_env) not in seen:  # one read per distinct script: a repeated nest costs nothing twice
+            seen.add((script, script_env))
+            _nc_read(script, depth + 1, out, seen, local, inputs, bodies, envs, script_env)
 
 
 def _nc_remote_word(toks: list[str]) -> Optional[int]:
@@ -2213,6 +2589,220 @@ def _nc_here_strings(toks: list[str]) -> list[str]:
         if mark:
             out.extend([tail] if tail else toks[k + 1 : k + 2])
     return out if shell else []
+
+
+def _nc_take_heredocs(text: str, bodies: list) -> str:
+    """The text with every here-document body taken out (a body is never lexed as commands of the line) and its
+    operator replaced by a mark that numbers the body in `bodies`; `<<-` strips the leading tabs of the body."""
+    if "<<" not in text or "\x00" in text:  # a NUL in the text: strip as before, read no body as a script
+        return strip_heredocs(text)
+    out: list[str] = []
+    pos = scanned = emitted = 0
+    stack = ["sh"]
+    while True:
+        m = _HEREDOC_RE.search(text, pos)
+        if not m:
+            break
+        if scanned <= m.start():
+            scanned = _quote_state(text, scanned, m.start(), stack)
+        if scanned > m.start() or stack[-1] not in _SHELL_CONTEXTS:
+            # in a comment or behind a backslash the walk stepped over (no operator), or
+            # inside a quoted word (`bash -c 'bash <<EOF …'`): the nested read of that word takes it
+            pos = m.start() + 2
+            continue
+        dash = "-" if m.group(1) else ""
+        body = m.group(4)
+        if dash:
+            body = "\n".join(line.lstrip("\t") for line in body.split("\n"))
+        bodies.append(body)
+        after = m.end(3) + len(m.group(2))  # past the delimiter and its closing quote
+        out.append(text[emitted : m.start()])
+        out.append(f"<<{dash}\x00{len(bodies) - 1}\x00" + text[after : m.start(4)])
+        pos = scanned = emitted = m.end()  # a body is no shell text: the quote scan goes on behind it
+    out.append(text[emitted:])
+    return "".join(out)
+
+
+_SHELL_CONTEXTS = ("sh", "(", "`")  # where a here-document belongs to a command of the text at hand
+
+
+def _quote_state(text: str, start: int, end: int, stack: list) -> int:
+    """Walk text[start:end] and keep `stack` (the open contexts, "sh" at the bottom) as the shell reads it:
+    quotes, `$'…'`, comments, and `$( … )` or backticks, also inside double quotes, where a shell context of its
+    own begins (`"$(cat <<'EOF' … EOF)"`). Returns where the walk stopped (at least `end`)."""
+    i = start
+    while i < end:
+        c, top = text[i], stack[-1]
+        if c == "\\" and top != "'":
+            i += 2
+            continue
+        if top == "'":
+            if c == "'":
+                stack.pop()
+        elif top == "$'":
+            if c == "'":
+                stack.pop()
+        elif top == '"':
+            if c == '"':
+                stack.pop()
+            elif c == "$" and text[i + 1 : i + 2] == "(":
+                stack.append("(")
+                i += 1
+            elif c == "`":
+                stack.append("`")
+        elif c == "#" and (i == 0 or text[i - 1] in _HI_WORD_START):  # a comment, as _hi_prepare reads it
+            j = text.find("\n", i)
+            i = len(text) if j < 0 else j
+            continue
+        elif c == "$" and text[i + 1 : i + 2] == "'":
+            stack.append("$'")
+            i += 1
+        elif c in "'\"":
+            stack.append(c)
+        elif c == "(":
+            stack.append("(")
+        elif c == ")" and top == "(":
+            stack.pop()
+        elif c == "`":
+            if top == "`":
+                stack.pop()
+            else:
+                stack.append("`")
+        i += 1
+    return max(i, end)
+
+
+def _nc_fed(raw: list[str], toks: list[str], piped: Optional[list], bodies: list) -> tuple[list[str], Optional[list]]:
+    """The scripts one simple command feeds to a shell (0.8.0), and the simple command that runs them: its
+    here-document bodies when it runs a shell that reads standard input or an ssh without a command; and, when
+    its output goes through one pipe into such a command (`piped`), the bodies of a `cat` without a file operand
+    and the words of an `echo` or `printf`."""
+    marks = [_NC_HEREDOC_MARK_RE.match(t) for t in raw]
+    own = [bodies[int(m.group(1))] for m in marks if m and int(m.group(1)) < len(bodies)]
+    if own and _nc_runs_stdin(toks):
+        return own, toks
+    if piped is None or not toks or not _nc_runs_stdin(piped):
+        return [], None
+    for i in sorted(command_word_indexes(toks)):
+        name, args = os.path.basename(toks[i]), toks[i + 1 :]
+        if name == "cat":
+            return (own if all(t == "-" or (t.startswith("-") and t != "--") for t in args) else []), piped
+        if name == "echo":
+            k = 0
+            while k < len(args) and _NC_ECHO_OPTION_RE.match(args[k]):
+                k += 1
+            return [" ".join(args[k:]).replace("\\n", "\n")], piped
+        if name == "printf":  # -v sets a variable
+            return ([] if args[:1] == ["-v"] else [" ".join(args).replace("\\n", "\n")]), piped
+    return [], None
+
+
+# the environment names that reach the hook gate (git-guard): an assignment of one of these in front of a shell
+# goes with the script that shell runs (0.8.0)
+_HOOK_ENV_RE = re.compile(r"^(HUSKY|LEFTHOOK|SKIP|GIT_CONFIG_KEY_\w*|GIT_CONFIG_PARAMETERS)=")
+
+
+def _nc_hook_env(toks) -> tuple:
+    """The hook-gate assignments in front of the last command word of a simple command (`HUSKY=0 bash -c …`,
+    `env SKIP=x sh -c …`): the environment of the script a shell there runs, and of nothing else."""
+    if not toks or not any(_HOOK_ENV_RE.match(t) for t in toks):
+        return ()
+    last = max(command_word_indexes(toks), default=0)
+    return tuple(t for t in toks[:last] if _HOOK_ENV_RE.match(t))
+
+
+def _nc_runs_stdin(toks) -> bool:
+    """The simple command runs a script read from its standard input: a shell at a command word with no -c
+    script and no script file (also behind a wrapper or in a container), or ssh with no command after the
+    host (the remote login shell reads it)."""
+    for i in command_word_indexes(toks):
+        name, args = os.path.basename(toks[i]), list(toks[i + 1 :])
+        if name in _NC_STDIN_SHELLS and _hi_shell_reads_stdin(args):
+            return True
+        if (name == "sudo" and _sudo_runs_shell(args)) or (name == "su" and _su_runs_shell(args)):
+            return True
+        if name == "ssh":
+            remote = _ssh_command(args)
+            if remote == []:  # no command after the host: the remote login shell reads it
+                return True
+            # `ssh build 'bash -s'`: a quoted word after the host is a command line for the remote shell (0.8.0).
+            # A plain word is a command word of this simple command already (ssh is a wrapper), so a chain
+            # `ssh h0 ssh h1 …` is read once, not once per hop
+            if remote and any(_nc_line_runs_stdin(w) for w in remote if any(c.isspace() for c in w)):
+                return True
+    return False
+
+
+@functools.lru_cache(maxsize=64)
+def _nc_line_runs_stdin(line: str) -> bool:
+    """A command line (the quoted remote command of ssh) has a simple command that runs a script from stdin."""
+    return any(_nc_runs_stdin(drop_redirections(seg)) for _sep, seg in simple_commands(line) if seg)
+
+
+def _ssh_command(args) -> Optional[list]:
+    """The words after the host of an ssh call ([] when there are none), or None when ssh names no host or runs
+    no command at all (`-N`). Only the letters in front of the first one that takes a value are options: the
+    rest of the word is its value (`-oStrictHostKeyChecking=No`, `-lNina`)."""
+    k = 0
+    while k < len(args):
+        t = args[k]
+        if t == "--":
+            k += 1
+            break
+        if not t.startswith("-") or len(t) < 2:
+            break
+        for n, c in enumerate(t[1:], 1):
+            if c == "N":
+                return None
+            if c in _SSH_VALUED:
+                k += 0 if t[n + 1 :] else 1  # a value glued on (`-p2222`) or in the next word
+                break
+        k += 1
+    return list(args[k + 1 :]) if k < len(args) else None
+
+
+# sudo(8): options that take a value; `-s` and `-i` without a command run the target user's shell
+_SUDO_VALUED = frozenset("CDghpRrTtUu")
+
+
+def _sudo_runs_shell(args: list[str]) -> bool:
+    """`sudo -s` or `sudo -i` (also `--shell`, `--login`, in a cluster) with no command: the shell reads stdin."""
+    shell, skip = False, False
+    for t in args:
+        if skip:
+            skip = False
+        elif t in ("--shell", "--login"):
+            shell = True
+        elif t.startswith("--"):
+            continue
+        elif t.startswith("-") and len(t) > 1:
+            for n, c in enumerate(t[1:], 1):
+                if c in "si":
+                    shell = True
+                elif c in _SUDO_VALUED:
+                    skip = not t[n + 1 :]
+                    break
+        elif not _ASSIGN_RE.match(t):
+            return False  # a command: sudo runs that, not a shell
+    return shell
+
+
+def _su_runs_shell(args: list[str]) -> bool:
+    """su(1) without -c and with no more than the user: the user's shell reads stdin (`su - deploy`)."""
+    operands, skip = 0, False
+    for t in args:
+        if skip:
+            skip = False
+        elif t in ("-c", "--command") or t.startswith("--command=") or (
+                t.startswith("-") and not t.startswith("--") and "c" in t):
+            return False
+        elif t in ("-s", "--shell", "-g", "--group", "-G", "--supp-group", "-w", "--whitelist-environment"):
+            skip = True
+        elif t == "-" or t.startswith("-"):
+            continue
+        else:
+            operands += 1
+    return operands <= 1
 
 
 def _nc_scripts(toks: list[str]) -> list[str]:
@@ -2493,24 +3083,117 @@ def subcommand_hit(args: list[str], verbs: frozenset, pairs: dict) -> Optional[s
 
 
 # ----------------------------------------------------------------------------
+# Names in capitals (0.8.0): the owner's file system ignores case, so `GIT`, `/usr/bin/GIT`, `SUDO` and `BASH -c`
+# run the real tools (measured). Every shell rule judges the command as written and, when a known tool name is
+# written with a capital letter, also the text with those names folded to the spelling the tables use.
+# ----------------------------------------------------------------------------
+
+# the names the shell rules and the reader compare a command's name with: the keys of their tables, plus the names
+# that stand only in an expression or a comparison of the code (SHELL_RE, FIND_RE, GIT_RE, TOOL_RE, CODE_RE,
+# SCRIPT_RE, _SQL_CLIENT_RE, _DEPLOY_PATTERNS, _HI_COARSE, `head == "…"`, `name in ("…", …)`). Verbs, options and
+# shell keywords are none; a key that is not lower-case itself (`$SHELL`) is not a folding target
+_NAMES_IN_CODE = frozenset(
+    "git gh sed az aws eval find xargs parallel curl wget http https xh cat echo printf tracker tracker.py ssh env"
+    " export command coproc source node ruby perl python python3 pip pip3 sudo exec time nohup doas rm rmdir unlink"
+    " trash shred truncate mise npm pnpm yarn brew cargo docker kubectl helm dropdb prisma rclone rsync bun deno"
+    " bash sh zsh dash ksh tsx ts-node php psql mysql mariadb cqlsh snowsql duckdb cockroach hbase clickhouse"
+    " terraform tofu hcloud pvesh qm pulumi cdk ansible-playbook flux del rd".split()
+)
+_FOLD_NAMES = frozenset(
+    k for table in (
+        _WRAPPERS, _RM_CLASS, _DELETE_TOOLS, _WRITERS_LAST, _WRITERS_ALL, _SEARCH_TOOLS, _DEPLOY_TABLE, _DEPLOY_ADDED,
+        _OTHER_LLM_CLIS, _HI_TABLE, _HI_PAIRS, _HI_PAIRS_ONLY, _HI_BARE, _HI_SELF_FETCH, _HI_SHELLS, _HI_DOWNLOADERS,
+        _HI_WRAPPERS, _HI_REMOTE, _NC_SHELLS, _NC_WRAPPERS, _NC_SUB_WRAPPERS, _NC_OPTION_RUNNERS, _NC_SCRIPT_OPTIONS,
+        _NC_FD, _NC_ELSEWHERE, _NC_SCRIPT_WORDS, _NC_STDIN_SHELLS, _NAMES_IN_CODE,
+    ) for k in table if k == k.lower()
+)
+_FOLD_RUN_RE = re.compile(r"[^\s;|&()<>`]+")  # a candidate: a run of characters between the shell's separators
+
+
+def _known_name(name: str) -> bool:
+    """A tool name the rules compare with, or a form _PIP_RE and _PYTHON_RE accept (`pip3.12`, `python3`)."""
+    return name in _FOLD_NAMES or bool(_PIP_RE.match(name) or _PYTHON_RE.match(name))
+
+
+def fold_names(text: str) -> str:
+    """The text with every known tool name that is written with a capital letter replaced by the spelling the
+    tables use. Of a run only the part after its last `/` counts; quotes and backslashes in it are looked through
+    and kept (`G"I"T` -> `g"i"t`, `\\GIT` -> `\\git`). A part is folded only when it is no known name as written and
+    its lower-case form is one, so `.ENV`, `FOO=GIT`, `$BASH`, `GIT-123-fix`, options and verbs stay as written."""
+    if text == text.lower():
+        return text
+    out: list[str] = []
+    last = 0
+    for m in _FOLD_RUN_RE.finditer(text):
+        run = m.group(0)
+        if run == run.lower():
+            continue
+        # the script of an option starts behind its quote (`env -S'GIT …'`, `--run='GIT …'`, 0.8.0); an option
+        # without a quote (`--name=GIT`) is read as before
+        quotes = [q for q in (run.find("'"), run.find('"')) if q >= 0] if run[0] == "-" else []
+        cut = max(run.rfind("/") + 1, min(quotes) + 1 if quotes else 0)
+        part = run[cut:]
+        bare = part.replace('"', "").replace("'", "").replace("\\", "")
+        if _known_name(bare) or not _known_name(bare.lower()):
+            continue
+        out.append(text[last : m.start() + cut])
+        out.append(part.lower())
+        last = m.end()
+    if not out:
+        return text
+    out.append(text[last:])
+    return "".join(out)
+
+
+def judged_twice(name: str, rule: "Rule") -> "Rule":
+    """A shell rule that answers for the command as written and, when fold_names changes the text, also for the
+    folded text: a deny from either wins, asks are combined. A command without a capital name is judged once,
+    by the same code path as before. Two readings, not a `.lower()` at each comparison: three passes are
+    expressions over the raw text, some matches are case-sensitive on purpose (the SQL keyword TRUNCATE), and with
+    the reading as written kept nothing can get weaker."""
+
+    @functools.wraps(rule)
+    def judge(ev: Event, cfg: dict) -> Optional[Decision]:
+        first = rule(ev, cfg)
+        if ev.kind != "shell" or not ev.command:
+            return first
+        try:
+            folded = fold_names(ev.command)
+        except Exception as exc:  # main() turns a crash into exit 1, which both harnesses let run silently: ask
+            return combine([d for d in (first, ("ask", READER_MSG.format(
+                rule=name, what=f"the command could not be read ({type(exc).__name__})"))) if d])
+        if folded == ev.command:
+            return first
+        twin = copy.copy(ev)
+        twin.command = folded
+        second = rule(twin, cfg)
+        for d in (first, second):
+            if d and d[0] == "deny":
+                return d
+        return combine([d for d in (first, second) if d])
+
+    return judge
+
+
+# ----------------------------------------------------------------------------
 # Registry
 # ----------------------------------------------------------------------------
 
 Rule = Callable[[Event, dict], Optional[Decision]]
 RULES: dict[str, Rule] = {
-    "delete-guard": rule_delete_guard,
+    "delete-guard": judged_twice("delete-guard", rule_delete_guard),
     "secret-write": rule_secret_write,
     "secret-read": rule_secret_read,
-    "secret-shell": rule_secret_shell,
-    "git-guard": rule_git_guard,
-    "deploy-ask": rule_deploy_ask,
-    "egress-guard": rule_egress_guard,
+    "secret-shell": judged_twice("secret-shell", rule_secret_shell),
+    "git-guard": judged_twice("git-guard", rule_git_guard),
+    "deploy-ask": judged_twice("deploy-ask", rule_deploy_ask),
+    "egress-guard": judged_twice("egress-guard", rule_egress_guard),
     "scratch-md": rule_scratch_md,
-    "protected-branch": rule_protected_branch,
+    "protected-branch": judged_twice("protected-branch", rule_protected_branch),
     "fan-out": rule_fan_out,
     "guard-config": rule_guard_config,
-    "tracker-guard": rule_tracker_guard,
-    "host-install": rule_host_install,
+    "tracker-guard": judged_twice("tracker-guard", rule_tracker_guard),
+    "host-install": judged_twice("host-install", rule_host_install),
 }
 PRE_RULES = list(RULES)
 

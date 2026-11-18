@@ -199,7 +199,8 @@ variables (`KZ_TRACKER_REPO`, `KZ_TRACKER_AREA`, `KZ_TRACKER_ADO_MODE`,
   by reading every simple command the shell would run, nested scripts included
   (`bash -c '…'`, `eval`, `ssh host '…'`, a here-string). `deploy-ask` and
   `delete-guard` do so since guard 0.6.1; `git-guard`, `tracker-guard`,
-  `secret-shell`, `protected-branch` and `host-install` since 0.7.0. A
+  `secret-shell`, `protected-branch` and `host-install` since 0.7.0;
+  `egress-guard` since 0.8.0. A
   variable, a wrapper or an option in front of the verb no longer hides it
   (`AWS_PROFILE=prod terraform apply`, `kubectl -n prod delete …`,
   `timeout 30 git commit --no-verify`), and a line the reader cannot read
@@ -208,8 +209,27 @@ variables (`KZ_TRACKER_REPO`, `KZ_TRACKER_AREA`, `KZ_TRACKER_ADO_MODE`,
   `nix develop -c`) and inside a container (`docker run|exec`, `compose`,
   `kubectl exec|debug`); an install inside a container stays silent, because
   that is the agreed route for installs. The guard reads text and prompts; it
-  is no sandbox, and `DECISIONS.md` (2026-11-16 and 2026-11-17) lists the
-  forms it does not see.
+  is no sandbox, and `DECISIONS.md` (2026-11-16, 2026-11-17 and 2026-11-18)
+  lists the forms it does not see.
+- Since guard 0.8.0 a guarded form written another way is read like the plain
+  one. `secret-shell` reads a secret path glued to an option, behind `@` or as
+  the source of `<` (`--env-file=.env`, `curl -d @.env`, `cat <.env`), and
+  denies `git add` of a secret file behind git's own options. A script fed to
+  a shell is read like the script of `bash -c`: a here-document, or `echo` or
+  `printf` through one pipe, into `sh`, `bash` and their kin, `sudo -s`, `su`
+  or `ssh host`; a here-document that is data (`cat <<EOF > notes.txt`,
+  `git commit -m "$(cat <<'EOF' … EOF)"`) is not. `tracker-guard` reads `gh`
+  with `-R` in front of the verb and the glued spellings of `gh api`.
+  `git-guard` reads short options in one word and long options cut short
+  (`git push -uf`, `--no-verif`), and denies the hook gate switched off
+  through the environment (`HUSKY=0`, `LEFTHOOK=0`, `SKIP=…`) or through
+  `core.hooksPath` set for one call; `git config` that writes that key asks
+  unless the value is `.githooks`. Capitals count like the plain form, because
+  a file system that ignores case runs `git` for `GIT` and opens `.env` for
+  `.ENV`: a tool's name is judged as written and folded to the spelling the
+  tables use, and the stricter answer stands; a secret file name and an LLM
+  API host are classed whatever their case. On a case-sensitive file system
+  `.ENV` is another file and asks all the same.
 - Since guard 0.7.0 the pre hook answers within 3.5 s: the rules run in a
   child process, and a call they have not judged by then asks under the name
   `budget`, where it used to run unjudged once the harness cut the hook at

@@ -1,0 +1,57 @@
+git diff HEAD
+git reset --soft HEAD~1
+echo TODO
+export PATH=/usr/local/bin:$PATH
+curl -X POST https://example.org/api
+"cat <<SH > run.sh\necho hi\nSH"
+"cat <<PY > x.py\nprint(1)\nPY"
+"cat <<'SH' > run.sh\nrm -rf build\nSH"
+"cat <<-SH > run.sh\n\techo hi\n\tSH\necho done"
+"cat <<SH > run.sh\necho hi\nSH\ngit status"
+"cat <<ENV > .env.example\nKEY=\nENV"
+"cat <<GIT > notes.txt\ngit push --force origin main\nGIT"
+"bash <<SH\necho hi\nSH"
+psql -c "SELECT * FROM users"
+sqlite3 db "SELECT 1"
+cat README
+cat LICENSE
+make -f Makefile
+ls Docker/
+cd Docker && ls
+cat Dockerfile
+docker build -f Dockerfile .
+git commit -m "Update Git hooks and Docker setup"
+git commit -m "Bump Terraform to 1.9; RM unused"
+git log --author=Git
+grep -rn Terraform docs
+echo "Use SUDO with care"
+ls -la Install
+mv INSTALL docs/
+cat Makefile | grep Install
+kubectl get pods -l app=Helm
+python3 -c "print('GIT')"
+echo $SHELL
+echo ${SHELL}
+GIT_DIR=.git git status
+FOO=GIT ./x.sh
+echo GIT-123-fix
+git checkout -b GIT-123-fix
+cat .ENV.EXAMPLE
+cat docs/ENV.md
+cat src/Keys.py
+open README.md
+uv run --offline pytest -k Test
+echo "DROP TABLE"
+echo SH
+printf 'Find files\n'
+echo Find
+cat Find.md
+git commit -m "Find and Sed fixes"
+echo "Codex"
+time make
+echo TIME
+ls /usr/bin/Env
+"cat <<SH | tee run.sh\nrm -rf build\nSH"
+"cat <<EOF > run.sh\nBASH -c 'x'\nEOF"
+"cat <<-SH > run.sh\n\tgit push --force origin main\n\tSH\necho ok"
+"cat <<-SH > run.sh\ngit push --force origin main\n\tSH\necho ok"

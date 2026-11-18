@@ -1,0 +1,8 @@
+8 echo x | ~ssh h{i} ~ls
+12 echo x | ~ssh h{i} ~ls
+16 echo x | ~ssh h{i} ~ls
+18 echo x | ~ssh h{i} ~ls
+20 echo x | ~ssh h{i} ~ls
+12 ~ssh h{i} ~ls <<EOF\nx\nEOF
+16 ~ssh h{i} ~ls <<EOF\nx\nEOF
+18 ~ssh h{i} ~ls <<EOF\nx\nEOF

@@ -1,0 +1,6 @@
+git config core.hooksPath /tmp/h; git commit --no-verify -m x
+git config core.hooksPath /tmp/h && git push --force origin feat
+git config --unset core.hooksPath; git push origin main
+git config core.hooksPath /tmp/h; git push --all origin
+git commit --no-verify -m x; git config core.hooksPath /tmp/h
+bash -c 'git config core.hooksPath /tmp/h; git commit --no-verify -m x'

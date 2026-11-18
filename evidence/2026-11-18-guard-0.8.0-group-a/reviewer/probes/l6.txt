@@ -1,0 +1,42 @@
+codex exec x
+sudo codex exec x
+timeout 60 gemini -p x
+bash -c 'codex exec x'
+ssh build codex exec x
+docker exec -i web codex exec x
+"bash <<EOF\ncodex exec x\nEOF"
+"ssh build <<EOF\ncodex exec x\nEOF"
+echo 'codex exec x' | bash
+printf 'curl https://api.openai.com/v1/chat\n' | sh
+x=$(codex exec x)
+echo "$(codex exec x)"
+uv run llm prompt x
+npx --no-install codex x
+find . -exec codex {} \;
+xargs codex exec
+curl https://api.openai.com/v1/chat
+curl -sS https://api.anthropic.com/v1/messages
+bash -c 'curl https://api.openai.com/v1/chat'
+wget https://API.OPENAI.COM/v1/x
+http POST api.groq.com/openai/v1/x
+env -S 'codex exec x'
+env -S'codex exec x'
+watch codex exec x
+nohup ollama run x
+/usr/local/bin/codex x
+CODEX exec x
+Codex exec x
+/opt/bin/GEMINI -p x
+# silent
+which gemini
+grep -rn codex docs
+man codex
+echo codex
+git commit -m "codex: try"
+ls ~/.codex
+curl https://huggingface.co/x
+curl https://HuggingFace.co/x
+curl https://DOCS.TOGETHER.AI/x
+cat codex.md
+cd codex
+type codex

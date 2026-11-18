@@ -1,0 +1,13 @@
+running      30s      $1.50       5  fable-5-2       session 55555555-5555-4555-8555-555555555555
+running    3m04s      $1.15       2  opus-5-5        |- python-engineer  Port the reader
+running       9s     <$0.01       1  haiku-5-5       |- Explore  List the fixtures
+running       0s      $0.00       0  -               |- code-reviewer  Review the reader
+finished     36s      $0.35       1  opus-5-5        |- general-purpose  Summarise the notes
+running      18s      $0.25       0  opus-5-5        `- workflow  demo-review
+running      18s      $0.25       0  opus-5-5           `- workflow-subagent  review:diff
+total                 $3.25       9                  agents 5, running 4
+
+columns: state, duration, cost in USD, tool calls, model
+duration: first to last line of the transcript; cost: the ledger's own count
+state: inferred from the transcript's end, so a cut-off run reads as running
+a workflow line sums the agents under it; the total counts each agent once

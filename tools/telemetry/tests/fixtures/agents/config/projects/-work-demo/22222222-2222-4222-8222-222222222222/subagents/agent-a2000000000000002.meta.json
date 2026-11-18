@@ -1,0 +1,1 @@
+{"agentType":"code-reviewer","description":"Review the parser for defects and edge cases","isBuiltIn":false,"model":"opus","requestNonInteractive":false,"requestShape":"foreground","spawnDepth":1,"toolUseId":"toolu_t_02","finished":true}

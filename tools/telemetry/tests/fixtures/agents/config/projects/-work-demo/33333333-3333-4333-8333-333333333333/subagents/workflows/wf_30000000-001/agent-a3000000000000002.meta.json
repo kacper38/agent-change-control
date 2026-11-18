@@ -1,0 +1,1 @@
+{"agentType":"workflow-subagent","description":"check:facts","isBuiltIn":true,"model":"haiku","requestNonInteractive":false,"requestShape":"foreground","spawnDepth":1,"workflowPhase":"Check"}

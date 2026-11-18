@@ -1,0 +1,9 @@
+finished  15m30s      $2.20       2  fable-5-2       session 22222222-2222-4222-8222-222222222222
+finished   9m30s      $3.25       2  opus-5-5        |- python-engineer  Build the parser
+finished   4m45s      $2.30*      3  opus-5-5        `- code-reviewer  Review the parser for defec...
+total                 $7.75*      7                  agents 2, running 0
+
+columns: state, duration, cost in USD, tool calls, model
+duration: first to last line of the transcript; cost: the ledger's own count
+state: inferred from the transcript's end, so a cut-off run reads as running
+* requests the ledger does not price (speed:fast 1): these costs are too low

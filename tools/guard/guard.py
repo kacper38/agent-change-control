@@ -3071,7 +3071,10 @@ def fold_names(text: str) -> str:
         run = m.group(0)
         if run == run.lower():
             continue
-        cut = run.rfind("/") + 1
+        # the script of an option starts behind its quote (`env -S'GIT …'`, `--run='GIT …'`, 0.8.0); an option
+        # without a quote (`--name=GIT`) is read as before
+        quotes = [q for q in (run.find("'"), run.find('"')) if q >= 0] if run[0] == "-" else []
+        cut = max(run.rfind("/") + 1, min(quotes) + 1 if quotes else 0)
         part = run[cut:]
         bare = part.replace('"', "").replace("'", "").replace("\\", "")
         if _known_name(bare) or not _known_name(bare.lower()):

@@ -1506,6 +1506,13 @@ F25 | feat/x | secret-shell | ask | bash -c 'grep --context TOKEN .env'
 #     names, and `-vv` the change in the work tree: the content of the file, not its name. Measured in a scratch
 #     repository, git 2.55: -v, --verbose and --v (a unique prefix) on a staged file, -vv and -v -v on a changed
 #     one. `git check-ignore -v` names the rule that matches, no content (a K7 row).
+F26 | feat/x | secret-shell | ask | git status -v .env
+F26 | feat/x | secret-shell | ask | git status -vv -- .env
+F26 | feat/x | secret-shell | ask | git status --verbose .env
+F26 | feat/x | secret-shell | ask | git status --v .env
+F26 | feat/x | secret-shell | ask | git status -v -v -- .env
+F26 | feat/x | secret-shell | ask | git status -bv .env
+F26 | feat/x | secret-shell | ask | git -C sub status --verbose -- .env
 # the neighbours that hold today and keep holding
 Fs | feat/x | shell | silent | git status .env
 Fs | feat/x | shell | silent | git status --short -- .env

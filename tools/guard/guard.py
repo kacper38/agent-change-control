@@ -1315,9 +1315,29 @@ def _quiet_reports(command: str) -> tuple:
         if not words:
             continue
         head = tool_name(words[0])
-        if head in _REPORT_HEADS or (head == "git" and _git_subcommand(list(words))[0] in _REPORT_GIT_SUBS):
+        if head in _REPORT_HEADS:
             out.append(words)
+        elif head == "git":
+            sub, rest = _git_subcommand(list(words))
+            if sub in _REPORT_GIT_SUBS and not (sub == "status" and _git_status_verbose(rest)):
+                out.append(words)
     return tuple(out)
+
+
+def _git_status_verbose(rest: list[str]) -> bool:
+    """F26: `git status -v` prints the staged change of the paths it names, `-vv` the change in the work tree:
+    content, not names (measured, git 2.55). A `v` in a short cluster (`-bv`), or a long option that is a prefix
+    of --verbose (git takes a unique prefix: `--v`), before `--`."""
+    for t in rest:
+        if t == "--":
+            return False
+        if t.startswith("--"):
+            name = t.partition("=")[0]
+            if len(name) >= 3 and "--verbose".startswith(name):
+                return True
+        elif t.startswith("-") and "v" in t[1:]:
+            return True
+    return False
 
 
 def _take_quiet(quiet: "collections.Counter", seg) -> bool:

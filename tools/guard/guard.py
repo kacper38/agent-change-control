@@ -2578,13 +2578,16 @@ def _nc_take_heredocs(text: str, bodies: list) -> str:
         return strip_heredocs(text)
     out: list[str] = []
     pos = scanned = emitted = 0
-    quote = ""
+    stack = ["sh"]
     while True:
         m = _HEREDOC_RE.search(text, pos)
         if not m:
             break
-        scanned, quote = _quote_state(text, scanned, m.start(), quote)
-        if quote:  # inside a quoted word (`bash -c 'bash <<EOF …'`): the nested read of that word takes it
+        if scanned <= m.start():
+            scanned = _quote_state(text, scanned, m.start(), stack)
+        if scanned > m.start() or stack[-1] not in _SHELL_CONTEXTS:
+            # in a comment or behind a backslash the walk stepped over (no operator), or
+            # inside a quoted word (`bash -c 'bash <<EOF …'`): the nested read of that word takes it
             pos = m.start() + 2
             continue
         dash = "-" if m.group(1) else ""
@@ -2600,21 +2603,53 @@ def _nc_take_heredocs(text: str, bodies: list) -> str:
     return "".join(out)
 
 
-def _quote_state(text: str, start: int, end: int, quote: str) -> tuple[int, str]:
-    """Walk text[start:end] from the quote state `quote` ('', "'" or '"'); returns end and the state there."""
+_SHELL_CONTEXTS = ("sh", "(", "`")  # where a here-document belongs to a command of the text at hand
+
+
+def _quote_state(text: str, start: int, end: int, stack: list) -> int:
+    """Walk text[start:end] and keep `stack` (the open contexts, "sh" at the bottom) as the shell reads it:
+    quotes, `$'…'`, comments, and `$( … )` or backticks, also inside double quotes, where a shell context of its
+    own begins (`"$(cat <<'EOF' … EOF)"`). Returns where the walk stopped (at least `end`)."""
     i = start
     while i < end:
-        c = text[i]
-        if c == "\\" and quote != "'":
+        c, top = text[i], stack[-1]
+        if c == "\\" and top != "'":
             i += 2
             continue
-        if quote:
-            if c == quote:
-                quote = ""
+        if top == "'":
+            if c == "'":
+                stack.pop()
+        elif top == "$'":
+            if c == "'":
+                stack.pop()
+        elif top == '"':
+            if c == '"':
+                stack.pop()
+            elif c == "$" and text[i + 1 : i + 2] == "(":
+                stack.append("(")
+                i += 1
+            elif c == "`":
+                stack.append("`")
+        elif c == "#" and (i == 0 or text[i - 1] in _HI_WORD_START):  # a comment, as _hi_prepare reads it
+            j = text.find("\n", i)
+            i = len(text) if j < 0 else j
+            continue
+        elif c == "$" and text[i + 1 : i + 2] == "'":
+            stack.append("$'")
+            i += 1
         elif c in "'\"":
-            quote = c
+            stack.append(c)
+        elif c == "(":
+            stack.append("(")
+        elif c == ")" and top == "(":
+            stack.pop()
+        elif c == "`":
+            if top == "`":
+                stack.pop()
+            else:
+                stack.append("`")
         i += 1
-    return max(i, end), quote
+    return max(i, end)
 
 
 def _nc_fed(raw: list[str], toks: list[str], piped: Optional[list], bodies: list) -> tuple[list[str], Optional[list]]:

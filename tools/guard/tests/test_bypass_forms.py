@@ -916,7 +916,52 @@ As | Read | secret-read | ask | .ENV
 As | Read | secret-read | silent | docs/ENV.md
 """
 
-TABLE = _rows(PINNED) + _rows(CLOSED) + _rows(CAPS) + _rows(FIX)
+# the second fix round of 2026-11-18 (the re-check): `Y*` were noise of the first fix pass and go back to what
+# they were at the build head; `Ys` held and keeps holding
+FIX2 = r"""
+Y1 | feat/x | git-guard | silent | "git commit -m \"$(cat <<'EOF'\nfix: run \"make; git push --force origin main\" later\nEOF\n)\""
+Y1 | feat/x | shell | silent | "git commit -m \"$(cat <<'EOF'\nfix: quote the \"name\nnpm install left-pad is gone\nEOF\n)\""
+Y1 | feat/x | git-guard | silent | "gh pr create --title \"x\" --body \"$(cat <<'EOF'\nrun \"make; git commit --no-verify -m x\" never\nEOF\n)\""
+Ys | feat/x | shell | silent | "git commit -m \"$(cat <<'EOF'\nfix: don't strip the body\n\nIt's the reader's job (see `_nc_read`).\nEOF\n)\""
+Ys | feat/x | shell | silent | "git commit -m \"$(cat <<'EOF'\nfix: the hook said \"git commit --no-verify\" is denied\nEOF\n)\""
+Ys | feat/x | shell | silent | "git commit -m \"$(cat <<EOF\nfix: say \"npm install -g x\" is asked about\nEOF\n)\""
+Ys | feat/x | shell | silent | "gh pr create --title \"docs: don't\" --body \"$(cat <<'EOF'\nrun \"terraform apply\" only after a plan\nEOF\n)\""
+Ys | feat/x | shell | silent | "git commit -m \"$(cat <<'EOF'\nfix: it's \"quoted\"\nEOF\n)\" && git push origin feat"
+Ys | feat/x | git-guard | deny | "git commit -m \"$(cat <<'EOF'\nfix: it's \"quoted\"\nEOF\n)\" && git push --force origin feat"
+Ys | feat/x | secret-shell | ask | "git commit -m \"$(cat <<'EOF'\nfix: \"x\nEOF\n)\"; cat .env"
+Ys | feat/x | git-guard | silent | "echo \"$(cat <<'EOF'\ngit push --force origin feat\nEOF\n)\""
+Ys | feat/x | git-guard | deny | "echo \"$(bash <<'EOF'\ngit push --force origin feat\nEOF\n)\""
+Ys | feat/x | git-guard | deny | "X=$(bash <<'EOF'\ngit commit --no-verify -m x\nEOF\n)"
+Y2 | feat/x | git-guard | silent | "# don't run this\ncat <<EOF > notes.txt\ngit push --force origin main\nnpm install x\nEOF"
+Y2 | feat/x | host-install | silent | "# don't run this\ncat <<EOF > notes.txt\ngit push --force origin main\nnpm install x\nEOF"
+Y2 | feat/x | git-guard | silent | "echo $'it\\'s'; cat <<EOF > notes.txt\ngit push --force origin main\nEOF"
+Y2 | feat/x | shell | silent | "echo done # it's over\ncat <<'EOF' > notes.txt\ngit commit --no-verify -m x\nEOF"
+Ys | feat/x | shell | silent | "echo \"it's fine\"; cat <<EOF > notes.txt\ngit commit --no-verify -m x\nEOF"
+Ys | feat/x | shell | silent | "cat <<'EOF' > notes.txt\nit's a note: \"git commit --no-verify\" is denied\nEOF"
+Ys | feat/x | git-guard | deny | "# it's a comment\ngit commit --no-verify -m x"
+Ys | feat/x | git-guard | deny | "echo $'it\\'s'; git push --force origin feat"
+Ys | feat/x | git-guard | deny | "cat <<EOF > notes.txt\n# don't\nEOF\ngit commit --no-verify -m x"
+Ys | feat/x | shell | silent | "cat <<'EOF' > a.txt\nit's\nEOF\ncat <<'EOF' > b.txt\n\"x\ngit commit --no-verify -m x\nEOF"
+Ys | feat/x | git-guard | deny | "cat <<'EOF' > a.txt\nit's\nEOF\nbash <<'EOF'\ngit commit --no-verify -m x\nEOF"
+Y4 | feat/x | shell | silent | HUSKY=0 bash -c 'echo ok' && bash -c 'git commit -m x'
+Y4 | feat/x | shell | silent | "HUSKY=0 bash <<EOF\nnpm test\nEOF\nbash -c 'git commit -m x'"
+Ys | feat/x | git-guard | deny | HUSKY=0 bash -c 'git commit -m x'
+Ys | feat/x | git-guard | deny | HUSKY=0 bash -c 'echo ok; git commit -m x'
+Ys | feat/x | git-guard | deny | export HUSKY=0; bash -c 'git commit -m x'
+Ys | feat/x | git-guard | deny | bash -c 'export HUSKY=0'; git commit --no-verify -m x
+Ys | feat/x | git-guard | deny | "bash -c 'bash <<EOF\ngit push --force origin feat\nEOF'"
+Ys | feat/x | git-guard | deny | "bash -c \"bash <<EOF\ngit commit --no-verify -m x\nEOF\""
+Ys | feat/x | git-guard | deny | "bash -c \"echo \\\"it's\\\"; bash <<EOF\ngit push --force origin feat\nEOF\""
+Ys | feat/x | git-guard | silent | "bash -c 'cat <<EOF > notes.txt\ngit push --force origin feat\nEOF'"
+Ys | feat/x | shell | silent | "bash -c 'cat <<EOF\nhello\nEOF'"
+Y5 | feat/x | git-guard | deny | bash -c 'git status'; HUSKY=0 bash -c 'git commit -m x'
+Y5 | feat/x | git-guard | deny | HUSKY=0 bash -c "bash -c 'git commit -m x'"
+Y5 | feat/x | git-guard | deny | "HUSKY=0 bash <<'EOF'\nbash -c 'git commit -m x'\nEOF"
+"""  # noqa: E501 (a row holds its command as written)
+
+_FIX2_OPEN = ("Y4", "Y5")  # the ids of the second round still open; the table holds every row of the round
+TABLE = (_rows(PINNED) + _rows(CLOSED) + _rows(CAPS) + _rows(FIX)
+         + [r for r in _rows(FIX2) if r[0] not in _FIX2_OPEN])
 OWN_TABLE = _rows(OWN)
 
 
@@ -1022,6 +1067,21 @@ def test_a_script_named_by_the_command_is_scanned_folded(guard, tmp_path):
     ev = guard.Event({"hook_event_name": "PreToolUse", "tool_name": "Bash", "tool_input": {"command": "sh step.sh"},
                       "cwd": str(tmp_path)})
     assert (guard.RULES["delete-guard"](ev, {}) or ("silent",))[0] == "ask"
+
+
+def _chain(hops: int) -> str:
+    return " ".join(f"ssh h{n}" for n in range(hops))
+
+
+@pytest.mark.parametrize("command, expected", [
+    (f"echo x | {_chain(3)} ls", {}),
+    (f"{_chain(3)} <<'EOF'\ngit push --force origin feat\nEOF", {"delete-guard": "ask", "git-guard": "deny"}),
+    (f"{_chain(3)} <<'EOF'\ngit push\nEOF", {"git-guard": "ask"}),
+    (f"echo 'git push' | {_chain(3)}", {"git-guard": "ask"}),
+])
+def test_a_chain_of_three_ssh_hops_keeps_its_verdicts(guard, monkeypatch, command, expected):
+    got = _answers(guard, monkeypatch, "feat/x", "own", "shell", command)
+    assert {k: v for k, v in got.items() if v != "silent"} == expected
 
 
 def test_pinned_rows_are_all_there():

@@ -1,0 +1,15 @@
+[
+  {"tool": "Bash", "command": "gh pr merge 3"},
+  {"tool": "Bash", "command": "gh pr merge 3 --auto --squash"},
+  {"tool": "Bash", "command": "gh pr review 3 --approve"},
+  {"tool": "Bash", "command": "gh issue close 3"},
+  {"tool": "Bash", "command": "gh issue edit 3 --add-label status/done"},
+  {"tool": "Bash", "command": "gh issue create -t t -b b"},
+  {"tool": "Bash", "command": "gh issue comment 3 -b hi"},
+  {"tool": "Bash", "command": "git push origin HEAD:main"},
+  {"tool": "Write", "path": "tools/guard/guard.py"},
+  {"tool": "Write", "path": ".claude/settings.json"},
+  {"tool": "Write", "path": ".env"},
+  {"tool": "Bash", "command": "git push origin main:refs/heads/feat/x"},
+  {"tool": "Bash", "command": "gh pr close 3"}
+]

@@ -1,0 +1,17 @@
+[
+  {"tool": "mcp__github__merge_pull_request", "input": {"owner": "o", "repo": "r", "pullNumber": 3, "merge_method": "merge"}, "twin": "gh pr merge 3"},
+  {"tool": "mcp__github__enable_pr_auto_merge", "input": {"owner": "o", "repo": "r", "pullNumber": 3, "mergeMethod": "SQUASH"}, "twin": "gh pr merge 3 --auto --squash"},
+  {"tool": "mcp__github__pull_request_review_write", "input": {"method": "create", "owner": "o", "repo": "r", "pullNumber": 3, "event": "APPROVE", "body": "ok"}, "twin": "gh pr review 3 --approve"},
+  {"tool": "mcp__github__issue_write", "input": {"method": "update", "owner": "o", "repo": "r", "issue_number": 3, "state": "closed", "state_reason": "completed"}, "twin": "gh issue close 3"},
+  {"tool": "mcp__github__issue_write", "input": {"method": "update", "owner": "o", "repo": "r", "issue_number": 3, "labels": ["status/done"]}, "twin": "gh issue edit 3 --add-label status/done"},
+  {"tool": "mcp__github__issue_write", "input": {"method": "create", "owner": "o", "repo": "r", "title": "t", "body": "b"}, "twin": "gh issue create -t t -b b"},
+  {"tool": "mcp__github__add_issue_comment", "input": {"owner": "o", "repo": "r", "issue_number": 3, "body": "hi"}, "twin": "gh issue comment 3 -b hi"},
+  {"tool": "mcp__github__create_or_update_file", "input": {"owner": "o", "repo": "r", "path": "README.md", "content": "x", "message": "docs: x", "branch": "main"}, "twin": "git push origin HEAD:main"},
+  {"tool": "mcp__github__create_or_update_file", "input": {"owner": "o", "repo": "r", "path": "tools/guard/guard.py", "content": "x", "message": "chore: x", "branch": "feat/x"}, "twin": "Write tools/guard/guard.py"},
+  {"tool": "mcp__github__create_or_update_file", "input": {"owner": "o", "repo": "r", "path": ".claude/settings.json", "content": "{}", "message": "chore: x", "branch": "feat/x"}, "twin": "Write .claude/settings.json"},
+  {"tool": "mcp__github__create_or_update_file", "input": {"owner": "o", "repo": "r", "path": ".env", "content": "A=1", "message": "chore: x", "branch": "feat/x"}, "twin": "Write .env"},
+  {"tool": "mcp__github__push_files", "input": {"owner": "o", "repo": "r", "branch": "main", "files": [{"path": "tools/guard/guard.py", "content": "x"}], "message": "chore: x"}, "twin": "git push origin HEAD:main"},
+  {"tool": "mcp__github__delete_file", "input": {"owner": "o", "repo": "r", "path": "tools/guard/guard.py", "message": "chore: x", "branch": "main"}, "twin": "a removal of tools/guard/guard.py, pushed to main"},
+  {"tool": "mcp__github__create_branch", "input": {"owner": "o", "repo": "r", "branch": "feat/x", "from_branch": "main"}, "twin": "git push origin main:refs/heads/feat/x"},
+  {"tool": "mcp__github__update_pull_request", "input": {"owner": "o", "repo": "r", "pullNumber": 3, "state": "closed"}, "twin": "gh pr close 3"}
+]

@@ -1,0 +1,4 @@
+[
+  ["pipe into a chain", "echo x | ", "ssh h{n} ", "ls"],
+  ["chain with a here-document", "", "ssh h{n} ", "ls <<EOF\nx\nEOF"]
+]

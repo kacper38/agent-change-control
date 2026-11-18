@@ -1,0 +1,24 @@
+# Guard 0.8.0, group A, second fix round: forms the engineer does not see.
+# HR = due with the second round (red at 894b8cc, as at the build head afterwards); HS = must answer as at 894b8cc.
+HR | feat/x | git-guard | silent | "git commit -m \"$(cat <<'EOF'\nfeat: deny \"git push --force\" in a cluster\n\nSee \"git commit --no-verify\".\nEOF\n)\""
+HR | feat/x | shell | silent | "git commit -m \"$(cat <<EOF\nfix: \"a\" and 'b' and \"npm install -g x\nEOF\n)\""
+HR | feat/x | git-guard | silent | "gh pr comment 3 --body \"$(cat <<'EOF'\nthe reviewer wrote: \"git push --force origin main\ngit commit --no-verify -m x\nEOF\n)\""
+HR | feat/x | git-guard | silent | "cat <<EOF > n.txt # it's a note\ngit commit --no-verify -m x\nEOF"
+HR | feat/x | git-guard | silent | "true # can't\ncat <<EOF > n.txt\ngit commit --no-verify -m x\nEOF"
+HR | feat/x | git-guard | silent | "printf '%s\\n' $'a\\'b'; cat <<'EOF' > n.txt\ngit commit --no-verify -m x\nEOF"
+HR | feat/x | shell | silent | HUSKY=0 sh -c 'true'; git commit -m x
+HR | feat/x | shell | silent | LEFTHOOK=0 bash -c 'echo ok' || bash -c 'git push origin feat'
+HS | feat/x | shell | silent | "MSG=\"it's\"; cat <<EOF > n.txt\ngit commit --no-verify -m x\nEOF"
+HS | feat/x | shell | silent | "echo it\\'s; cat <<EOF > n.txt\ngit commit --no-verify -m x\nEOF"
+HS | feat/x | shell | silent | "x=\"a # it's not a comment\"; cat <<EOF > n.txt\ngit commit --no-verify -m x\nEOF"
+HS | feat/x | git-guard | deny | "x=\"a # it's not a comment\"; bash <<EOF\ngit commit --no-verify -m x\nEOF"
+HS | feat/x | git-guard | deny | "# it's\nbash <<EOF\ngit commit --no-verify -m x\nEOF"
+HS | feat/x | git-guard | deny | "git commit -m \"$(cat <<'EOF'\nfix: \"x\nEOF\n)\"; git push --force origin feat"
+HS | feat/x | git-guard | deny | "sh -c 'sh <<X\ngit commit --no-verify -m x\nX'"
+HS | feat/x | git-guard | deny | LEFTHOOK=0 sh -c 'git push origin feat'
+HS | feat/x | git-guard | deny | HUSKY=0 timeout 30 bash -c 'git commit -m x'
+HS | feat/x | git-guard | deny | "HUSKY=0 bash <<EOF\ngit commit -m x\nEOF"
+HS | feat/x | git-guard | deny | "ssh -p 2222 build \"bash -s\" <<'EOF'\ngit push --force origin feat\nEOF"
+HS | feat/x | git-guard | deny | "echo 'git push --force origin feat' | ssh a ssh b bash"
+HS | feat/x | shell | silent | echo x | ssh a ssh b ssh c ls
+HS | feat/x | shell | silent | git commit -m "it's \"done\""

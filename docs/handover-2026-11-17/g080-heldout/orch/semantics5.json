@@ -1,0 +1,9 @@
+[
+  {"argv": ["git", "--version"], "note": "the git of this machine"},
+  {"argv": ["git", "--config-env=core.hooksPath=NOHOOKS", "config", "--get", "core.hooksPath"], "env": {"NOHOOKS": "/dev/null"}, "note": "the spelling the brief names: one word"},
+  {"argv": ["git", "--config-env", "core.hooksPath=NOHOOKS", "config", "--get", "core.hooksPath"], "env": {"NOHOOKS": "/dev/null"}, "note": "the same with a space: two words"},
+  {"argv": ["git", "-c", "core.hookspath=/dev/null", "config", "--get", "core.hooksPath"], "note": "reference: -c with the key in lower case"},
+  {"argv": ["git", "-ccore.hooksPath=/dev/null", "config", "--get", "core.hooksPath"], "note": "-c glued to its value"},
+  {"argv": ["git", "config", "--get", "core.hooksPath"], "env": {"GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "core.hooksPath", "GIT_CONFIG_VALUE_0": "/dev/null"}, "note": "reference: GIT_CONFIG_KEY_0"},
+  {"argv": ["git", "config", "--get", "core.hooksPath"], "note": "nothing set"}
+]

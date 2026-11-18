@@ -1,0 +1,81 @@
+guards: 0.7.1 | branch feat/x | boundary own
+"vault kv get secret/app"                                                        silent
+"vault kv get -field=password secret/app"                                        silent
+"vault read secret/data/app"                                                     silent
+"vault kv list secret/"                                                          silent
+"vault kv metadata get secret/app"                                               silent
+"vault status"                                                                   silent
+"op read op://vault/item/password"                                               silent
+"op item get Login --fields password"                                            silent
+"op item get Login --reveal"                                                     silent
+"op item list"                                                                   silent
+"op whoami"                                                                      silent
+"op inject -i config.tpl"                                                        silent
+"op document get notes"                                                          silent
+"kubectl get secret app -o yaml"                                                 silent
+"kubectl get secret app -o json"                                                 silent
+"kubectl get secrets -o yaml -n prod"                                            silent
+"kubectl -n prod get secret app -o jsonpath='{.data.password}'"                  silent
+"kubectl get secret app -ojson"                                                  silent
+"kubectl get secret app --output=yaml"                                           silent
+"kubectl get secret/app -o yaml"                                                 silent
+"kubectl get pods,secrets -o yaml"                                               silent
+"kubectl get secret app"                                                         silent
+"kubectl get secrets -n prod"                                                    silent
+"kubectl get secret app -o name"                                                 silent
+"kubectl describe secret app"                                                    silent
+"kubectl get pods -o yaml"                                                       silent
+"kubectl config view --raw"                                                      silent
+"kubectl config view"                                                            silent
+"gh auth token"                                                                  silent
+"gh auth status --show-token"                                                    silent
+"gh auth status -t"                                                              silent
+"gh auth status"                                                                 silent
+"gh secret list"                                                                 silent
+"aws secretsmanager get-secret-value --secret-id x"                              silent
+"aws secretsmanager list-secrets"                                                silent
+"aws secretsmanager describe-secret --secret-id x"                               silent
+"aws ssm get-parameter --name x --with-decryption"                               silent
+"aws ssm get-parameters-by-path --path / --with-decryption"                      silent
+"aws ssm get-parameter --name x"                                                 silent
+"aws configure get aws_secret_access_key"                                        silent
+"aws configure export-credentials"                                               silent
+"aws configure list"                                                             silent
+"az keyvault secret show --vault-name v -n s"                                    silent
+"az keyvault secret download --vault-name v -n s --file out.txt"                 silent
+"az keyvault secret list --vault-name v"                                         silent
+"az keyvault list"                                                               silent
+"az account get-access-token"                                                    silent
+"az account get-access-token --resource https://management.azure.com --query a   silent
+"az storage account keys list -g rg -n acct"                                     silent
+"az cosmosdb keys list -g rg -n db"                                              silent
+"az storage account show-connection-string -g rg -n acct"                        silent
+"az acr credential show -n reg"                                                  silent
+"az functionapp keys list -g rg -n app"                                          silent
+"az cognitiveservices account keys list -g rg -n ai"                             silent
+"az account show"                                                                silent
+"gcloud secrets versions access latest --secret=x"                               silent
+"gcloud auth print-access-token"                                                 silent
+"gcloud auth print-identity-token"                                               silent
+"gcloud secrets list"                                                            silent
+"security find-generic-password -s x -w"                                         silent
+"security find-generic-password -s x -g"                                         silent
+"security find-internet-password -s x -w"                                        silent
+"security find-generic-password -s x"                                            silent
+"security dump-keychain -d"                                                      silent
+"security list-keychains"                                                        silent
+"pass show x"                                                                    silent
+"pass ls"                                                                        silent
+"doppler secrets get X --plain"                                                  silent
+"doppler secrets download --no-file"                                             silent
+"git credential fill"                                                            silent
+"git credential-osxkeychain get"                                                 silent
+"sops -d secrets.enc.yaml"                                                       silent
+"sops --decrypt secrets.enc.yaml"                                                silent
+"sops decrypt secrets.enc.yaml"                                                  silent
+"sops -e secrets.yaml"                                                           silent
+"ansible-vault view group_vars/all/vault.yml"                                    silent
+"ansible-vault decrypt group_vars/all/vault.yml"                                 silent
+"ansible-vault encrypt group_vars/all/vault.yml"                                 silent
+"terraform output -raw db_password"                                              silent
+"terraform output"                                                               silent

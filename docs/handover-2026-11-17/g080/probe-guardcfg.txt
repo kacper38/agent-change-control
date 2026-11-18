@@ -1,0 +1,15 @@
+# Probe, not acceptance rows: does the guard's own configuration in capitals pass the guard-config rule?
+# Each row expects `ask`; a red row is a path that passes today.
+P0 | Write | guard-config | ask | .claude/settings.json
+P1 | Write | guard-config | ask | .claude/SETTINGS.json
+P1 | Write | guard-config | ask | .claude/Settings.local.json
+P1 | Write | guard-config | ask | .CLAUDE/settings.json
+P0 | Write | guard-config | ask | .claude/guard.local.json
+P1 | Write | guard-config | ask | .claude/GUARD.local.json
+P1 | Edit | guard-config | ask | .Claude/guard.json
+P0 | Edit | guard-config | ask | tools/guard/guard.py
+P1 | Edit | guard-config | ask | tools/GUARD/guard.py
+P1 | Edit | guard-config | ask | TOOLS/guard/guard.py
+P0 | Write | guard-config | ask | .github/hooks/guard.json
+P1 | Write | guard-config | ask | .GITHUB/hooks/guard.json
+P1 | Write | guard-config | ask | .github/HOOKS/guard.json

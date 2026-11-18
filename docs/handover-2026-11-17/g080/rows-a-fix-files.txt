@@ -1,0 +1,17 @@
+# Guard 0.8.0, group A, fix pass of 2026-11-18: rows for the file tools, from review finding R10.
+# Same format as rows-a-files.txt, checked by expect_files.py.
+# Ids ending in `s` hold at the build head ae5361b and must keep holding; A10 is red there.
+# A10: the class of a path is the stricter one of its two readings (as written, in lower case): a secret
+# directory in capitals wins over a tfvars name.
+A10 | Read | secret-read | ask | /Users/dev/.AZURE/prod.tfvars
+A10 | Write | secret-write | deny | /Users/dev/.AZURE/prod.tfvars
+A10 | Edit | secret-write | deny | /Users/dev/.AZURE/prod.tfvars
+As | Read | secret-read | ask | /Users/dev/.azure/prod.tfvars
+As | Write | secret-write | deny | /Users/dev/.azure/prod.tfvars
+As | Write | secret-write | ask | prod.TFVARS
+As | Write | secret-write | ask | prod.tfvars
+As | Read | secret-read | silent | prod.TFVARS
+As | Read | secret-read | silent | .ENV.EXAMPLE
+As | Read | secret-read | ask | .env.EXAMPLE
+As | Read | secret-read | ask | .ENV
+As | Read | secret-read | silent | docs/ENV.md

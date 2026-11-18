@@ -1,0 +1,88 @@
+== git clean: does -n win over -f, in every order?
+$ git clean -n
+Would remove probe-file.txt
+-> exit 0
+   probe files: still there
+$ git clean -nd
+Would remove probe-dir/
+Would remove probe-file.txt
+-> exit 0
+   probe files: still there
+$ git clean -nf
+Would remove probe-file.txt
+-> exit 0
+   probe files: still there
+$ git clean -fn
+Would remove probe-file.txt
+-> exit 0
+   probe files: still there
+$ git clean -n -f -d
+Would remove probe-dir/
+Would remove probe-file.txt
+-> exit 0
+   probe files: still there
+$ git clean --dry-run -f -d
+Would remove probe-dir/
+Would remove probe-file.txt
+-> exit 0
+   probe files: still there
+$ git clean -f -d --dry-run
+Would remove probe-dir/
+Would remove probe-file.txt
+-> exit 0
+   probe files: still there
+$ git clean -ndx
+Would remove probe-dir/
+Would remove probe-file.txt
+-> exit 0
+   probe files: still there
+
+== git restore --staged: the work tree keeps the change
+<SCRATCH>/g080/semantics3.sh: line 26: : No such file or directory
+fatal: empty string is not a valid pathspec. please use . instead if you meant to match all paths
+$ git status --short -- 
+fatal: empty string is not a valid pathspec. please use . instead if you meant to match all paths
+-> exit 128
+$ git restore --staged -- 
+fatal: empty string is not a valid pathspec. please use . instead if you meant to match all paths
+-> exit 128
+$ git status --short -- 
+fatal: empty string is not a valid pathspec. please use . instead if you meant to match all paths
+-> exit 128
+tail: : No such file or directory
+fatal: empty string is not a valid pathspec. please use . instead if you meant to match all paths
+
+== git worktree prune: -n and --dry-run leave the record
+$ git worktree prune -n
+Removing worktrees/wt-probe: gitdir file points to non-existent location
+-> exit 0
+$ git worktree prune --dry-run
+Removing worktrees/wt-probe: gitdir file points to non-existent location
+-> exit 0
+<SCRATCH>/g080/sem-run-1/work     d38ede0 [feat]
+<SCRATCH>/g080/sem-run-1/wt-probe d38ede0 [wt-probe] prunable
+
+== kubectl delete: what the help says about --dry-run (no cluster is contacted)
+54:    --dry-run='none':
+55-	Must be "none", "server", or "client". If client strategy, only print the object that would be sent, without sending it. If server strategy, submit server-side request without persisting the resource.
+56-
+57-    --field-selector='':
+== git restore --staged: the file stays, only the index entry goes
+$ git status --short -- staged-probe.txt
+A  staged-probe.txt
+-> exit 0
+$ git restore --staged -- staged-probe.txt
+-> exit 0
+$ git status --short -- staged-probe.txt
+?? staged-probe.txt
+-> exit 0
+content now: probe line
+
+== tracker item 50
+{"labels":["type/todo","status/backlog"],"state":"OPEN","updatedAt":"2026-11-17T14:31:25Z"}
+== worktree g080-a
+## feat/guard-0.8.0
+d1a1b7f Merge pull request #49 from kacper38/docs/record-stack-merge
+== main checkout
+## fix/guard-ledger-gaps...origin/fix/guard-ledger-gaps
+?? .claude/worktrees/

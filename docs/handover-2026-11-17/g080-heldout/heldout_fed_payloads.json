@@ -1,0 +1,16 @@
+[
+  ["delete-guard", "feat/x", "own", "rm -rf build"],
+  ["delete-guard", "feat/x", "own", "git branch -D old"],
+  ["git-guard", "feat/x", "own", "git commit --no-verify -m x"],
+  ["git-guard", "feat/x", "own", "git push --force origin feat"],
+  ["git-guard", "feat/x", "own", "git push origin feat:main"],
+  ["secret-shell", "feat/x", "own", "cat .env"],
+  ["secret-shell", "feat/x", "own", "git add .env"],
+  ["deploy-ask", "feat/x", "own", "terraform apply -auto-approve"],
+  ["deploy-ask", "feat/x", "own", "kubectl apply -f k8s/"],
+  ["host-install", "feat/x", "own", "npm install -g x"],
+  ["host-install", "feat/x", "own", "pip install requests"],
+  ["tracker-guard", "feat/x", "own", "gh issue close 3"],
+  ["protected-branch", "main", "own", "git commit -m x"],
+  ["egress-guard", "feat/x", "client", "codex exec hi"]
+]

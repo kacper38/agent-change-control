@@ -1,0 +1,10 @@
+guard 0.7.0; prototype: git, gh and az judged wherever the name stands as a word
+rows-b.txt: 27 rows expect a deny of git-guard or tracker-guard; today 4, with the prototype 26
+    still missed: T2 git-guard: hyperfine 'git push --force origin feat'
+heldout-b.txt: 20 rows expect a deny of git-guard or tracker-guard; today 1, with the prototype 15
+    still missed: HR git-guard: hyperfine -w 2 'git push --force origin feat' 'true'
+    still missed: HR git-guard: ls *.py | entr -s 'git push --force origin feat'
+    still missed: HO git-guard: pwsh -Command "git push --force origin feat"
+    still missed: HO git-guard: powershell -c "git commit --no-verify -m x"
+    still missed: HO git-guard: python3 -c "import subprocess; subprocess.run(['git', 'push', '--force', 'origin', 'main']
+real commands: 2901 distinct, 3772 calls, 98 files, 45 days; the prototype adds a verdict on 0 distinct, 0 calls

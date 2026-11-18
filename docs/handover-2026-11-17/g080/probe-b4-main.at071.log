@@ -1,0 +1,48 @@
+guards: 0.7.1 | branch main | boundary own
+"mytool run git commit -m x"                                                     silent
+"mytool git push"                                                                silent
+"mytool git merge feat"                                                          silent
+"man git commit"                                                                 silent
+"tldr git commit"                                                                silent
+"echo git commit -m x"                                                           silent
+"brew install git"                                                               host-install=ask
+"git update-ref refs/heads/main abc123"                                          silent
+"git update-ref refs/heads/main abc123 def456"                                   silent
+"git update-ref -m \"move\" refs/heads/main abc123"                              silent
+"git update-ref HEAD abc123"                                                     silent
+"git update-ref -d refs/heads/main"                                              delete-guard=ask
+"git update-ref --stdin"                                                         silent
+"git update-ref refs/heads/feat abc123"                                          silent
+"git update-ref refs/tags/v1 abc123"                                             silent
+"git -C sub update-ref refs/heads/main abc123"                                   silent
+"git branch -f main abc123"                                                      silent
+"git branch -f main"                                                             silent
+"git branch --force main HEAD~1"                                                 silent
+"git branch -M main"                                                             silent
+"git branch -m main old-main"                                                    silent
+"git branch -D main"                                                             delete-guard=ask
+"git push . feat:main"                                                           git-guard=deny
+"git push . HEAD:main"                                                           git-guard=deny
+"git fetch . feat:main"                                                          silent
+"git fetch origin feat:main"                                                     silent
+"git fetch origin +feat:main"                                                    silent
+"git checkout -B main abc123"                                                    silent
+"git switch -C main abc123"                                                      silent
+"git reset --hard HEAD~1"                                                        delete-guard=ask
+"git reset --soft HEAD~1"                                                        delete-guard=ask
+"git reset HEAD~1"                                                               delete-guard=ask
+"git symbolic-ref HEAD refs/heads/main"                                          silent
+"git commit-tree abc -m x"                                                       silent
+"git merge feat"                                                                 silent
+"git pull"                                                                       silent
+"git pull --rebase"                                                              silent
+"git rebase feat"                                                                silent
+"git cherry-pick abc"                                                            silent
+"git revert abc"                                                                 silent
+"git am x.patch"                                                                 silent
+"git stash pop"                                                                  silent
+"git commit -m x"                                                                protected-branch=deny
+"git push"                                                                       git-guard=deny
+"git status"                                                                     silent
+"git log --oneline -3"                                                           silent
+"git fetch origin"                                                               silent

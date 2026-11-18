@@ -1,0 +1,18 @@
+[
+  {"id": "n31", "what": "fix A4: a here-document inside a quoted word is taken at the top level again",
+   "old": "        if scanned > m.start() or stack[-1] not in _SHELL_CONTEXTS:", "new": "        if scanned > m.start():"},
+  {"id": "n32", "what": "round 2, S1: a here-document inside $( … ) is not taken",
+   "old": "_SHELL_CONTEXTS = (\"sh\", \"(\", \"`\")", "new": "_SHELL_CONTEXTS = (\"sh\",)"},
+  {"id": "n33", "what": "round 2, S2: an apostrophe in a comment opens a quote",
+   "old": "        elif c == \"#\" and (i == 0 or text[i - 1] in _HI_WORD_START):  # a comment, as _hi_prepare reads it", "new": "        elif False:"},
+  {"id": "n34", "what": "round 2, S2: $'…' is read like a plain quote",
+   "old": "        elif c == \"$\" and text[i + 1 : i + 2] == \"'\":", "new": "        elif False:"},
+  {"id": "n35", "what": "fix A5: the hook-gate environment in front of a shell does not reach its script",
+   "old": "        own = env + _nc_hook_env(toks)", "new": "        own = env"},
+  {"id": "n36", "what": "fix A5: the environment does not reach a script fed by a here-document",
+   "old": "        fed_env = own if runner is toks else env + _nc_hook_env(runner or [])", "new": "        fed_env = env"},
+  {"id": "n37", "what": "fix A16: a shell inside the quoted remote command of ssh does not read the here-document",
+   "old": "            if remote and any(_nc_line_runs_stdin(w) for w in remote if any(c.isspace() for c in w)):", "new": "            if False:"},
+  {"id": "n38", "what": "round 2, S4: the environment a script inherits is not added at a git call",
+   "old": "                    env = list(inherited) + [t for t in toks[:i] if _ASSIGN_RE.match(t)] + exported", "new": "                    env = [t for t in toks[:i] if _ASSIGN_RE.match(t)] + exported"}
+]

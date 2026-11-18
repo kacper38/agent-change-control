@@ -1,0 +1,81 @@
+# commands that print a secret from a store (verdicts at 0.7.1)
+vault kv get secret/app
+vault kv get -field=password secret/app
+vault read secret/data/app
+vault kv list secret/
+vault kv metadata get secret/app
+vault status
+op read op://vault/item/password
+op item get Login --fields password
+op item get Login --reveal
+op item list
+op whoami
+op inject -i config.tpl
+op document get notes
+kubectl get secret app -o yaml
+kubectl get secret app -o json
+kubectl get secrets -o yaml -n prod
+kubectl -n prod get secret app -o jsonpath='{.data.password}'
+kubectl get secret app -ojson
+kubectl get secret app --output=yaml
+kubectl get secret/app -o yaml
+kubectl get pods,secrets -o yaml
+kubectl get secret app
+kubectl get secrets -n prod
+kubectl get secret app -o name
+kubectl describe secret app
+kubectl get pods -o yaml
+kubectl config view --raw
+kubectl config view
+gh auth token
+gh auth status --show-token
+gh auth status -t
+gh auth status
+gh secret list
+aws secretsmanager get-secret-value --secret-id x
+aws secretsmanager list-secrets
+aws secretsmanager describe-secret --secret-id x
+aws ssm get-parameter --name x --with-decryption
+aws ssm get-parameters-by-path --path / --with-decryption
+aws ssm get-parameter --name x
+aws configure get aws_secret_access_key
+aws configure export-credentials
+aws configure list
+az keyvault secret show --vault-name v -n s
+az keyvault secret download --vault-name v -n s --file out.txt
+az keyvault secret list --vault-name v
+az keyvault list
+az account get-access-token
+az account get-access-token --resource https://management.azure.com --query accessToken -o tsv
+az storage account keys list -g rg -n acct
+az cosmosdb keys list -g rg -n db
+az storage account show-connection-string -g rg -n acct
+az acr credential show -n reg
+az functionapp keys list -g rg -n app
+az cognitiveservices account keys list -g rg -n ai
+az account show
+gcloud secrets versions access latest --secret=x
+gcloud auth print-access-token
+gcloud auth print-identity-token
+gcloud secrets list
+security find-generic-password -s x -w
+security find-generic-password -s x -g
+security find-internet-password -s x -w
+security find-generic-password -s x
+security dump-keychain -d
+security list-keychains
+pass show x
+pass ls
+doppler secrets get X --plain
+doppler secrets download --no-file
+git credential fill
+git credential-osxkeychain get
+sops -d secrets.enc.yaml
+sops --decrypt secrets.enc.yaml
+sops decrypt secrets.enc.yaml
+sops -e secrets.yaml
+ansible-vault view group_vars/all/vault.yml
+ansible-vault decrypt group_vars/all/vault.yml
+ansible-vault encrypt group_vars/all/vault.yml
+terraform output -raw db_password
+terraform output

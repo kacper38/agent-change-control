@@ -1219,7 +1219,8 @@ def _compound_outputs(cmds: list) -> tuple[list, dict]:
         if closes and stack:
             opener = stack.pop()
             nxt = cmds[k + 1][0].strip(" ") if k + 1 < len(cmds) else ""
-            piped_on[opener] = piped_on.get(opener, False) or nxt in ("|", "|&")
+            # F23: `(` behind a closer is a process substitution its output goes into (`{ …; } > >(xargs cat)`)
+            piped_on[opener] = piped_on.get(opener, False) or nxt in ("|", "|&", "(")
         if s == "(":
             stack.append(k)
         if toks[:1] and toks[0] in _COMPOUND_OPENERS:
@@ -1240,7 +1241,9 @@ def _quiet_reports(command: str) -> tuple:
     as before."""
     if "<<" in command or _LAST_ARG_RE.search(command):  # F13: `$_` hands the last word of a report on
         return ()
-    cmds = _hi_lex(command)
+    # F23: the lexer ends a command at the `&` of `2>&1`, `>&1`, `<&0`, `2>&-`, so the pipe behind it belonged to a
+    # command `1`; _hi_prepare takes that `&` out, as the reader has it
+    cmds = _hi_lex(_hi_prepare(command)[0])
     if cmds is None:  # F12: a line the lexer cannot split shows no pipe; no report of it is quiet
         return ()
     enclosing, piped_on = _compound_outputs(cmds)

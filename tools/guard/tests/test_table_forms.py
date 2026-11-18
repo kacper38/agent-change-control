@@ -1367,6 +1367,50 @@ Fs | feat/x | shell | silent | rg --hidden --no-ignore .env
 Fs | feat/x | shell | silent | git grep --untracked -n .env -- docs
 """  # noqa: E501 (a row holds its command as written)
 # --- fix rows, addendum 1: end ---
+# --- fix rows, addendum 2: begin (rows-b-fix-add2.txt, 2026-11-18) ---
+ROWS_FIX_ADD2 = r"""
+# Guard 0.9.0, fix pass, addendum 2 (2026-11-18): found by the orchestrating session while the pass ran.
+# Row: id | branch[@client] | rule | expected | command
+#
+# --- F23 (weaker than 0.8.0, in the build since K6, K7 and K9): a report whose output is handed on behind a
+#     descriptor duplication. The lexer ends a command at the `&` of `2>&1`, `>&1`, `<&0`, `2>&-`, so the pipe
+#     behind it was read as the pipe of a command named `1`, and the report in front counted as quiet:
+#     `ls .env 2>&1 | xargs cat` reads .env. The same for a group or a compound whose output goes into a
+#     process substitution (`{ ls .env; } > >(xargs cat)`): only a simple command was checked for it.
+F23 | feat/x | secret-shell | ask | ls .env 2>&1 | xargs cat
+F23 | feat/x | secret-shell | ask | ls .env 2>&1 |& xargs cat
+F23 | feat/x | secret-shell | ask | ls .env >&1 | xargs cat
+F23 | feat/x | secret-shell | ask | ls .env <&0 | xargs cat
+F23 | feat/x | secret-shell | ask | ls .env 2>&- | xargs cat
+F23 | feat/x | secret-shell | ask | ls ~/.ssh/id_rsa 2>&1 | xargs cat
+F23 | feat/x | secret-shell | ask | stat -f %N .env 2>&1 | xargs cat
+F23 | feat/x | secret-shell | ask | echo .env 2>&1 | xargs cat
+F23 | feat/x | secret-shell | ask | printf '%s\n' .env 2>&1 | xargs cat
+F23 | feat/x | secret-shell | ask | git ls-files .env 2>&1 | xargs cat
+F23 | feat/x | secret-shell | ask | { ls .env; } 2>&1 | xargs cat
+F23 | feat/x | secret-shell | ask | if true; then ls .env; fi 2>&1 | xargs cat
+F23 | feat/x | secret-shell | ask | { ls .env; } > >(xargs cat)
+F23 | feat/x | secret-shell | ask | { ls .env; } 2>&1 > >(xargs cat)
+F23 | feat/x | secret-shell | ask | if true; then ls .env; fi > >(xargs cat)
+# the neighbours that hold today and keep holding: a duplication with no command behind it changes nothing
+Fs | feat/x | shell | silent | ls .env 2>&1
+Fs | feat/x | shell | silent | ls .env 2>&1; echo done
+Fs | feat/x | shell | silent | ls .env > /dev/null 2>&1 || echo missing
+Fs | feat/x | shell | silent | test -f .env 2>/dev/null && echo yes
+Fs | feat/x | shell | silent | echo .env 2>&1 >> .gitignore
+Fs | feat/x | shell | silent | git clean -n 2>&1
+Fs | feat/x | secret-shell | ask | ls .env 2>/dev/null | xargs cat
+Fs | feat/x | secret-shell | ask | ls .env &> /dev/null | xargs cat
+Fs | feat/x | secret-shell | ask | ( ls .env ) 2>&1 | xargs cat
+Fs | feat/x | secret-shell | ask | for f in .env; do ls $f; done 2>&1 | xargs cat
+Fs | feat/x | secret-shell | ask | ls .env > >(xargs cat)
+Fs | feat/x | secret-shell | ask | ( ls .env ) > >(xargs cat)
+Fs | feat/x@client | shell | silent | grep -E 'a|ollama|b' f 2>&1 | head
+Fs | feat/x@client | egress-guard | ask | grep -E 'a|ollama|b' f 2>&1 | ollama run m
+Fs | feat/x@client | shell | silent | command -v ollama 2>&1
+Fs | feat/x@client | egress-guard | ask | command -v ollama >/dev/null 2>&1 && ollama run m
+"""  # noqa: E501 (a row holds its command as written)
+# --- fix rows, addendum 2: end ---
 
 _FILE_INPUT = {
     "Read": lambda p: {"file_path": p},
@@ -1392,6 +1436,7 @@ def _rows(text: str) -> list:
 TABLE = _rows(ROWS_B) + _rows(ROWS_B4) + _rows(ROWS_B4_AZ) + _rows(ROWS_B5) + _rows(ROWS_C)
 FIX_TABLE = _rows(ROWS_FIX)  # the fix pass: F01 to F20 were due, Fs and Fm held at the build's head
 FIX_ADD_TABLE = _rows(ROWS_FIX_ADD)  # addendum 1 of the fix pass: F22 was due, Fs held
+FIX_ADD2_TABLE = _rows(ROWS_FIX_ADD2)  # addendum 2 of the fix pass: F23 was due, Fs held
 FILE_TABLE = [tuple(p.strip() for p in line.split(" | ", 4)) for line in FILE_ROWS.splitlines() if line.strip()]
 
 
@@ -1422,6 +1467,13 @@ def test_fix_row(guard, monkeypatch, rid, branch, boundary, rule, expected, comm
 @pytest.mark.parametrize("rid, branch, boundary, rule, expected, command", FIX_ADD_TABLE,
                          ids=[f"{row[0]}-{n}" for n, row in enumerate(FIX_ADD_TABLE)])
 def test_fix_add_row(guard, monkeypatch, rid, branch, boundary, rule, expected, command):
+    got = _answers(guard, monkeypatch, branch, boundary, rule, command)
+    assert {k: v for k, v in got.items() if v != expected} == {}, command
+
+
+@pytest.mark.parametrize("rid, branch, boundary, rule, expected, command", FIX_ADD2_TABLE,
+                         ids=[f"{row[0]}-{n}" for n, row in enumerate(FIX_ADD2_TABLE)])
+def test_fix_add2_row(guard, monkeypatch, rid, branch, boundary, rule, expected, command):
     got = _answers(guard, monkeypatch, branch, boundary, rule, command)
     assert {k: v for k, v in got.items() if v != expected} == {}, command
 

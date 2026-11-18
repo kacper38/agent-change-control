@@ -101,6 +101,8 @@ CASES: dict = {
         *shell("ask", "echo 'rm -rf build' | bash"),
         # guard 0.9.0, group C (rows K2): `git restore --staged` changes the index only; it asked before
         *shell("allow", "git restore --staged main.py"),
+        # guard 0.9.0: emptying a download cache the offline checks run from (rows R3)
+        *shell("ask", "uv cache clean"),
     ],
     "secret-write": [
         ("deny", "write", {"path": ".env", "content": "TOKEN=abc"}),
@@ -418,6 +420,9 @@ CASES: dict = {
             "git commit -q -F - <<'EOF'\ndocs: x\n\nnever send bypassRules=true\nEOF",
             "az --output table boards work-item show --id 12",  # a global option before a read
         ),
+        # guard 0.9.0: a GraphQL mutation of an issue is the REST write's twin (rows L1)
+        *shell("deny",
+               "gh api graphql -f query='mutation { closeIssue(input: {issueId: \"I_1\"}) { clientMutationId } }'"),
     ],
     # the rule asks whatever the mode; run_hook silences it (off, auto in a container or CI): test_host_install.py
     "host-install": [

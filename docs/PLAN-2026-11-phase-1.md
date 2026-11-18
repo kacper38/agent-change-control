@@ -47,7 +47,7 @@ New paths at the end: `tools/box/`, `bin/box`, `tools/orchestration/assert_run.p
 
 ## 3. Pull requests, items and order
 
-Nine pull requests, one tracker item each: A (1.0a), B (1.9), C (1.7), D (1.0b), E (1.1, 1.2), F (2.3, 1.3, 1.8), G (1.4, 1.5), H (1.6), I (0.3, the existing item #39). The items are filed in `status/backlog` when this plan is put up, so that the owner's one line can promote them.
+Nine pull requests, one tracker item each: A (1.0a, item #63), B (1.9, #64), C (1.7, #65), D (1.0b, #66), E (1.1 and 1.2, #67), F (2.3, 1.3 and 1.8, #68), G (1.4 and 1.5, #69), H (1.6, #70), I (0.3, the existing item #39). Items #63 to #70 were filed in `status/backlog` on 2026-11-18, when this plan was put up, so that the owner's one line can promote them.
 
 - **Order.** A on the host. Then B in the first box. Then C → D → E → G → H in that box, serial, because each changes `guard.py`, the settings or what they name. F beside them in a second box. I from a host session. At most two boxes and one host agent at once, so three agents.
 - **Who builds.** The host session writes each brief (Fable) and starts a box with it. The box session builds on Opus, runs the checks, runs `bin/fresh-review`, fixes or rebuts each finding, adds the `DECISIONS.md` line that names it as the merger, and merges. The host session then reads the result file and the checks on the merge commit.

@@ -433,7 +433,7 @@ def _truncate_in_the_open(command: str) -> bool:
     (`gtruncate -s 0 f`, `hdfs dfs -truncate 0 /f`, `echo truncate users | pgcli`): prose stands in quotes,
     and no list names every tool that takes the text. The reader of the token pass decides what a word is, so
     an escaped quote, a comment and a `$( … )` inside double quotes are read as the shell reads them."""
-    if any(_SQL_TRUNCATE_RE.search(m.group(3)) for m in _HEREDOC_RE.finditer(command)):
+    if any(_SQL_TRUNCATE_RE.search(m.group(4)) for m in _HEREDOC_RE.finditer(command)):
         return True
     # the reader takes the here-document bodies out itself (0.8.0); a second strip would read the line after a
     # stripped operator as a body
@@ -517,14 +517,16 @@ def _expand(tok: str, cwd: str) -> str:
     return t if os.path.isabs(t) else os.path.normpath(os.path.join(cwd, t))
 
 
+# groups: 1 the dash of `<<-`, 2 the quote, 3 the delimiter, 4 the body. 0.8.0: a `<<-` body ends at a closing
+# line indented by tabs, as the shell ends it
 _HEREDOC_RE = re.compile(
-    r"<<-?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1[^\n]*\n(.*?)(?:\n\2(?:\n|$)|\Z)", re.DOTALL
+    r"<<(-)?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\2[^\n]*\n(.*?)(?:\n(?(1)\t*)\3(?:\n|$)|\Z)", re.DOTALL
 )
 
 
 def strip_heredocs(command: str) -> str:
     """Drop here-document bodies: they are data for a command, not commands (the delete-guard keeps them)."""
-    return _HEREDOC_RE.sub(lambda m: m.group(0)[: m.start(3) - m.start(0)], command)
+    return _HEREDOC_RE.sub(lambda m: m.group(0)[: m.start(4) - m.start(0)], command)
 
 
 # ----------------------------------------------------------------------------
@@ -2099,6 +2101,10 @@ def _hi_script(script: str, head: str, depth: int) -> Optional[str]:
     return host_install_what(script, depth + 1)
 
 
+# shell options whose value is the next word (bash(1): -o, -O, --rcfile, --init-file; 0.8.0 adds all but -o)
+_HI_SHELL_VALUED = frozenset("-o +o -O +O --rcfile --init-file".split())
+
+
 def _hi_shell_reads_stdin(args: list[str]) -> bool:
     """A shell reads its program from stdin: no -c script, and no operand unless -s is given."""
     if _hi_dash_c(args) is not None:
@@ -2107,14 +2113,15 @@ def _hi_shell_reads_stdin(args: list[str]) -> bool:
     for t in args:
         if skip:
             skip = False
-        elif options and t in ("-o", "+o"):
+        elif options and t in _HI_SHELL_VALUED:
             skip = True
         elif options and t == "--":
             options = False
         elif options and t.startswith(("-", "+")):
             s_flag = s_flag or (not t.startswith("--") and "s" in t[1:])
         else:
-            return s_flag  # an operand is a script file, unless -s reads the program from stdin
+            # an operand is a script file, unless -s reads the program from stdin or it names stdin (0.8.0)
+            return s_flag or t in ("/dev/stdin", "/dev/fd/0")
     return True
 
 
@@ -2389,7 +2396,7 @@ _NC_FALLBACK_SPLIT_RE = re.compile(r"\|\||&&|[;|\n()`]")
 # 0.8.0: a script fed to a shell. These shells read their program from standard input when they get no -c
 # script and no script file (_hi_shell_reads_stdin); a here-document body or the words of an echo or printf piped
 # into one are its script. The reader marks each here-document operator with the number of its body.
-_NC_STDIN_SHELLS = frozenset("sh bash zsh dash ksh fish ash".split())
+_NC_STDIN_SHELLS = frozenset("sh bash zsh dash ksh fish ash $SHELL ${SHELL}".split())
 _NC_HEREDOC_MARK_RE = re.compile(r"^\d*<<-?\x00(\d+)\x00$")
 _NC_ECHO_OPTION_RE = re.compile(r"^-[neE]+$")
 # ssh options that take a value (ssh(1), OpenSSH 9): the first plain word after the options is the host
@@ -2538,17 +2545,45 @@ def _nc_take_heredocs(text: str, bodies: list) -> str:
     operator replaced by a mark that numbers the body in `bodies`; `<<-` strips the leading tabs of the body."""
     if "<<" not in text or "\x00" in text:  # a NUL in the text: strip as before, read no body as a script
         return strip_heredocs(text)
-
-    def take(m: re.Match) -> str:
-        dash = "-" if m.group(0)[2:3] == "-" else ""
-        body = m.group(3)
+    out: list[str] = []
+    pos = scanned = emitted = 0
+    quote = ""
+    while True:
+        m = _HEREDOC_RE.search(text, pos)
+        if not m:
+            break
+        scanned, quote = _quote_state(text, scanned, m.start(), quote)
+        if quote:  # inside a quoted word (`bash -c 'bash <<EOF …'`): the nested read of that word takes it
+            pos = m.start() + 2
+            continue
+        dash = "-" if m.group(1) else ""
+        body = m.group(4)
         if dash:
             body = "\n".join(line.lstrip("\t") for line in body.split("\n"))
         bodies.append(body)
-        after = m.end(2) + len(m.group(1)) - m.start(0)  # past the delimiter and its closing quote
-        return f"<<{dash}\x00{len(bodies) - 1}\x00" + m.group(0)[after : m.start(3) - m.start(0)]
+        after = m.end(3) + len(m.group(2))  # past the delimiter and its closing quote
+        out.append(text[emitted : m.start()])
+        out.append(f"<<{dash}\x00{len(bodies) - 1}\x00" + text[after : m.start(4)])
+        pos = scanned = emitted = m.end()  # a body is no shell text: the quote scan goes on behind it
+    out.append(text[emitted:])
+    return "".join(out)
 
-    return _HEREDOC_RE.sub(take, text)
+
+def _quote_state(text: str, start: int, end: int, quote: str) -> tuple[int, str]:
+    """Walk text[start:end] from the quote state `quote` ('', "'" or '"'); returns end and the state there."""
+    i = start
+    while i < end:
+        c = text[i]
+        if c == "\\" and quote != "'":
+            i += 2
+            continue
+        if quote:
+            if c == quote:
+                quote = ""
+        elif c in "'\"":
+            quote = c
+        i += 1
+    return max(i, end), quote
 
 
 def _nc_fed(raw: list[str], toks: list[str], piped: Optional[list], bodies: list) -> list[str]:
@@ -2580,16 +2615,26 @@ def _nc_runs_stdin(toks) -> bool:
     script and no script file (also behind a wrapper or in a container), or ssh with no command after the
     host (the remote login shell reads it)."""
     for i in command_word_indexes(toks):
-        name = os.path.basename(toks[i])
-        if name in _NC_STDIN_SHELLS and _hi_shell_reads_stdin(list(toks[i + 1 :])):
+        name, args = os.path.basename(toks[i]), list(toks[i + 1 :])
+        if name in _NC_STDIN_SHELLS and _hi_shell_reads_stdin(args):
             return True
-        if name == "ssh" and _ssh_reads_stdin(toks[i + 1 :]):
+        if (name == "sudo" and _sudo_runs_shell(args)) or (name == "su" and _su_runs_shell(args)):
             return True
+        if name == "ssh":
+            remote = _ssh_command(args)
+            if remote == []:  # no command after the host: the remote login shell reads it
+                return True
+            # `ssh build 'bash -s'`: the words after the host are a command line for the remote shell (0.8.0)
+            if remote and any(_nc_runs_stdin(drop_redirections(seg)) for _sep, seg in simple_commands(" ".join(remote))
+                              if seg):
+                return True
     return False
 
 
-def _ssh_reads_stdin(args) -> bool:
-    """ssh names a host and no command after it; `-N` runs no command at all."""
+def _ssh_command(args) -> Optional[list]:
+    """The words after the host of an ssh call ([] when there are none), or None when ssh names no host or runs
+    no command at all (`-N`). Only the letters in front of the first one that takes a value are options: the
+    rest of the word is its value (`-oStrictHostKeyChecking=No`, `-lNina`)."""
     k = 0
     while k < len(args):
         t = args[k]
@@ -2598,14 +2643,58 @@ def _ssh_reads_stdin(args) -> bool:
             break
         if not t.startswith("-") or len(t) < 2:
             break
-        if "N" in t[1:]:
-            return False
         for n, c in enumerate(t[1:], 1):
+            if c == "N":
+                return None
             if c in _SSH_VALUED:
                 k += 0 if t[n + 1 :] else 1  # a value glued on (`-p2222`) or in the next word
                 break
         k += 1
-    return k == len(args) - 1  # the host is the last word
+    return list(args[k + 1 :]) if k < len(args) else None
+
+
+# sudo(8): options that take a value; `-s` and `-i` without a command run the target user's shell
+_SUDO_VALUED = frozenset("CDghpRrTtUu")
+
+
+def _sudo_runs_shell(args: list[str]) -> bool:
+    """`sudo -s` or `sudo -i` (also `--shell`, `--login`, in a cluster) with no command: the shell reads stdin."""
+    shell, skip = False, False
+    for t in args:
+        if skip:
+            skip = False
+        elif t in ("--shell", "--login"):
+            shell = True
+        elif t.startswith("--"):
+            continue
+        elif t.startswith("-") and len(t) > 1:
+            for n, c in enumerate(t[1:], 1):
+                if c in "si":
+                    shell = True
+                elif c in _SUDO_VALUED:
+                    skip = not t[n + 1 :]
+                    break
+        elif not _ASSIGN_RE.match(t):
+            return False  # a command: sudo runs that, not a shell
+    return shell
+
+
+def _su_runs_shell(args: list[str]) -> bool:
+    """su(1) without -c and with no more than the user: the user's shell reads stdin (`su - deploy`)."""
+    operands, skip = 0, False
+    for t in args:
+        if skip:
+            skip = False
+        elif t in ("-c", "--command") or t.startswith("--command=") or (
+                t.startswith("-") and not t.startswith("--") and "c" in t):
+            return False
+        elif t in ("-s", "--shell", "-g", "--group", "-G", "--supp-group", "-w", "--whitelist-environment"):
+            skip = True
+        elif t == "-" or t.startswith("-"):
+            continue
+        else:
+            operands += 1
+    return operands <= 1
 
 
 def _nc_scripts(toks: list[str]) -> list[str]:

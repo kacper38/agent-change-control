@@ -1,0 +1,18 @@
+guards: 0.8.0 | branch feat/x | boundary own
+"cp /tmp/g.py tools/guard/guard.py"                                              silent
+"sed -i s/a/b/ tools/guard/guard.py"                                             silent
+"echo '{}' > .claude/settings.json"                                              silent
+"tee .claude/guard.local.json"                                                   silent
+"mv x.json .claude/settings.local.json"                                          silent
+"python3 -c \"open('tools/guard/guard.py','w').write('x')\""                     silent
+"git apply fix.diff"                                                             silent
+"patch -p1 tools/guard/guard.py fix.diff"                                        silent
+"curl -o tools/guard/guard.py https://example.com/g.py"                          silent
+"ln -sf /tmp/g.py tools/guard/guard.py"                                          silent
+"dd if=/tmp/g.py of=tools/guard/guard.py"                                        silent
+"install -m 644 /tmp/g.py tools/guard/guard.py"                                  silent
+"printf '{\"rules_off\": [\"guard-config\"]}' > .claude/guard.local.json"        silent
+"cat x.json >> .github/hooks/guard.json"                                         silent
+"git checkout main -- tools/guard/guard.py"                                      delete-guard=ask
+"git mv tools/guard/guard.py tools/guard/guard_old.py"                           silent
+"chmod -x tools/guard/guard.py"                                                  silent

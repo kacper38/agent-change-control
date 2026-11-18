@@ -1,0 +1,51 @@
+gh -R o/r issue close 3
+gh -Ro/r issue close 3
+gh --repo o/r issue close 3
+gh --repo=o/r issue close 3
+gh issue -R o/r close 3
+gh issue --repo=o/r close 3
+gh issue -Ro/r close 3
+gh -R=o/r issue close 3
+gh -R o/r label create bug
+gh label --repo o/r delete bug
+gh issue close -R o/r 3
+gh --hostname ghe.example.com issue close 3
+gh issue -R o/r -R o/r close 3
+gh api -XPATCH repos/o/r/issues/3
+gh api -Xpatch repos/o/r/issues/3
+gh api -X=PATCH repos/o/r/issues/3
+gh api --method=patch repos/o/r/issues/3
+gh api repos/o/r/issues/3 -fstate=closed
+gh api repos/o/r/issues/3 --field=state=closed
+gh api repos/o/r/issues/3 --raw-field=state=closed
+gh api repos/o/r/issues/3 -Fstate=closed
+gh api repos/o/r/issues/3 --input=body.json
+gh api repos/o/r/issues --input -
+gh api -R o/r repos/o/r/issues -f title=x
+gh -R o/r api repos/o/r/issues -f title=x
+gh api --hostname ghe.x repos/o/r/issues -f title=x
+gh api -H X:y -fstate=closed repos/o/r/issues/3
+gh api repos/{owner}/{repo}/issues -f title=x
+gh api /repos/o/r/issues/3/labels -f labels[]=x
+gh api repos/o/r/issues/3/comments -f body=x
+gh api -p corsair repos/o/r/issues/3 -X PATCH
+bash -c 'gh -R o/r issue close 3'
+"gh issue close 3 <<EOF\nx\nEOF"
+# silent
+gh issue list -R o/r
+gh -R o/r issue list
+gh -R o/r issue view 3
+gh issue --repo o/r view 3
+gh api repos/o/r/issues
+gh api -XGET repos/o/r/issues
+gh api --method=GET repos/o/r/issues
+gh api repos/o/r/issues --jq .[].title
+gh api repos/o/r/issues --paginate
+gh api -H Accept:application/json repos/o/r/issues/3
+gh pr create --fill
+gh -R o/r pr view 3
+gh repo view o/r
+gh api repos/o/r/pulls -f title=x
+gh api repos/o/r/issues -q .[0]
+gh issue list --label bug -R o/r
+gh api repos/o/r/issues -F per_page=100 --method GET

@@ -1,0 +1,6 @@
+env -S'git push --force origin feat'
+env --split-string='git push --force origin feat'
+nix-shell --run='git push --force origin feat'
+env -S'RM -rf build'
+env --split-string='NPM install x'
+git config core.hooksPath /tmp/h; git commit --no-verify -m x

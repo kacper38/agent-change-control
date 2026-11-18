@@ -1,0 +1,122 @@
+# fed scripts that must deny (git-guard) / ask
+"bash <<EOF\ngit push --force origin feat\nEOF"
+"bash<<EOF\ngit push --force origin feat\nEOF"
+"bash<<'EOF'\ngit push --force origin feat\nEOF"
+"sh<<-EOF\n\tgit push --force origin feat\n\tEOF"
+"cat<<EOF|bash\ngit push --force origin feat\nEOF"
+"cat <<EOF|bash\ngit push --force origin feat\nEOF"
+"<<EOF bash\ngit push --force origin feat\nEOF"
+"bash -s -- a b <<EOF\ngit push --force origin feat\nEOF"
+"bash -xe <<EOF\ngit push --force origin feat\nEOF"
+"bash -o pipefail <<EOF\ngit push --force origin feat\nEOF"
+"bash -O extglob <<EOF\ngit push --force origin feat\nEOF"
+"bash --rcfile /dev/null <<EOF\ngit push --force origin feat\nEOF"
+"bash --norc --noprofile <<EOF\ngit push --force origin feat\nEOF"
+"bash - <<EOF\ngit push --force origin feat\nEOF"
+"bash /dev/stdin <<EOF\ngit push --force origin feat\nEOF"
+"cat <<EOF | bash /dev/stdin\ngit push --force origin feat\nEOF"
+"source /dev/stdin <<EOF\ngit push --force origin feat\nEOF"
+"sudo -s <<EOF\ngit push --force origin feat\nEOF"
+"sudo -i <<EOF\ngit push --force origin feat\nEOF"
+"sudo su <<EOF\ngit push --force origin feat\nEOF"
+"su - deploy <<EOF\ngit push --force origin feat\nEOF"
+"$SHELL <<EOF\ngit push --force origin feat\nEOF"
+"echo 'git push --force origin feat' | $SHELL"
+"busybox sh <<EOF\ngit push --force origin feat\nEOF"
+"tcsh <<EOF\ngit push --force origin feat\nEOF"
+"mksh <<EOF\ngit push --force origin feat\nEOF"
+"sudo -u x bash <<EOF\ngit push --force origin feat\nEOF"
+"env X=1 bash <<EOF\ngit push --force origin feat\nEOF"
+"timeout 60 bash -s <<EOF\ngit push --force origin feat\nEOF"
+"nohup sh <<EOF\ngit push --force origin feat\nEOF"
+"ssh build <<EOF\ngit push --force origin feat\nEOF"
+"ssh -p 2222 build <<EOF\ngit push --force origin feat\nEOF"
+"ssh -p2222 -i key build <<EOF\ngit push --force origin feat\nEOF"
+"ssh -oStrictHostKeyChecking=No build <<EOF\ngit push --force origin feat\nEOF"
+"ssh -o StrictHostKeyChecking=No build <<EOF\ngit push --force origin feat\nEOF"
+"ssh -lNina build <<EOF\ngit push --force origin feat\nEOF"
+"ssh -J jump user@build <<EOF\ngit push --force origin feat\nEOF"
+"ssh build -T <<EOF\ngit push --force origin feat\nEOF"
+"ssh -T build bash <<EOF\ngit push --force origin feat\nEOF"
+"ssh -T build bash -s <<EOF\ngit push --force origin feat\nEOF"
+"docker exec -i web sh <<EOF\ngit push --force origin feat\nEOF"
+"docker exec -it web bash <<EOF\ngit push --force origin feat\nEOF"
+"docker run -i --rm alpine sh <<EOF\ngit push --force origin feat\nEOF"
+"docker compose exec -T web sh <<EOF\ngit push --force origin feat\nEOF"
+"kubectl exec -i pod -- sh <<EOF\ngit push --force origin feat\nEOF"
+"kubectl exec -i pod -c app -- bash -s <<EOF\ngit push --force origin feat\nEOF"
+"bash <<A; bash <<B\ngit push --force origin feat\nA\ngit push --force origin feat2\nB"
+"cat <<A; bash <<B\nhello\nA\ngit push --force origin feat\nB"
+"x=$(bash <<EOF\ngit push --force origin feat\nEOF\n)"
+"x=\"$(bash <<EOF\ngit push --force origin feat\nEOF\n)\""
+"echo hi | bash <<EOF\ngit push --force origin feat\nEOF"
+"bash -c 'bash <<EOF\ngit push --force origin feat\nEOF'"
+"bash -c \"bash <<EOF\ngit push --force origin feat\nEOF\""
+"bash -c 'bash <<EOF\ngit push --force origin feat\nEOF\n'"
+"(bash <<EOF\ngit push --force origin feat\nEOF\n)"
+"{ bash; } <<EOF\ngit push --force origin feat\nEOF"
+"if true; then bash <<EOF\ngit push --force origin feat\nEOF\nfi"
+"bash <<EOF\nbash <<IN\ngit push --force origin feat\nIN\nEOF"
+"cat <<EOF | sudo bash\ngit push --force origin feat\nEOF"
+"cat - <<EOF | bash -s\ngit push --force origin feat\nEOF"
+"cat <<EOF | ssh build\ngit push --force origin feat\nEOF"
+"cat <<EOF | ssh -p 22 build bash\ngit push --force origin feat\nEOF"
+"cat <<EOF |& bash\ngit push --force origin feat\nEOF"
+"cat <<EOF |\nbash\ngit push --force origin feat\nEOF"
+echo 'git push --force origin feat' | bash
+echo "git push --force origin feat" | sh
+echo -n 'git push --force origin feat' | bash -s
+echo -e 'cd x\ngit push --force origin feat' | bash
+printf 'git push --force origin feat\n' | sh
+printf '%s\n' 'git push --force origin feat' | bash
+echo 'git push --force origin feat' | sudo bash
+echo 'git push --force origin feat' | ssh build
+echo 'git push --force origin feat' | ssh build bash
+echo 'git push --force origin feat' | docker exec -i web sh
+echo 'git push --force origin feat' | env X=1 bash
+echo 'git push --force origin feat' |& bash
+echo 'git push --force origin feat'|bash
+command echo 'git push --force origin feat' | bash
+builtin echo 'git push --force origin feat' | bash
+/bin/echo 'git push --force origin feat' | bash
+echo 'git push --force origin feat' | /bin/bash
+echo 'git push --force origin feat' | bash -
+echo 'git push --force origin feat' | bash -c 'bash'
+echo 'git push --force origin feat' | xargs -0 bash -c
+echo git push --force origin feat | bash
+echo 'gh issue close 3' | bash
+echo 'npm install x' | bash
+echo 'cat .env' | bash
+echo 'rm -rf build' | bash
+echo 'terraform apply' | bash
+"echo 'git commit -m x' | bash"
+# reverse: data that must stay silent (data here-doc or data pipe)
+"cat <<EOF > notes.txt\ngit push --force origin main\nnpm install x\ngh issue close 3\ncat .env\nEOF"
+"python3 - <<EOF\ngit push --force origin main\nnpm install x\nEOF"
+"git commit -F - <<EOF\ngit push --force origin main\nnpm install x\nEOF"
+"psql <<EOF\ngit push --force origin main\nnpm install x\nEOF"
+"tee notes.txt <<EOF\ngit push --force origin main\nnpm install x\nEOF"
+"curl -d @- https://example.org <<EOF\ngit push --force origin main\nEOF"
+"ssh build 'cat > notes.txt' <<EOF\ngit push --force origin main\nnpm install x\nEOF"
+"ssh build cat <<EOF\ngit push --force origin main\nnpm install x\nEOF"
+"bash script.sh <<EOF\ngit push --force origin main\nnpm install x\nEOF"
+"bash -c 'read x' <<EOF\ngit push --force origin main\nnpm install x\nEOF"
+"cat <<EOF | bash script.sh\ngit push --force origin main\nnpm install x\nEOF"
+"cat notes.txt <<EOF | bash\ngit push --force origin main\nEOF"
+"cat <<EOF | grep x\ngit push --force origin main\nEOF"
+"docker exec -i db psql <<EOF\ngit push --force origin main\nnpm install x\nEOF"
+"kubectl exec -i pod -- psql <<EOF\ngit push --force origin main\nEOF"
+"xargs -n1 echo <<EOF\ngit push --force origin main\nEOF"
+"gh issue comment 3 --body-file - <<EOF\ngh issue close 3\nEOF"
+"cat > run.sh <<'EOF'\n#!/bin/sh\ngit push --force origin main\nEOF\nchmod +x run.sh"
+echo 'git push --force origin main' | bash script.sh
+echo 'git push --force origin main' | grep push
+echo 'git push --force origin main' > notes.txt
+echo 'git push --force origin main' | tee notes.txt
+echo 'git push --force origin main' | ssh build 'cat > notes.txt'
+echo 'git push --force origin main' | ssh -N build
+printf -v x 'git push --force origin main' | bash
+echo "$CMD" | bash
+"cat <<EOF | tee log.txt\nnpm install x\nEOF"
+"git commit -m \"$(cat <<'EOF'\nfix: do not npm install on push\n\nEOF\n)\""
+"git commit -m \"$(cat <<'EOF'\nfix: git push --force is denied\nEOF\n)\""

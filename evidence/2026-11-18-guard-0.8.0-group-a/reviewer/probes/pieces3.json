@@ -1,0 +1,9 @@
+{
+  "quotes_then_doc": ["", "echo 'a' \"b\" $'c' ", "\ncat <<EOF > n.txt\nx\nEOF"],
+  "subs_heredocs": ["echo ", "\"$(cat <<E{i}\nx\nE{i}\n)\" ", "true"],
+  "nested_subs": ["echo ", "\"$(echo \"$(echo 'x{i}')\")\" ", "\ncat <<EOF > n.txt\nx\nEOF"],
+  "quoted_ops": ["echo ", "'<<A{i}' ", "\n"],
+  "comment_ops": ["", "# <<A{i}\n", "true"],
+  "dq_ops": ["echo \"", "<<A{i} ", "\"\n"],
+  "backticks": ["echo ", "`echo {i}` ", "\ncat <<EOF > n.txt\nx\nEOF"]
+}

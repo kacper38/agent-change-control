@@ -2,8 +2,8 @@
 
 Scope: the pull request of tracker item #50, branch `feat/guard-0.8.0`, built on 2026-11-18 in a
 Claude Code cloud session. A cloud container goes away with its session. This folder keeps what
-would go with it: the guard's decision log, the receipts of the fresh-context review and two
-check outputs. It answers a finding of that review: the `guard-config` ask was switched off for
+would go with it: the guard's decision log, the reviewer agent's reports with its probe files,
+the receipts of the fresh-context review and two check outputs. It answers a finding of that review: the `guard-config` ask was switched off for
 the build, and the proof lay only in the container.
 
 ## The control that was switched off
@@ -39,6 +39,8 @@ request, which CI, the reviewer agent and the fresh-context review read.
 |---|---|
 | `decisions.jsonl` | The container's decision log, verbatim: 149 lines, the last one from 10:09:23. 148 name `guard-config` (6 `ask`, 2 `ran`, 140 `skipped`). One names `host-install`: a download of a Python 3.9 interpreter, which the harness refused; that rule is silent inside a container by its own setting (`host_install: auto`). |
 | `guard-config-calls.tsv` | The 148 lines joined by call id with the session's transcripts: time, event, tool, outcome, who, file. Paths are cut to the repository; `handover-checkout:` is the session's other checkout, `scratch:` its scratch folder. |
+| `reviewer/report-1.md` to `report-3.md` | The three reports of the reviewer agent, word for word as it handed them back at 09:10, 09:46 and 10:14: on the build (`ae5361b`), on the fix pass (`894b8cc`), on the second round (`135da2d`). `<S8>` and `<WT>` are its names for its scratch folder and the build worktree. |
+| `reviewer/probes/` | The candidate rows and timing scripts the reports name as `<S8>/review/ra/`. The commands in them are data: they were judged as strings and never run. |
 | `fresh-review-04665e7.json` | Receipt of `bin/fresh-review` on the head before the `DECISIONS.md` block: COMMENT, 4 findings. |
 | `fresh-review-9cc43e1.json` | Receipt of the run on the head with the block: COMMENT, 4 findings. Its first finding is the reason for this folder. |
 | `ruff.txt`, `pytest-py313.txt`, `captures.json` | `ruff check tools` and the test suite on Python 3.13 at `9cc43e1`, captured with `tools/tracker/evidence_export.py capture`: lint clean, 5,271 passed, 9 skipped. |

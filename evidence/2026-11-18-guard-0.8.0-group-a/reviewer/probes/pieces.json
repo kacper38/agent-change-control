@@ -1,0 +1,14 @@
+{
+  "heredoc_bash": ["bash <<EOF\n", "echo line {i} and some words here\n", "EOF"],
+  "heredoc_bash_cmds": ["bash <<EOF\n", "git status --short {i}\n", "EOF"],
+  "echo_bash": ["echo '", "word{i} ", "' | bash"],
+  "echo_bash_lines": ["echo -e '", "git status {i}\\n", "' | bash"],
+  "printf_sh": ["printf '", "ls {i}\\n", "' | sh"],
+  "opt_eq": ["docker run ", "--label=key{i}=value{i} ", "alpine true"],
+  "opt_at": ["curl ", "-F f{i}=@file{i}.txt ", "https://example.org/"],
+  "many_heredocs": ["", "cat <<E{i}\nx\nE{i}\n", "true"],
+  "unclosed_ops": ["echo ", "<<A{i} ", ""],
+  "cat_pipe": ["cat <<EOF | bash\n", "echo {i}\n", "EOF"],
+  "ssh_fed": ["ssh build <<EOF\n", "echo {i}\n", "EOF"],
+  "nested_fed": ["bash <<EOF\n", "bash -c 'echo {i}'\n", "EOF"]
+}

@@ -1,0 +1,106 @@
+# quote walk: commit message heredoc inside "$( )" with quotes in the body (Claude's default commit form)
+"git commit -m \"$(cat <<'EOF'\nfix: run \"make; git push --force origin main\" later\nEOF\n)\""
+"git commit -m \"$(cat <<'EOF'\nfix: quote the \"name\nnpm install left-pad is gone\nEOF\n)\""
+"git commit -m \"$(cat <<'EOF'\nfix: say \"hi\"; rm -rf build is gone\nEOF\n)\""
+"git commit -m \"$(cat <<'EOF'\nfix: \"cat .env\" no longer; gh issue close 3\nEOF\n)\""
+"gh pr create --title x --body \"$(cat <<'EOF'\n## Summary\n- use \"terraform apply\"; then \"npm install x\"\nEOF\n)\""
+"git commit -m \"$(cat <<'EOF'\nfix: don't push\nEOF\n)\""
+# apostrophe in a comment or prose before <<
+"# don't run this\ncat <<EOF > notes.txt\ngit push --force origin main\nnpm install x\nEOF"
+"echo it\\'s; cat <<EOF > notes.txt\ngit push --force origin main\nEOF"
+"echo $'it\\'s'; cat <<EOF > notes.txt\ngit push --force origin main\nEOF"
+"echo \"it's\" && cat <<EOF > notes.txt\ngit push --force origin main\nEOF"
+"# it's fine\nbash <<EOF\ngit push --force origin feat\nEOF"
+"echo $'a\\'b'; bash <<EOF\ngit push --force origin feat\nEOF"
+"echo 'unbalanced; bash <<EOF\ngit push --force origin feat\nEOF"
+# quotes inside a body that is taken
+"cat <<EOF > x.txt\nit's \"quoted\n\nEOF\ngit push --force origin feat"
+"cat <<EOF > x.txt\nit's\nEOF\ncat <<EOF2 | bash\ngit push --force origin feat\nEOF2"
+# new _HEREDOC_RE: <<- and tabs
+"cat <<-EOF > x\n\tbody\n\tEOF\ngit push --force origin feat"
+"cat <<EOF > x\nbody\n\tEOF\ngit push --force origin feat\nEOF"
+"cat <<-EOF > x\n\tEOFX\n\tgit push --force origin main\n\tEOF"
+"cat <<-EOF > x\n  EOF\ngit push --force origin main\nEOF"
+"bash <<-EOF\n\tgit push --force origin feat\n\tEOF"
+# split of < and > : everyday forms
+make 2>&1 | tee build.log
+npm test >&2
+ls &>/dev/null
+echo hi >| out.txt
+exec 3<&-
+diff <(sort a.txt) <(sort b.txt)
+echo $((1<<4))
+echo $((a<b))
+[[ a < b ]] && echo ok
+[[ "$a" > "$b" ]]
+python3 -c "print(1<2)"
+echo "a->b => c"
+echo a=>b
+grep -E '<div>' index.html
+sed -i 's/<br>/\n/g' page.html
+curl -H 'Accept: text/html' https://example.org/
+cat <<<"$x"
+tr a b <<< "$x"
+cargo test -- 'Vec<u8>'
+echo "<.env"
+git log --format='%h <%an>'
+awk '$1<3' data.txt
+sort <input.txt >output.txt
+wc -l <README.md
+docker compose logs -f 2>&1 >log.txt
+cmd 2>/dev/null
+cmd 10>f
+cat file.txt|grep x>out.txt
+# export in front of nested scripts
+HUSKY=0 bash -c 'npm ci'; bash -c 'git commit -m x'
+HUSKY=0 bash -c 'echo ok' && bash -c 'git commit -m x'
+SKIP=lint bash -c 'git status'
+HUSKY=0 bash -c 'git status'
+"HUSKY=0 bash <<EOF\nnpm test\nEOF\nbash -c 'git commit -m x'"
+SKIP=x sh -c 'echo $SKIP'
+HUSKY=0 sh -c 'npm ci'
+# fold: option value that begins with a quote and is no script
+git log --grep='Git fix'
+git commit --message='RM old files'
+curl -H'Accept: GIT' https://example.org/
+docker run -e'NAME=Docker' alpine true
+kubectl get pods -l'app=Helm'
+git commit -m'Bump Terraform; RM unused'
+# sudo -s / su forms that are data
+"sudo -s tee /etc/x <<EOF\ngit push --force origin main\nEOF"
+"su deploy -c 'cat > f' <<EOF\ngit push --force origin main\nEOF"
+"su -c 'cat > f' deploy <<EOF\ngit push --force origin main\nEOF"
+"sudo -u deploy psql <<EOF\ngit push --force origin main\nEOF"
+"ssh build 'cat > f' <<EOF\ngit push --force origin main\nEOF"
+"ssh build 'sh -c \"cat > f\"' <<EOF\ngit push --force origin main\nEOF"
+"ssh build tee f <<EOF\ngit push --force origin main\nEOF"
+# reads that must stay
+"ssh build 'cd app && bash' <<EOF\ngit push --force origin feat\nEOF"
+"ssh build -T <<EOF\ngit push --force origin feat\nEOF"
+# crash paths: marks from outside
+"cat <\u0001.env"
+"bash <<\u00000\u0000"
+"echo \u0001 | bash"
+"bash <<EOF\u0001\ngit push --force origin feat\nEOF"
+"<\u0001"
+"< "
+"<"
+">"
+"cat <"
+"set -o"
+"set -o allexport; HUSKY=0; git commit -m x"
+"set allexport"
+"export"
+"declare"
+"typeset -x"
+"sudo -s"
+"su"
+"ssh"
+"ssh -p"
+"echo x | sudo"
+"echo x | su -"
+"echo x | ssh -N"
+"$((1<<"
+"cat <<'EOF"
+"a<<<"
+"<<-"

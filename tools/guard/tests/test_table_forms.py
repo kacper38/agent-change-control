@@ -1411,6 +1411,32 @@ Fs | feat/x@client | shell | silent | command -v ollama 2>&1
 Fs | feat/x@client | egress-guard | ask | command -v ollama >/dev/null 2>&1 && ollama run m
 """  # noqa: E501 (a row holds its command as written)
 # --- fix rows, addendum 2: end ---
+# --- fix rows, addendum 3: begin (rows-b-fix-add3.txt, 2026-11-18) ---
+ROWS_FIX_ADD3 = r"""
+# Guard 0.9.0, fix pass, addendum 3 (2026-11-18): found by the orchestrating session while the pass ran.
+# Row: id | branch[@client] | rule | expected | command
+#
+# --- F24 (weaker than 0.8.0, in the build since K4): git takes any unambiguous prefix of --exclude, and the
+#     option takes the next word as its pattern even when that word is -n or --dry-run. Measured, git 2.55, in
+#     a scratch repository: `git clean --excl -n -f`, `git clean --e -n -f` and `git clean --exclud -n -fdx`
+#     remove the untracked files ("Removing untracked.tmp").
+F24 | feat/x | delete-guard | ask | git clean --excl -n -f
+F24 | feat/x | delete-guard | ask | git clean --e -n -f
+F24 | feat/x | delete-guard | ask | git clean --exclud -n -fdx
+F24 | feat/x | delete-guard | ask | git -C sub clean --ex -n -f
+F24 | feat/x | delete-guard | ask | git clean -f --excl --dry-run
+# the neighbours that hold today and keep holding (the three previews measured with git 2.55)
+Fs | feat/x | shell | silent | git clean -n
+Fs | feat/x | shell | silent | git clean --exclude x -n
+Fs | feat/x | shell | silent | git clean --exclude=x -n -f
+Fs | feat/x | shell | silent | git clean -n --quiet
+Fs | feat/x | shell | silent | git clean --no-dry-run -n -f
+Fs | feat/x | shell | silent | git clean --dry-run --no-dry-run --dry-run -f
+Fs | feat/x | shell | silent | git worktree prune --expire now -n
+Fs | feat/x | delete-guard | ask | git clean --exclude -n -f
+Fs | feat/x | delete-guard | ask | git clean -e -n -f
+"""  # noqa: E501 (a row holds its command as written)
+# --- fix rows, addendum 3: end ---
 
 _FILE_INPUT = {
     "Read": lambda p: {"file_path": p},
@@ -1437,6 +1463,7 @@ TABLE = _rows(ROWS_B) + _rows(ROWS_B4) + _rows(ROWS_B4_AZ) + _rows(ROWS_B5) + _r
 FIX_TABLE = _rows(ROWS_FIX)  # the fix pass: F01 to F20 were due, Fs and Fm held at the build's head
 FIX_ADD_TABLE = _rows(ROWS_FIX_ADD)  # addendum 1 of the fix pass: F22 was due, Fs held
 FIX_ADD2_TABLE = _rows(ROWS_FIX_ADD2)  # addendum 2 of the fix pass: F23 was due, Fs held
+FIX_ADD3_TABLE = _rows(ROWS_FIX_ADD3)  # addendum 3 of the fix pass: F24 was due, Fs held
 FILE_TABLE = [tuple(p.strip() for p in line.split(" | ", 4)) for line in FILE_ROWS.splitlines() if line.strip()]
 
 
@@ -1474,6 +1501,13 @@ def test_fix_add_row(guard, monkeypatch, rid, branch, boundary, rule, expected, 
 @pytest.mark.parametrize("rid, branch, boundary, rule, expected, command", FIX_ADD2_TABLE,
                          ids=[f"{row[0]}-{n}" for n, row in enumerate(FIX_ADD2_TABLE)])
 def test_fix_add2_row(guard, monkeypatch, rid, branch, boundary, rule, expected, command):
+    got = _answers(guard, monkeypatch, branch, boundary, rule, command)
+    assert {k: v for k, v in got.items() if v != expected} == {}, command
+
+
+@pytest.mark.parametrize("rid, branch, boundary, rule, expected, command", FIX_ADD3_TABLE,
+                         ids=[f"{row[0]}-{n}" for n, row in enumerate(FIX_ADD3_TABLE)])
+def test_fix_add3_row(guard, monkeypatch, rid, branch, boundary, rule, expected, command):
     got = _answers(guard, monkeypatch, branch, boundary, rule, command)
     assert {k: v for k, v in got.items() if v != expected} == {}, command
 

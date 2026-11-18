@@ -492,12 +492,13 @@ def _long_dry(t: str) -> Optional[str]:
     return None
 
 
-def _git_dry(rest: list[str], value_shorts: str, value_longs: tuple) -> bool:
+def _git_dry(rest: list[str], flag_shorts: str, value_shorts: str, flag_longs: tuple, value_longs: tuple) -> bool:
     """A git call of the dry-run family (`git clean`, `git worktree prune`) that previews only: the last of
-    -n / --dry-run and --no-dry-run wins (git 2.55, measured: `git clean -n --no-dry-run` deletes), a word of
-    the family that cannot be placed reads as no preview, and the scan stops at `--`. A short cluster ends at a
-    letter of `value_shorts` (its value follows, glued or as the next word); the word after a long option of
-    `value_longs` is its value."""
+    -n / --dry-run and --no-dry-run wins (git 2.55, measured: `git clean -n --no-dry-run` deletes), and the scan
+    stops at `--`. A short cluster ends at a letter of `value_shorts` (its value follows, glued or as the next
+    word); the word after a long option of `value_longs` is its value (`--exclude=x` holds it). Any option this
+    cannot place reads as no preview: a word of the dry-run family it cannot tell apart, and (F24) any other long
+    option or short letter outside the lists, since git takes a unique prefix (`--excl -n` is `--exclude -n`)."""
     dry = False
     skip = False
     for t in rest:
@@ -511,14 +512,20 @@ def _git_dry(rest: list[str], value_shorts: str, value_longs: tuple) -> bool:
             return False
         if state is not None:
             dry = state == "dry"
-        elif t in value_longs:
-            skip = True
-        elif t.startswith("-") and not t.startswith("--"):
+        elif t.startswith("--"):
+            name, glued, _value = t.partition("=")
+            if name in value_longs:
+                skip = not glued
+            elif name not in flag_longs or glued:
+                return False
+        elif t.startswith("-") and len(t) > 1:
             letters = t[1:]
             for i, c in enumerate(letters):
                 if c in value_shorts:
                     skip = i == len(letters) - 1
                     break
+                if c not in flag_shorts:
+                    return False
                 if c == "n":
                     dry = True
     return dry
@@ -526,9 +533,10 @@ def _git_dry(rest: list[str], value_shorts: str, value_longs: tuple) -> bool:
 
 def _git_clean_dry(rest: list[str]) -> bool:
     """`git clean` with -n or --dry-run (also in a cluster, `-fdn`) that no later --no-dry-run takes back; the
-    letters after an `e` in a cluster, and the word after `-e`, are an exclude pattern (`-f -e -n` deletes)
-    (git-clean(1), git 2.55)."""
-    return _git_dry(rest, "e", ("--exclude",))
+    letters after an `e` in a cluster, and the word after `-e`, are an exclude pattern (`-f -e -n` deletes).
+    Options: git-clean(1), git 2.55: -d, -f/--force, -i/--interactive, -n/--dry-run, -q/--quiet,
+    -e/--exclude <pattern>, -x, -X."""
+    return _git_dry(rest, "dfinqxX", "e", ("--force", "--interactive", "--quiet"), ("--exclude",))
 
 
 def _restore_index_only(rest: list[str]) -> bool:
@@ -577,8 +585,8 @@ def _delete_preview(toks) -> bool:
         if sub == "clean":
             return _git_clean_dry(rest)
         if sub == "worktree" and rest[:1] == ["prune"]:
-            # git-worktree(1), git 2.55: prune takes -n, -v, --expire <time>
-            return _git_dry(rest[1:], "", ("--expire",))
+            # git-worktree(1), git 2.55: prune takes -n/--dry-run, -v/--verbose, --expire <time>
+            return _git_dry(rest[1:], "nv", "", ("--verbose",), ("--expire",))
         return False
     if name == "kubectl":
         return _dry_run("kubectl", toks[1:])

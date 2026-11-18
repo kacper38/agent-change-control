@@ -447,6 +447,22 @@ Ds | main | shell | silent | git fetch origin
 Ds | main | shell | silent | git status
 Ds | main | shell | silent | git log --oneline -3
 Ds | main | protected-branch | deny | git commit -m x
+I1 | feat/x | delete-guard | ask | cat run.sh | bash
+I1 | feat/x | git-guard | ask | cat run.sh | bash
+I1 | feat/x | delete-guard | ask | base64 -d x | bash
+I1 | feat/x | git-guard | ask | base64 -d x | bash
+I1 | feat/x | delete-guard | ask | base64 -D x | sh
+I1 | feat/x | delete-guard | ask | cat run.sh | sh -s
+I1 | feat/x | delete-guard | ask | cat run.sh | bash -s -- arg
+I1 | feat/x | delete-guard | ask | sed 's/a/b/' run.sh | bash
+I1 | feat/x | delete-guard | ask | gunzip -c x.gz | sh
+I1 | feat/x | delete-guard | ask | cat run.sh | sudo bash
+I1 | feat/x | delete-guard | ask | cat run.sh | env FOO=1 bash
+I1 | feat/x | delete-guard | ask | cat run.sh | tee log | bash
+I1 | feat/x | delete-guard | ask | cat run.sh | zsh
+I1 | feat/x | delete-guard | ask | cat run.sh | dash
+I1 | feat/x | delete-guard | ask | cat run.sh | ksh
+I1 | feat/x | delete-guard | ask | git ls-files | sh
 Is | feat/x | shell | silent | bash run.sh
 Is | feat/x | shell | silent | . ./run.sh
 Is | feat/x | shell | silent | source run.sh

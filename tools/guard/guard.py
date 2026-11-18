@@ -2965,7 +2965,9 @@ def _nc_fed(raw: list[str], toks: list[str], piped: Optional[list], bodies: list
     for i in sorted(command_word_indexes(toks)):
         name, args = os.path.basename(toks[i]), toks[i + 1 :]
         if name == "cat":
-            return (own if all(t == "-" or (t.startswith("-") and t != "--") for t in args) else []), piped
+            if own and all(t == "-" or (t.startswith("-") and t != "--") for t in args):
+                return own, piped
+            break  # a file or the line's own input: the script is not on the line
         if name == "echo":
             k = 0
             while k < len(args) and _NC_ECHO_OPTION_RE.match(args[k]):
@@ -2973,7 +2975,27 @@ def _nc_fed(raw: list[str], toks: list[str], piped: Optional[list], bodies: list
             return [" ".join(args[k:]).replace("\\n", "\n")], piped
         if name == "printf":  # -v sets a variable
             return ([] if args[:1] == ["-v"] else [" ".join(args).replace("\\n", "\n")]), piped
+    if _nc_pipe_shell(piped):
+        raise CommandNotRead(_PIPE_NOT_READ)
     return [], None
+
+
+_PIPE_SHELLS = frozenset("sh bash zsh dash ksh".split())
+_PIPE_NOT_READ = "a shell reads its script from a pipe whose content the guard cannot read"
+
+
+def _nc_pipe_shell(toks) -> bool:
+    """Decision ad (0.9.0): a shell of _PIPE_SHELLS at a command word of the command behind a pipe reads its
+    program from it (no -c, no script operand), on this machine: one behind a container or remote tool is not
+    decided and is left as before."""
+    words = sorted(command_word_indexes(toks))
+    for i in words:
+        name = tool_name(toks[i])
+        if name in _NC_ELSEWHERE:
+            return False
+        if name in _PIPE_SHELLS and _hi_shell_reads_stdin(list(toks[i + 1 :])):
+            return True
+    return False
 
 
 # the environment names that reach the hook gate (git-guard): an assignment of one of these in front of a shell

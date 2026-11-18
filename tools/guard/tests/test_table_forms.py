@@ -1912,6 +1912,15 @@ def test_search_patterns_cost_one_reading_per_line(guard, monkeypatch, tail, exp
     assert len(readings) == 1, f"{len(readings)} readings of the line: a slow hook fails open"
 
 
+@pytest.mark.parametrize("command", ["{ { ls .env; } | xargs cat; }", "{ if true; then echo .env; fi | xargs cat; }",
+                                     "{ for f in a; do ls .env; done | xargs cat; }",
+                                     "{ { { ls .env; }; } | xargs cat; }"])
+def test_a_report_in_a_group_handed_on_inside_another_is_read(guard, monkeypatch, command):
+    """Second fix round, from the rewriting check: two constructs opened by one command share its index, and the
+    outer closer with a plain separator behind it no longer clears the pipe behind the inner one."""
+    assert _answers(guard, monkeypatch, "feat/x", "own", "secret-shell", command) == {"secret-shell": "ask"}
+
+
 def test_pinned_rows_are_all_there():
     pinned = [row[0] for row in TABLE if row[0].endswith(("s", "t"))]
     assert len(pinned) == 459

@@ -1303,7 +1303,10 @@ def _compound_outputs(cmds: list) -> Optional[tuple[list, dict]]:
             if not stack or stack[-1][1] != toks[0]:
                 return None
             opener = stack.pop()[0]
-            handed_on[opener] = not _plain_sep(cmds[k + 1][0] if k + 1 < len(cmds) else "")
+            # `{ { ls .env; } | xargs cat; }`: constructs opened by one command share its index, so one handed on
+            # marks them all
+            handed_on[opener] = handed_on.get(opener, False) or not _plain_sep(
+                cmds[k + 1][0] if k + 1 < len(cmds) else "")
         # `{ { ls .env; }; }`, `then if true`: the leading words of one command can open more than one construct
         for t in toks:
             if t in _GROUP_CLOSER:

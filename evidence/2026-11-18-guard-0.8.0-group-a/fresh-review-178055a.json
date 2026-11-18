@@ -1,0 +1,38 @@
+{
+  "base": "9cc43e1",
+  "base_sha": "9cc43e1cf6fd97cf35430c425b25a8141c2af9f4",
+  "cost_usd": 0.7448396,
+  "diff_sha256": "268298112d841ae2aee13d81e830902f995e2de04e398f4895fddb900eff0ea2",
+  "duration_ms": 40633,
+  "findings": [
+    {
+      "file": "DECISIONS.md",
+      "line": 325,
+      "severity": "MAJOR",
+      "summary": "Item (a) says the owner chose the override and implies a person approved the write of `.claude/guard.local.json` through the guard-config ask. The evidence in this diff shows something else. SUMMARY.md:20 says the write \"waited 45 minutes and ran ... the harness recorded it ... as decision `accept`, source `config`, reason `mode`\". The scratch-file probe at SUMMARY.md:17 shows the same. So in a cloud session a guard-config ask can be resolved by the harness's configuration or permission mode, with no recorded human approval. That affects whether the guard's own change control works at all. It belongs in DECISIONS.md as a decision or deferred gap: what was found, why it was accepted, and what would change it (e.g. plan rev 3). Today it appears only in the gaps list of the evidence summary (SUMMARY.md:52-57)."
+    },
+    {
+      "file": "evidence/2026-11-18-guard-0.8.0-group-a/SUMMARY.md",
+      "line": 43,
+      "severity": "MINOR",
+      "summary": "`reviewer/probes/` is described as the candidate rows and timing scripts the reports name. But `cost.py` and `timelines.py` take `<probe.py>` as their first argument and call `probe.verdicts(...)`, and report-1.md:3 names `probe.py` and `expect_files.py` as the tools behind every finding. Neither file is in the folder, so the reviewer's measurements cannot be rerun from the evidence kept here. Either add both files or record the gap in the Gaps list."
+    },
+    {
+      "file": "evidence/2026-11-18-guard-0.8.0-group-a/SUMMARY.md",
+      "line": 40,
+      "severity": "MINOR",
+      "summary": "`decisions.jsonl` is called \"verbatim\" and the reviewer reports \"word for word\" (line 42), but nothing records their hashes as they were copied out of the container. Only `ruff.txt` and `pytest-py313.txt` have hashes in `captures.json`. Under ALCOA+ (original, accurate), git history only shows the files from their first commit onward. It cannot show that they match the container's originals. Add sha256 values taken at export time, or name this as a gap."
+    }
+  ],
+  "model_requested": "opus",
+  "models": [
+    "claude-opus-5-5"
+  ],
+  "prompt_file": "tools/review/prompt.md",
+  "prompt_sha256": "440bd66715627e9f56f90421aae7fef405aed223db7349e5081dd2dbd0e9c622",
+  "sha": "178055a25c9c060da19e3bad1f322b8d627dfcbb",
+  "summary": "This change adds records only. It edits the 0.8.0 group-A block in DECISIONS.md and adds the folder evidence/2026-11-18-guard-0.8.0-group-a/. It touches no code, tests or CI. No test, assertion or check is removed or loosened. The folder holds no credentials or client data: the paths and hosts are synthetic, and the session and call IDs are not secrets. The counts agree across files. The log has 149 lines: 6 ask, 2 ran and 140 skipped for guard-config, plus 1 host-install. The TSV has 148 rows. The byte count and hash in captures.json match ruff.txt. Three gaps remain. First, the evidence shows that the guard's own change-control ask was approved by the harness's configuration and permission mode, not by a recorded person. That is in SUMMARY.md only, and the DECISIONS.md line still reads as if a person approved it. Second, the probe scripts cannot be rerun, because the folder lacks the driver they load. Third, the copied logs and reports have no hashes, though the check outputs do. The fresh-context review's finding about merging before the replay is still open. The diff says this and leaves the merge to the owner on the pull request.",
+  "ts": "2026-11-18T11:20:38Z",
+  "verdict": "COMMENT",
+  "verdict_as_answered": "COMMENT"
+}

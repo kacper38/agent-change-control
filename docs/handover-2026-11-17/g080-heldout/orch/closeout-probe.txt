@@ -1,0 +1,27 @@
+# Probe forms for the two kinds of new asks the replay of 2026-11-18 showed. Data only, nothing runs.
+# --- the hook path named as data
+"cat <<EOF > notes.txt\ngit config core.hooksPath .husky\nEOF"
+"cat <<'EOF' > ci.yml\n      run: |\n        git -C /tmp/kit-husky config core.hooksPath .husky\nEOF"
+"python3 - <<'PY'\nx = '''git -C /tmp/k config core.hooksPath .husky'''\nprint(x)\nPY"
+"python3 - <<'PY'\nprint('core.hooksPath')\nPY"
+echo "git config core.hooksPath .husky"
+grep -n "git config core.hooksPath .husky" README.md
+# --- the hook path, real forms
+git -C /tmp/k config core.hooksPath .husky
+git config core.hooksPath .githooks
+git config --get core.hooksPath
+# --- another vendor's tool named in a search pattern
+grep -n -i -E 'AVV|openai|ollama' README.md
+grep -n -i -E 'AVV|OPENAI|OLLAMA' README.md
+grep -n -i -E 'AVV|OpenAI' README.md
+grep -n openai README.md
+grep -n OPENAI README.md
+grep -rn "codex" docs
+grep -rn "Codex" docs
+grep -nE 'fleet|llama|Gemini|gemini' DECISIONS.md
+rg -n 'codex|gemini' docs
+ls src/modules/ai/openai
+# --- another vendor's tool, real forms
+echo "Reply ok" | timeout 90 gemini -p x
+timeout 90 GEMINI -p x
+gemini -p x

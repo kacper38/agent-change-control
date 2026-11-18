@@ -1,10 +1,12 @@
 import ast
+import datetime as dt
 import io
 import json
 import os
 import pathlib
 import re
 import shutil
+import unicodedata
 
 import pytest
 
@@ -483,13 +485,25 @@ def test_the_view_writes_nothing(ledger, fixture_env, fixture_prices):
     assert snapshot(FIX / "config", FIX / "telemetry") == before
 
 
+def test_the_view_writes_nothing_with_no_telemetry_folder(ledger, tmp_path, monkeypatch, fixture_prices):
+    copy_config(tmp_path, "none")
+    missing = tmp_path / "no-telemetry"
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("KZ_TELEMETRY_DIR", str(missing))
+    before = snapshot(tmp_path)
+    for sid in SESSIONS.values():
+        assert run(ledger, ["agents", "--session", sid])[0] == 0
+    assert not missing.exists() and snapshot(tmp_path) == before
+
+
 def test_help_names_the_verb_and_the_inference(ledger):
     code, out, _ = run(ledger, ["help"])
     assert code == 0 and "inferred" in out and "ledger.py agents [--session ID] [--watch]" in out
 
 
 def test_imports_are_standard_library_only():
-    allowed = {"argparse", "datetime", "fcntl", "glob", "json", "math", "os", "re", "shutil", "sys", "time", "typing"}
+    allowed = {"argparse", "datetime", "fcntl", "glob", "json", "math", "os", "re", "shutil", "sys", "time", "typing",
+               "unicodedata"}
     tree_ = ast.parse((FIX.parents[2] / "ledger.py").read_text(encoding="utf-8"))
     names = set()
     for node in ast.walk(tree_):
@@ -538,6 +552,11 @@ def live(tmp_path, monkeypatch):
     t = make_session(tmp_path, [user("p", 1), asst(sec=2)], [("", "a1", [user("b", 3), asst(sec=4)], None)])
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "config"))
     return t
+
+
+def live_tdir(live):
+    """The telemetry folder beside the `live` session's config folder, under tmp_path."""
+    return str(pathlib.Path(live).parents[3] / "telemetry")
 
 
 def test_watch_draws_an_unchanged_tree_once(ledger, live):
@@ -591,13 +610,13 @@ def test_watch_error_while_building_a_frame_restores_the_terminal(ledger, live, 
     monkeypatch.setattr(ledger, "read_agents", flaky)
     out = Terminal()
     with pytest.raises(RuntimeError):  # the second frame fails after the first was drawn
-        ledger.cmd_agents(pathlib.Path(live).stem, out, io.StringIO(), "", OPUS, watch=True,
+        ledger.cmd_agents(pathlib.Path(live).stem, out, io.StringIO(), live_tdir(live), OPUS, watch=True,
                           sleep=lambda s: None, size=lambda: (80, 24))
     assert out.getvalue().startswith(ENTER) and out.getvalue().endswith("\x1b[J" + LEAVE)
     out = Terminal()
     monkeypatch.setattr(ledger, "read_agents", lambda *a: (_ for _ in ()).throw(RuntimeError("x")))
     with pytest.raises(RuntimeError):  # the first frame fails
-        ledger.cmd_agents(pathlib.Path(live).stem, out, io.StringIO(), "", OPUS, watch=True,
+        ledger.cmd_agents(pathlib.Path(live).stem, out, io.StringIO(), live_tdir(live), OPUS, watch=True,
                           sleep=lambda s: None, size=lambda: (80, 24))
     assert out.getvalue() == ENTER + LEAVE
 
@@ -606,14 +625,14 @@ def test_watch_ctrl_c_while_the_size_is_read(ledger, live):
     def size():
         raise KeyboardInterrupt
     out = Terminal()
-    assert ledger.cmd_agents(pathlib.Path(live).stem, out, io.StringIO(), "", OPUS, watch=True,
+    assert ledger.cmd_agents(pathlib.Path(live).stem, out, io.StringIO(), live_tdir(live), OPUS, watch=True,
                              sleep=lambda s: None, size=size) == 0
     assert out.getvalue() == ENTER + LEAVE
 
 
 def test_watch_error_in_the_session_leaves_the_terminal_alone(ledger, live):
     out, err = Terminal(), io.StringIO()
-    assert ledger.cmd_agents("nothing-fits", out, err, "", OPUS, watch=True, sleep=stop_on_second_call(),
+    assert ledger.cmd_agents("nothing-fits", out, err, live_tdir(live), OPUS, watch=True, sleep=stop_on_second_call(),
                              size=lambda: (80, 24)) == 1
     assert out.getvalue() == "" and err.getvalue().count("\n") == 1
 
@@ -756,3 +775,90 @@ def test_a_gone_current_folder(ledger, fixture_env, prices, monkeypatch):
     assert ledger.cmd_agents(None, out, err, str(FIX / "telemetry"), prices) == 1
     assert (out.getvalue(), err.getvalue()) == (
         "", "ledger agents: the current folder is gone; name a session with --session\n")
+
+
+# fix pass D: the review's findings
+def columns(text):
+    return sum(2 if unicodedata.east_asian_width(c) in ("W", "F") else 1 for c in text)
+
+
+def frame_lines(frame):
+    return [line[:-len("\x1b[K")] for line in frame.split("\n")]
+
+
+def test_a_frame_line_is_cut_by_screen_columns(ledger):
+    wide = "finished  " + "東" * 30 + "x" * 20
+    emoji = "😀" * 50
+    lines = frame_lines(ledger.watch_frame([wide, emoji, "a" * 69, "東" * 34 + "a"], 70, 10))
+    assert all(columns(line) <= 69 for line in lines)
+    assert lines[0].endswith("...") and lines[1].endswith("...")
+    assert lines[2] == "a" * 69 and lines[3] == "東" * 34 + "a"  # they fit: unchanged
+    assert frame_lines(ledger.watch_frame(["東東東"], 3, 10))[0] == "東"  # below 3 columns: a plain cut
+
+
+def test_a_watched_tree_with_wide_text_fits_the_window(ledger, tmp_path, monkeypatch):
+    meta = {"agentType": "東京", "description": "東" * 30}
+    t = make_session(tmp_path, [asst()], [("", "a1", [user("b"), asst()], meta)])
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "config"))
+    _, out, _ = watch(ledger, t, stop_on_second_call(), size=(70, 40), tdir=tmp_path / "telemetry")
+    assert max(columns(line) for line in visible_lines(out)) <= 69
+
+
+@pytest.mark.parametrize("height", [1, 0])
+def test_a_frame_never_has_more_lines_than_the_window(ledger, height):
+    assert ledger.watch_frame(["a", "b", "c"], 80, height) == "watching: redrawn every 2 s, Ctrl-C ends\x1b[K"
+    assert len(frame_lines(ledger.watch_frame(["a", "b", "c"], 80, 2))) == 2
+
+
+def test_a_duration_below_zero_prints_a_dash(ledger, tmp_path):
+    assert ledger.fmt_duration(-1) == "-"
+    t = make_session(tmp_path, [asst(sec=50), asst(sec=10, req="r2")])
+    data = tree(ledger, t, tmp_path / "telemetry")
+    assert data["rows"][0]["seconds"] == -40 and ledger.agent_lines(data)[0].split()[1] == "-"
+
+
+@pytest.mark.parametrize("text, read", [
+    ("2026-11-18T10:05:00Z", True), ("2026-11-18T10:05:00.123Z", True), ("2026-11-18T10:05:00.123456Z", True),
+    ("2026-11-18T10:05:00+02:00", True), ("2026-11-18T10:05:00.123-05:30", True), ("2026-11-18T10:05:00", True),
+    ("2026-11-18T23:59:59Z", True),
+    ("20261118T100500Z", False), ("2026-11-18 10:05:00", False), ("2026-11-18T10:05:00.5Z", False),
+    ("2026-11-18T24:00:00Z", False), ("2026-11-18T10:60:00Z", False), ("2026-11-18T10:05:60Z", False),
+    ("2026-11-18T10:05:00+0200", False), ("2026-11-18", False), ("２０２６-11-18T10:05:00Z", False),
+])
+def test_the_same_times_on_every_python(ledger, tmp_path, text, read):
+    assert (ledger._when(text) is not None) == read
+    t = make_session(tmp_path, [{"type": "user", "timestamp": "2026-11-18T10:00:00Z", "message": {}},
+                                {"type": "user", "timestamp": text, "message": {}}],
+                     [("", "a1", [user("b")], None)], sid="s-t")
+    write_lines(tmp_path / "telemetry" / "spawns.jsonl",
+                [{"event": "SubagentStart", "session": "s-t", "agent_id": "a9", "agent": "x", "ts": text}])
+    rows = tree(ledger, t, tmp_path / "telemetry")["rows"]
+    start = ledger._when("2026-11-18T10:00:00Z")
+    assert rows[0]["seconds"] == ((ledger._when(text) - start) // dt.timedelta(seconds=1) if read else 0)
+    missing = [r for r in rows if r["kind"] == "missing"][0]
+    assert (missing["start"] is not None) == read
+
+
+@pytest.mark.parametrize("state_file", [False, True])
+def test_a_workflow_of_unreadable_agents_shows_dashes(ledger, tmp_path, state_file):
+    t = make_session(tmp_path, [asst()])
+    run_dir = pathlib.Path(t).with_suffix("") / "subagents" / "workflows" / "wf_9"
+    run_dir.mkdir(parents=True)
+    os.symlink(str(tmp_path / "gone.jsonl"), str(run_dir / "agent-x.jsonl"))
+    if state_file:
+        (pathlib.Path(t).with_suffix("") / "workflows").mkdir()
+        (pathlib.Path(t).with_suffix("") / "workflows" / "wf_9.json").write_text("{}")
+    data = tree(ledger, t, tmp_path / "telemetry")
+    wf = data["rows"][1]
+    assert wf["kind"] == "workflow" and wf["state"] == ("finished" if state_file else "running")
+    line = ledger.agent_lines(data)[1].split()
+    assert line[:5] == [wf["state"], "-", "-", "-", "-"]
+
+
+def test_a_session_without_tokens(ledger, tmp_path):
+    t = make_session(tmp_path, [user("p"), {"type": "assistant", "timestamp": ts(1), "message": {"content": []}},
+                                {"type": "cost-state", "totalCostUSD": 0}])
+    lines = ledger.agent_lines(tree(ledger, t, tmp_path / "telemetry"))
+    assert lines[0].split()[2] == "$0.00" and lines[1].split()[1] == "$0.00"
+    entry = ledger.build_entry({"session_id": "s-1", "transcript_path": t}, str(tmp_path / "telemetry"), OPUS)
+    assert entry["cost_usd_own"] is None  # nothing to add up: the ledger records none, the view prints $0.00

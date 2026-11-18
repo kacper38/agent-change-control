@@ -54,6 +54,7 @@ import re
 import shutil
 import sys
 import time
+import unicodedata
 from typing import Optional
 
 try:
@@ -694,15 +695,19 @@ def recount(tdir: str, write: bool, out, now: Optional[_dt.datetime] = None) -> 
 
 AGENT_END_TOOLS = ("StructuredOutput", "SubagentHandback")  # the tools an agent ends its run on
 INTERRUPTED = "[Request interrupted"
+# The one form of time the view reads: fromisoformat reads more forms on 3.11+ than on 3.9, and the same files
+# must give the same tree on every Python.
+TIME_FORM = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]"
+                       r"(\.[0-9]{3}|\.[0-9]{6})?(Z|[+-][0-9]{2}:[0-9]{2})?")
 
 
 def _when(value) -> Optional[_dt.datetime]:
-    """A transcript timestamp as an aware time (no offset reads as UTC), None for anything that is no ISO text."""
-    if not isinstance(value, str):
+    """A transcript timestamp as an aware time (no offset reads as UTC), None for anything not of TIME_FORM."""
+    if not isinstance(value, str) or not TIME_FORM.fullmatch(value):
         return None
     try:
         when = _dt.datetime.fromisoformat(value[:-1] + "+00:00" if value.endswith("Z") else value)
-    except ValueError:  # other text in the key: the line has no time, the rest of it still counts
+    except ValueError:  # the form fits but the date does not exist (month 13): no time, the rest still counts
         return None
     return when if when.tzinfo else when.replace(tzinfo=_dt.timezone.utc)
 
@@ -780,10 +785,8 @@ def _clean(text) -> str:
 
 
 def _cut(text: str, width: int) -> str:
-    """The text if it fits `width`, else its first width - 3 characters and `...` (a plain cut below 3)."""
-    if len(text) <= width:
-        return text
-    return text[:width - 3] + "..." if width >= 3 else text[:max(width, 0)]
+    """The text if it fits `width` characters, else its first width - 3 and `...` (widths 30 and 14)."""
+    return text if len(text) <= width else text[:width - 3] + "..."
 
 
 def _priced(per_model: dict, prices: dict) -> tuple:
@@ -880,6 +883,9 @@ def _transcript_row(path: str, prices: dict, kind: str) -> dict:
 def _sum_workflow(row: dict, agents: list, prices: dict) -> None:
     """A workflow row as the subtotal of the agents shown under it at any depth."""
     read = [a for a in agents if a["read"]]
+    if not read:  # nothing under it could be read: no figures, printed `-` (the state comes from the state file)
+        row.update(read=False, cost=None, tools=None, model=None, mark=False, start=None, seconds=None)
+        return
     usage: dict = {}
     for a in read:
         merge(usage, a["usage"])
@@ -991,8 +997,9 @@ def read_agents(transcript: str, tdir: str, prices: dict) -> dict:
 
 
 def fmt_duration(seconds: Optional[int]) -> str:
-    """45s, 3m46s, 1h05m, 2d03h: two units at most, so the column stays six wide; `-` for none."""
-    if seconds is None:
+    """45s, 3m46s, 1h05m, 2d03h: two units at most, so the column stays six wide; `-` for none, and below zero
+    (times that run backwards give no duration)."""
+    if seconds is None or seconds < 0:
         return "-"
     if seconds < 60:
         return f"{seconds}s"
@@ -1125,13 +1132,36 @@ WATCH_LEAVE = "\x1b[?25h\x1b[?1049l"  # cursor shown, the screen as it was
 WATCH_LAST = "watching: redrawn every 2 s, Ctrl-C ends"
 
 
+def _columns(char: str) -> int:
+    """Screen columns of one character: two for East Asian wide and fullwidth ones, else one."""
+    return 2 if unicodedata.east_asian_width(char) in ("W", "F") else 1
+
+
+def _cut_columns(text: str, width: int) -> str:
+    """_cut by screen columns: the text if it takes at most `width` columns, else as much of it as fits in
+    width - 3 and `...` (a plain cut below 3), so a line of wide characters cannot wrap."""
+    if sum(_columns(c) for c in text) <= width:
+        return text
+    room = width - 3 if width >= 3 else max(width, 0)
+    kept, used = [], 0
+    for char in text:
+        if used + _columns(char) > room:
+            break
+        kept.append(char)
+        used += _columns(char)
+    return "".join(kept) + ("..." if width >= 3 else "")
+
+
 def watch_frame(lines: list, width: int, height: int) -> str:
-    """One screen: the lines and WATCH_LAST, each cut to width - 1 and ended by erase-to-end-of-line; a frame
-    taller than the window keeps its first lines and says how many it leaves out."""
-    if len(lines) + 1 > height:
-        keep = max(height - 2, 0)
+    """One screen: the lines and WATCH_LAST, each cut to width - 1 columns and ended by erase-to-end-of-line; a
+    frame taller than the window keeps its first lines and says how many it leaves out, and a window below two
+    lines gets WATCH_LAST alone."""
+    if height < 2:
+        lines = []
+    elif len(lines) + 1 > height:
+        keep = height - 2
         lines = lines[:keep] + [f"... {len(lines) - keep} more lines (a larger window shows them)"]
-    return "\n".join(_cut(line, width - 1) + "\x1b[K" for line in lines + [WATCH_LAST])
+    return "\n".join(_cut_columns(line, width - 1) + "\x1b[K" for line in lines + [WATCH_LAST])
 
 
 def watch_agents(transcript: str, out, tdir: str, prices: dict, sleep, size, folders: int = 1) -> int:

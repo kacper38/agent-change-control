@@ -2268,9 +2268,12 @@ def _update_ref_on_protected(seg: list[str], rest: list[str], cwd: str, protecte
         return None
     ref = operands[0]
     where = _git_c_dir(seg, cwd)
-    name = ref[len("refs/heads/"):] if ref.startswith("refs/heads/") else None
+    # F18: on a file system that ignores case (APFS, NTFS) the ref is one file under every spelling (measured,
+    # git 2.55: `git update-ref REFS/HEADS/MAIN` moves main), so the name is compared without case
+    name = ref[len("refs/heads/"):] if ref.lower().startswith("refs/heads/") else None
     if name is None and ref == "HEAD":
         name = current_branch(where)
+    name = next((p for p in protected if name is not None and p.lower() == name.lower()), name)
     if name in protected:
         return "deny", PROTECTED_MSG.format(what=f"`git update-ref {ref}` moves the branch", branch=name, root=where)
     return None

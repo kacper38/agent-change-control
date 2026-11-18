@@ -419,6 +419,19 @@ Ls | feat/x | shell | silent | cat q.graphql
 Ls | feat/x | tracker-guard | deny | gh api repos/o/r/issues/3 -X PATCH -f state=closed
 Ls | feat/x | tracker-guard | deny | gh api -X POST repos/o/r/issues/3/comments -f body=x
 Ls | feat/x | tracker-guard | deny | gh issue comment 3 --body x
+D1 | feat/x | protected-branch | deny | git update-ref refs/heads/main abc123
+D1 | feat/x | protected-branch | deny | git update-ref refs/heads/main abc123 def456
+D1 | feat/x | protected-branch | deny | git update-ref -m "move" refs/heads/main abc123
+D1 | feat/x | protected-branch | deny | git update-ref --no-deref refs/heads/main abc123
+D1 | feat/x | protected-branch | deny | git -C sub update-ref refs/heads/main abc123
+D1 | feat/x | protected-branch | deny | git update-ref -d refs/heads/main
+D1 | feat/x | protected-branch | deny | timeout 30 git update-ref refs/heads/main abc123
+D1 | feat/x | protected-branch | deny | bash -c 'git update-ref refs/heads/main abc123'
+D1 | main | protected-branch | deny | git update-ref refs/heads/main abc123
+D1 | main | protected-branch | deny | git update-ref HEAD abc123
+D2 | feat/x | protected-branch | ask | git update-ref --stdin
+D2 | feat/x | protected-branch | ask | git update-ref --stdin -z
+D2 | main | protected-branch | ask | git update-ref --stdin
 Ds | feat/x | shell | silent | git update-ref refs/heads/feat abc123
 Ds | feat/x | shell | silent | git update-ref refs/heads/release abc123
 Ds | feat/x | shell | silent | git update-ref refs/tags/v1 abc123

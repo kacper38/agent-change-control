@@ -1546,27 +1546,58 @@ def rule_protected_branch(ev: Event, cfg: dict) -> Optional[Decision]:
         return None
     if ev.kind == "shell" and ev.command:
         command = strip_heredocs(ev.command)
+        asks = []  # 0.9.0: `git update-ref --stdin` asks; a later deny of the line still wins
         for seg in segments(command):
             d = _commit_on_protected(seg, ev.cwd, protected)
-            if d:
+            if d and d[0] == "deny":
                 return d
+            if d:
+                asks.append(d)
+
         # the local reading: a commit behind ssh or inside a container happens in another checkout
         def judge(seg: list[str]) -> Optional[Decision]:
             return _commit_on_protected(seg, ev.cwd, protected)
 
-        return reader_pass(ev.command, judge, "protected-branch", local=True, net=judge)
+        return combine(asks + [d for d in (reader_pass(ev.command, judge, "protected-branch", local=True, net=judge),)
+                               if d])
     return None
 
 
 def _commit_on_protected(seg: list[str], cwd: str, protected: set) -> Optional[Decision]:
-    """Deny when one simple command is a `git commit` in a checkout whose branch is protected."""
-    sub, _rest = _git_subcommand(seg)
+    """Deny when one simple command is a `git commit` in a checkout whose branch is protected, or a `git
+    update-ref` that moves or deletes a protected branch (0.9.0)."""
+    sub, rest = _git_subcommand(seg)
+    if sub == "update-ref":
+        return _update_ref_on_protected(seg, rest, cwd, protected)
     if sub != "commit":
         return None
     where = _git_c_dir(seg, cwd)
     branch = current_branch(where)
     if branch in protected:
         return "deny", PROTECTED_MSG.format(what="`git commit`", branch=branch, root=where)
+    return None
+
+
+UPDATE_REF_STDIN_MSG = ("protected-branch: `git update-ref --stdin` takes the refs it moves from its input, which "
+                        "the guard cannot read. Confirm the command.")
+
+
+def _update_ref_on_protected(seg: list[str], rest: list[str], cwd: str, protected: set) -> Optional[Decision]:
+    """`git update-ref` (decision ab): deny for `refs/heads/<protected>` whatever is checked out, and for `HEAD`
+    while a protected branch is; `-d` of such a ref too. `--stdin` asks. The ref is the first operand; `-m`
+    takes a value (git-update-ref(1), git 2.4x)."""
+    if "--stdin" in rest:
+        return "ask", UPDATE_REF_STDIN_MSG
+    operands = [t for k, t in enumerate(rest) if not t.startswith("-") and not (k and rest[k - 1] == "-m")]
+    if not operands:
+        return None
+    ref = operands[0]
+    where = _git_c_dir(seg, cwd)
+    name = ref[len("refs/heads/"):] if ref.startswith("refs/heads/") else None
+    if name is None and ref == "HEAD":
+        name = current_branch(where)
+    if name in protected:
+        return "deny", PROTECTED_MSG.format(what=f"`git update-ref {ref}` moves the branch", branch=name, root=where)
     return None
 
 

@@ -14,10 +14,10 @@ cloud session an ask waits for the owner, so no build step could run. All times 
 | When | What |
 |---|---|
 | 2026-11-17 21:51:17 | The session tried to create `.claude/guard.local.json` on its own. The guard asked, the harness's permission layer refused the call, nothing was written. |
-| 2026-11-17 21:52 to 22:02 | Three asks for a scratch file with `tools/guard` in its path, written to see where an ask goes in a cloud session. One write ran after six minutes; the log holds the ask and the run, not who answered. The last ask waited until the owner's next message at 06:51 and its write did not run. No build step ran that night. |
+| 2026-11-17 21:52 to 22:02 | Two writes of a scratch file with `tools/guard` in its path, made to see where an ask goes in a cloud session (three `ask` lines: the first write was judged twice). The first waited six minutes and ran at 21:58:57, in the second in which a message of the owner reached the session; the harness recorded that call as decision `accept`, source `config`, reason `mode`. The second waited until the owner's next message at 06:51 and did not run. No build step ran that night. |
 | 2026-11-18 07:13:55 | The session asked the owner in a dialog: "Guard 0.8.0 group A did not build overnight: in this cloud session every edit under tools/guard/ triggers the guard-config ask, which waits for your approval. Where should build steps 3 to 11 run?" The options: "On the Mac (Recommended)", "Here, with the override", "Here, I tap each edit". |
 | 2026-11-18 07:24:40 | The owner answered: "Here, with the override". The text of that option: "You authorise me to create .claude/guard.local.json with rules_off: ["guard-config"] in this container (git-ignored, as on the Mac). The guard will still ask you once for that write. Then a fresh Opus engineer builds here, on Python 3.13 only; it reads the brief and the code again." |
-| 2026-11-18 07:25:42 | The session wrote that file. `guard-config` asked for the write, and it ran at 08:10:55; again the log holds the ask and the run, not the answer. |
+| 2026-11-18 07:25:42 | The session wrote that file, and `guard-config` asked for the write. It waited 45 minutes and ran at 08:10:55, in the second in which an event from the owner's app reached the session; the harness recorded it, like the scratch write, as decision `accept`, source `config`, reason `mode`. |
 | 2026-11-18 08:19:47 to 10:09:23 | 140 calls ran with the ask silenced. Each is a `skipped` line of the log. |
 
 The 140 calls, by who made them and which file they changed:
@@ -45,6 +45,12 @@ request, which CI, the reviewer agent and the fresh-context review read.
 
 ## Gaps
 
+- Who answered the two asks that ran (2026-11-17 21:58:57 and 2026-11-18 08:10:55) is open. The
+  guard's log holds the ask and the run. The harness's record names the session's configuration
+  and its permission mode as the source of the decision, not a person, and both calls ran in the
+  second in which something from the owner's app arrived. Only he can say whether he tapped; the
+  session asked him and had no answer when this was written. What authorised the override file is
+  his dialog answer, which is his own choice among three options.
 - The session transcripts are not here: every tool call with its input, and the dialog. They
   stay with the Claude Code session named in the commit trailers. The file column of the join and
   the quotes above were read from them.

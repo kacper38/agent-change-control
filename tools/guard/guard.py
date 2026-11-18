@@ -1001,10 +1001,13 @@ def rule_git_guard(ev: Event, cfg: dict) -> Optional[Decision]:
         return None
     protected = protected_branches(cfg)
     command = strip_heredocs(ev.command)
+    asks = []  # 0.8.0: the first pass can ask (`git config core.hooksPath`); a later deny of the line still wins
     for seg in segments(command):
         d = _git_guard_seg(seg, ev.cwd, protected)
-        if d:
+        if d and d[0] == "deny":
             return d
+        if d:
+            asks.append(d)
     here = _local_simple_commands(ev.command)  # the reader takes the here-document bodies out itself (0.8.0)
 
     def judge(seg: list[str]) -> Optional[Decision]:
@@ -1014,7 +1017,7 @@ def rule_git_guard(ev: Event, cfg: dict) -> Optional[Decision]:
     gate = _git_env_gate(ev.command)
     if gate and gate[0] == "deny":
         return gate
-    return combine([d for d in (gate, reader_pass(ev.command, judge, "git-guard")) if d])
+    return combine(asks + [d for d in (gate, reader_pass(ev.command, judge, "git-guard")) if d])
 
 
 def _local_simple_commands(command: str) -> Optional[set]:

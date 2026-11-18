@@ -808,6 +808,127 @@ def _secret_verdict(writes: list[str], reads: list[str]) -> Optional[Decision]:
     return None
 
 
+# 0.9.0 (decision af): commands that print a stored secret. Tool -> (leading words, condition on the arguments);
+# a leading word is a string or a predicate, found past the tool's options as subcommand_hit finds a verb. The
+# list, status and metadata calls of the same tools stay silent. Sources: the CLIs' own help: HashiCorp Vault
+# 1.17, 1Password CLI 2, kubectl 1.31, gh 2.6x, AWS CLI v2, gcloud 49x, macOS security(1), pass 1.7, Doppler CLI
+# 3, sops 3.9, ansible-vault 2.17; az and git are read by their own functions below.
+_KUBECTL_QUIET_OUTPUT = frozenset({"name", "wide"})  # these print no secret data
+
+
+def _has(*names: str) -> Callable[[list[str]], bool]:
+    """A condition: one of these options is given, bare or with a value (`--fields x`, `--fields=x`)."""
+    return lambda args: any(t in names or t.split("=", 1)[0] in names for t in args)
+
+
+def _kubectl_output(args: list[str]) -> bool:
+    """kubectl prints the data of the objects: an output format other than name and wide (`-o yaml`, `-ojson`,
+    `--output=jsonpath=…`)."""
+    for k, t in enumerate(args):
+        if t in ("-o", "--output"):
+            value = args[k + 1] if k + 1 < len(args) else ""
+        elif t.startswith("--output="):
+            value = t[len("--output=") :]
+        elif t.startswith("-o") and not t.startswith("--"):
+            value = t[2:].lstrip("=")
+        else:
+            continue
+        return value.split("=", 1)[0] not in _KUBECTL_QUIET_OUTPUT
+    return False
+
+
+def _names_secret(word: str) -> bool:
+    """A kubectl resource word that names secrets: `secret`, `secrets/app`, `pods,secrets`."""
+    return any(r.split("/", 1)[0] in ("secret", "secrets") for r in word.split(","))
+
+
+_SECRET_STORES: dict = {
+    "vault": [(("kv", "get"), None), (("read",), None)],
+    "op": [(("read",), None), (("inject",), None), (("item", "get"), _has("--fields", "--reveal", "--otp"))],
+    "kubectl": [(("get", _names_secret), _kubectl_output), (("config", "view"), _has("--raw"))],
+    "gh": [(("auth", "token"), None), (("auth", "status"), _has("--show-token", "-t"))],
+    "aws": [(("secretsmanager", "get-secret-value"), None),
+            (("ssm", "get-parameter"), _has("--with-decryption")),
+            (("ssm", "get-parameters"), _has("--with-decryption")),
+            (("ssm", "get-parameters-by-path"), _has("--with-decryption")),
+            (("configure", "export-credentials"), None),
+            (("configure", "get", lambda w: w.lower() in ("aws_secret_access_key", "aws_session_token")), None),
+            (("ecr", "get-login-password"), None), (("sts", "get-session-token"), None)],
+    "gcloud": [(("secrets", "versions", "access"), None), (("auth", "print-access-token"), None),
+               (("auth", "print-identity-token"), None),
+               (("auth", "application-default", "print-access-token"), None)],
+    "security": [(("find-generic-password",), _has("-w", "-g")), (("find-internet-password",), _has("-w", "-g")),
+                 (("dump-keychain",), _has("-d"))],
+    "pass": [(("show",), None), (("otp",), None), (("grep",), None)],
+    "doppler": [(("secrets", "get"), None), (("secrets", "download"), None)],
+    "sops": [(("decrypt",), None)],
+    "ansible-vault": [(("view",), None), (("decrypt",), None)],
+}
+# a pass(1) word that is a subcommand; any other first word is the name of an entry, and `pass NAME` shows it
+_PASS_SUBS = frozenset("init ls list find search show insert add edit generate rm remove delete mv rename cp copy git"
+                       " help version grep otp".split())
+# az: the last leading words of a call that prints a secret (Azure CLI 2.6x reference)
+_AZ_SECRET_TAILS = (("keyvault", "secret", "show"), ("keyvault", "secret", "download"), ("account", "get-access-token"),
+                    ("keys", "list"), ("show-connection-string",), ("credential", "show"),
+                    ("list-publishing-profiles",), ("list-publishing-credentials",))
+
+
+def _leading(args: list[str], words: tuple) -> bool:
+    """The arguments start with these words past the options; a plain word after an option without `=` may be its
+    value and is skipped once (subcommand_hit's rule)."""
+    k = 0
+    may_be_value = False
+    for t in args:
+        if k == len(words):
+            return True
+        if t == "--":
+            return False
+        if t.startswith("-") and len(t) > 1:
+            may_be_value = "=" not in t
+            continue
+        want = words[k]
+        if (t == want) if isinstance(want, str) else want(t):
+            k, may_be_value = k + 1, False
+            continue
+        if not may_be_value:
+            return False
+        may_be_value = False
+    return k == len(words)
+
+
+def secret_store_what(seg: list[str]) -> Optional[str]:
+    """The call when one simple command prints a stored secret (`vault kv get`, `gh auth token`), or None."""
+    head = tool_name(seg[0])
+    args = drop_redirections(seg[1:])
+    if head == "git":
+        sub, rest = _git_subcommand(seg)
+        if (sub == "credential" and "fill" in rest) or (sub and sub.startswith("credential-") and "get" in rest):
+            return f"`git {sub}` prints a stored credential"
+        return None
+    if head == "az":
+        lead = tuple(_az_leading_words(args))
+        if not _help_probe(args) and any(lead[-len(tail) :] == tail for tail in _AZ_SECRET_TAILS):
+            return f"`az {' '.join(lead)}` prints a secret"
+        return None
+    if head == "sops" and ("-d" in args or "--decrypt" in args):
+        return "`sops --decrypt` prints the plaintext"
+    if head == "pass":
+        first = next((t for t in args if not t.startswith("-")), None)
+        if first is not None and first not in _PASS_SUBS:
+            return "`pass NAME` prints a stored password"
+    if _help_probe(args):
+        return None
+    for words, cond in _SECRET_STORES.get(head, ()):
+        if _leading(args, words) and (cond is None or cond(args)):
+            shown = " ".join(w for w in words if isinstance(w, str))
+            return f"`{head} {shown}` prints a stored secret"
+    return None
+
+
+SECRET_STORE_MSG = ("secret-shell: {what}. A secret printed into the session leaves the vault; confirm the command "
+                    "(AGENTS.md: secrets stay in the vault).")
+
+
 def rule_secret_shell(ev: Event, cfg: dict) -> Optional[Decision]:
     if ev.event != "PreToolUse" or ev.kind != "shell" or not ev.command:
         return None
@@ -824,10 +945,18 @@ def rule_secret_shell(ev: Event, cfg: dict) -> Optional[Decision]:
         return _secret_verdict(writes, reads)
     # the reader pass adds to the same lists, so one message names every file of both passes; the reader gets
     # the here-documents and reads a body only where a shell runs it (0.8.0)
-    failed = reader_pass(ev.command, lambda seg: _secret_reader_seg(seg, ev.cwd, writes, reads), "secret-shell")
+    stored: list[Decision] = []
+
+    def judge(seg: list[str]) -> None:
+        _secret_reader_seg(seg, ev.cwd, writes, reads)
+        what = secret_store_what(seg)  # 0.9.0: a stored secret printed (decision af)
+        if what:
+            stored.append(("ask", SECRET_STORE_MSG.format(what=what)))
+
+    failed = reader_pass(ev.command, judge, "secret-shell")
     if failed is None:  # the read went through, so its input redirections are known (`cat <.env`)
         reads.extend(p for p in nested_inputs(ev.command) if secret_class(_expand(p, ev.cwd)) == "secret")
-    return combine([d for d in (_secret_verdict(writes, reads), failed) if d])
+    return combine([d for d in (_secret_verdict(writes, reads), failed, *stored) if d])
 
 
 # ----------------------------------------------------------------------------
@@ -3407,7 +3536,8 @@ _FOLD_NAMES = frozenset(
         _WRAPPERS, _RM_CLASS, _DELETE_TOOLS, _WRITERS_LAST, _WRITERS_ALL, _SEARCH_TOOLS, _DEPLOY_TABLE, _DEPLOY_ADDED,
         _OTHER_LLM_CLIS, _HI_TABLE, _HI_PAIRS, _HI_PAIRS_ONLY, _HI_BARE, _HI_SELF_FETCH, _HI_SHELLS, _HI_DOWNLOADERS,
         _HI_WRAPPERS, _HI_REMOTE, _NC_SHELLS, _NC_WRAPPERS, _NC_SUB_WRAPPERS, _NC_OPTION_RUNNERS, _NC_SCRIPT_OPTIONS,
-        _NC_FD, _NC_ELSEWHERE, _NC_SCRIPT_WORDS, _NC_STDIN_SHELLS, _NC_AFTER_OPTION, _GNU_G_NAMES, _NAMES_IN_CODE,
+        _NC_FD, _NC_ELSEWHERE, _NC_SCRIPT_WORDS, _NC_STDIN_SHELLS, _NC_AFTER_OPTION, _GNU_G_NAMES, _SECRET_STORES,
+        _NAMES_IN_CODE,
     ) for k in table if k == k.lower()
 )
 _FOLD_RUN_RE = re.compile(r"[^\s;|&()<>`]+")  # a candidate: a run of characters between the shell's separators

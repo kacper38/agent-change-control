@@ -241,6 +241,19 @@ P5 | feat/x | git-guard | ask | git config set core.hooksPath /dev/null
 P5 | feat/x | git-guard | ask | git config --global core.hooksPath /tmp/h
 P5 | feat/x | git-guard | ask | git -C sub config core.hooksPath /dev/null
 P5 | feat/x | git-guard | ask | git config core.hookspath /dev/null
+E1 | feat/x@client | egress-guard | ask | timeout 60 codex exec "summarise this repo"
+E1 | feat/x@client | egress-guard | ask | nice -n 5 gemini -p "review the diff"
+E1 | feat/x@client | egress-guard | ask | bash -c 'codex exec "summarise this repo"'
+E1 | feat/x@client | egress-guard | ask | bash -lc "gemini -p 'review the diff'"
+E1 | feat/x@client | egress-guard | ask | xargs -I{} llm -m gpt-x {} < prompts.txt
+E1 | feat/x@client | egress-guard | ask | git diff | timeout 60 llm -m gpt-x "review"
+E1 | feat/x@client | egress-guard | ask | sudo -u ci aider --message "fix it"
+E1 | feat/x@client | egress-guard | ask | docker run --rm img codex exec "hi"
+E1 | feat/x@client | egress-guard | ask | ssh build 'codex exec "hi"'
+E1 | feat/x@client | egress-guard | ask | timeout 30 curl https://api.openai.com/v1/chat/completions -d @body.json
+E1 | feat/x@client | egress-guard | ask | bash -c 'curl -s https://openrouter.ai/api/v1/chat/completions -d @b.json'
+E1 | feat/x@client | egress-guard | ask | "bash <<'EOF'\ncodex exec \"hi\"\nEOF"
+E1 | feat/x@client | egress-guard | ask | echo 'codex exec "hi"' | bash
 """  # noqa: E501 (a row holds its command as written)
 
 # forms of this work beyond the acceptance rows: the same readings, other spellings
@@ -327,6 +340,14 @@ Xs | feat/x | shell | silent | git config --get-all core.hooksPath
 Xs | feat/x | shell | silent | git config set core.hooksPath .githooks
 Xs | feat/x | shell | silent | git -c core.hooksPath=.githooks push origin feat
 Xs | feat/x | shell | silent | git commit -m "SKIP=ruff git commit"
+X7 | feat/x@client | egress-guard | ask | kubectl exec -it pod -- ollama run llama3
+X7 | feat/x@client | egress-guard | ask | uv run --offline llm -m gpt-x "hi"
+X7 | feat/x@client | egress-guard | ask | find . -name "*.py" -exec aider {} +
+X7 | feat/x@client | egress-guard | ask | sudo wget -q https://api.groq.com/openai/v1/models
+Xs | feat/x@client | egress-guard | silent | type codex
+Xs | feat/x@client | egress-guard | silent | bash -c 'which gemini && echo found'
+Xs | feat/x@client | egress-guard | silent | "cat <<'EOF' > notes.txt\ncodex exec hi\nEOF"
+Xs | feat/x | egress-guard | silent | docker run --rm img codex exec "hi"
 """
 
 

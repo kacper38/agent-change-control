@@ -1325,11 +1325,21 @@ def rule_egress_guard(ev: Event, cfg: dict) -> Optional[Decision]:
     if str(cfg.get("boundary") or "own") != "client":
         return None
     for seg in segments(strip_heredocs(ev.command)):
-        head = os.path.basename(seg[0])
-        if head in _OTHER_LLM_CLIS:
-            return "ask", EGRESS_MSG.format(what=f"`{head}`")
-        if head in ("curl", "wget", "http", "https", "xh") and _LLM_HOSTS_RE.search(" ".join(seg)):
-            return "ask", EGRESS_MSG.format(what=f"`{head}` to an LLM API host")
+        d = _egress_seg(seg)
+        if d:
+            return d
+    # 0.8.0: the full reading (not the local one): a container or another host still sends the data out
+    return reader_pass(ev.command, _egress_seg, "egress-guard")
+
+
+def _egress_seg(seg: list[str]) -> Optional[Decision]:
+    """The egress-guard verdict on the words from one command word: another vendor's LLM tool, or an HTTP
+    client with an LLM API host among its words."""
+    head = os.path.basename(seg[0])
+    if head in _OTHER_LLM_CLIS:
+        return "ask", EGRESS_MSG.format(what=f"`{head}`")
+    if head in ("curl", "wget", "http", "https", "xh") and _LLM_HOSTS_RE.search(" ".join(seg)):
+        return "ask", EGRESS_MSG.format(what=f"`{head}` to an LLM API host")
     return None
 
 # ----------------------------------------------------------------------------

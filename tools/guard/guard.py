@@ -424,7 +424,9 @@ def _truncate_in_the_open(command: str) -> bool:
     an escaped quote, a comment and a `$( … )` inside double quotes are read as the shell reads them."""
     if any(_SQL_TRUNCATE_RE.search(m.group(3)) for m in _HEREDOC_RE.finditer(command)):
         return True
-    return any(_OPEN_WORD_RE.match(t) for toks in nested_commands(strip_heredocs(command)) for t in toks)
+    # the reader takes the here-document bodies out itself (0.8.0); a second strip would read the line after a
+    # stripped operator as a body
+    return any(_OPEN_WORD_RE.match(t) for toks in nested_commands(command) for t in toks)
 
 
 def _delete_judge(ev: Event) -> Optional[str]:
@@ -443,7 +445,7 @@ def _delete_judge(ev: Event) -> Optional[str]:
                     return f"script {script} contains a delete/discard pattern"
         except (OSError, ValueError):
             continue  # not a readable file (missing, a directory, a NUL byte in the name): nothing to scan
-    return delete_what(strip_heredocs(ev.command))
+    return delete_what(ev.command)  # the reader takes the here-document bodies out itself (0.8.0)
 
 
 def rule_delete_guard(ev: Event, cfg: dict) -> Optional[Decision]:
@@ -737,10 +739,11 @@ def rule_secret_shell(ev: Event, cfg: dict) -> Optional[Decision]:
         _secret_seg(seg, ev.cwd, writes, reads)
     if writes:
         return _secret_verdict(writes, reads)
-    # the reader pass adds to the same lists, so one message names every file of both passes
-    failed = reader_pass(command, lambda seg: _secret_reader_seg(seg, ev.cwd, writes, reads), "secret-shell")
+    # the reader pass adds to the same lists, so one message names every file of both passes; the reader gets
+    # the here-documents and reads a body only where a shell runs it (0.8.0)
+    failed = reader_pass(ev.command, lambda seg: _secret_reader_seg(seg, ev.cwd, writes, reads), "secret-shell")
     if failed is None:  # the read went through, so its input redirections are known (`cat <.env`)
-        reads.extend(p for p in nested_inputs(command) if secret_class(_expand(p, ev.cwd)) == "secret")
+        reads.extend(p for p in nested_inputs(ev.command) if secret_class(_expand(p, ev.cwd)) == "secret")
     return combine([d for d in (_secret_verdict(writes, reads), failed) if d])
 
 
@@ -851,13 +854,13 @@ def rule_git_guard(ev: Event, cfg: dict) -> Optional[Decision]:
         d = _git_guard_seg(seg, ev.cwd, protected)
         if d:
             return d
-    here = _local_simple_commands(command)
+    here = _local_simple_commands(ev.command)  # the reader takes the here-document bodies out itself (0.8.0)
 
     def judge(seg: list[str]) -> Optional[Decision]:
         # a simple command the local reading does not find runs elsewhere: the host's branch says nothing there
         return _git_guard_seg(seg, ev.cwd, protected, elsewhere=here is not None and tuple(seg) not in here)
 
-    return reader_pass(command, judge, "git-guard")
+    return reader_pass(ev.command, judge, "git-guard")
 
 
 def _local_simple_commands(command: str) -> Optional[set]:
@@ -1144,7 +1147,8 @@ def rule_deploy_ask(ev: Event, cfg: dict) -> Optional[Decision]:
         return None
     try:
         text = strip_heredocs(ev.command)
-        what = _deploy_text(text) or deploy_what(text)  # the 0.6.0 verdict OR the token verdict
+        # the 0.6.0 verdict OR the token verdict; the reader takes the here-document bodies out itself (0.8.0)
+        what = _deploy_text(text) or deploy_what(ev.command)
     except CommandNotRead as exc:  # too deep or too many tools: ask rather than pass it unread
         what = str(exc)
     except Exception as exc:  # main() turns a crash into exit 1, which both harnesses let run silently: ask instead
@@ -1280,7 +1284,7 @@ def rule_protected_branch(ev: Event, cfg: dict) -> Optional[Decision]:
             if d:
                 return d
         # the local reading: a commit behind ssh or inside a container happens in another checkout
-        return reader_pass(command, lambda seg: _commit_on_protected(seg, ev.cwd, protected), "protected-branch",
+        return reader_pass(ev.command, lambda seg: _commit_on_protected(seg, ev.cwd, protected), "protected-branch",
                            local=True)
     return None
 
@@ -1558,7 +1562,7 @@ def rule_tracker_guard(ev: Event, cfg: dict) -> Optional[Decision]:
         d = _tracker_seg(seg)
         if d:
             return d
-    return reader_pass(command, _tracker_seg, "tracker-guard")
+    return reader_pass(ev.command, _tracker_seg, "tracker-guard")  # the reader takes the bodies out (0.8.0)
 
 
 def _tracker_seg(seg: list[str]) -> Optional[Decision]:
@@ -2086,8 +2090,9 @@ def rule_host_install(ev: Event, cfg: dict) -> Optional[Decision]:
         found = _hi_judge(seg, 0)
         return ("ask", HOST_INSTALL_MSG.format(what=found)) if found else None
 
-    # the local reading: what this machine runs; a container or remote tool ends the simple command
-    return reader_pass(command, judge, "host-install", local=True)
+    # the local reading: what this machine runs; a container or remote tool ends the simple command. The reader
+    # takes the here-document bodies out itself and reads one only where a local shell runs it (0.8.0)
+    return reader_pass(ev.command, judge, "host-install", local=True)
 
 
 # ----------------------------------------------------------------------------
@@ -2158,6 +2163,14 @@ _NC_SCRIPT_WORDS = frozenset("ssh watch parallel trap tmux".split())
 _NC_FIND_EXEC = frozenset("-exec -execdir -ok -okdir".split())
 _NC_HELP = frozenset("-h -help --help".split())
 _NC_FALLBACK_SPLIT_RE = re.compile(r"\|\||&&|[;|\n()`]")
+# 0.8.0: a script fed to a shell. These shells read their program from standard input when they get no -c
+# script and no script file (_hi_shell_reads_stdin); a here-document body or the words of an echo or printf piped
+# into one are its script. The reader marks each here-document operator with the number of its body.
+_NC_STDIN_SHELLS = frozenset("sh bash zsh dash ksh fish ash".split())
+_NC_HEREDOC_MARK_RE = re.compile(r"^\d*<<-?\x00(\d+)\x00$")
+_NC_ECHO_OPTION_RE = re.compile(r"^-[neE]+$")
+# ssh options that take a value (ssh(1), OpenSSH 9): the first plain word after the options is the host
+_SSH_VALUED = frozenset("BbcDEeFIiJLlmOoPpQRSWw")
 
 
 def nested_commands(command: str, local: bool = False) -> tuple[tuple[str, ...], ...]:
@@ -2190,7 +2203,7 @@ def _nc_cached(command: str, local: bool = False):
     out: list[tuple[str, ...]] = []
     inputs: list[str] = []
     try:
-        _nc_read(command, 0, out, set(), local, inputs)
+        _nc_read(command, 0, out, set(), local, inputs, [])
     except CommandNotRead as exc:  # kept as a value so the second rule does not read the line again
         return exc
     return tuple(out), tuple(inputs)
@@ -2210,19 +2223,24 @@ def _nc_inputs(raw: list[str]) -> list[str]:
 
 
 def _nc_read(text: str, depth: int, out: list, seen: set, local: bool = False,
-             inputs: Optional[list] = None) -> None:
-    """Append the simple commands of one line to out, then read what each nests one level deeper."""
+             inputs: Optional[list] = None, bodies: Optional[list] = None) -> None:
+    """Append the simple commands of one line to out, then read what each nests one level deeper. `bodies`
+    holds the here-document bodies of the whole read, so a mark in a nested script still finds its body."""
     if depth > _HI_MAX_DEPTH:
         if text.strip():
             raise CommandNotRead(_HI_NOT_READ)
         return
-    prepared, subs = _hi_prepare(text)
+    if bodies is None:
+        bodies = []
+    prepared, subs = _hi_prepare(_nc_take_heredocs(text, bodies))
     cmds = _hi_lex(prepared)
     if cmds is None:  # an unbalanced quote: raw words between separators, brackets and backticks, ends unquoted
         parts = [[w for w in (t.strip("'\"\\") for t in tokens(p)) if w] for p in _NC_FALLBACK_SPLIT_RE.split(prepared)]
+        seps = [""] * len(parts)  # separators unknown: no pipe is read
     else:
         parts = [toks for _sep, toks in cmds]
-    nested = list(subs)  # substitutions outside quotes are simple commands of their own in the lexer already
+        seps = [sep for sep, _toks in cmds]
+    rows = []
     for raw in parts:
         kept = _nc_kept(raw)
         toks = [raw[k] for k in kept]
@@ -2231,9 +2249,14 @@ def _nc_read(text: str, depth: int, out: list, seen: set, local: bool = False,
             if cut is not None:  # the words from the container or remote tool on run elsewhere
                 raw = raw[: kept[cut]]
                 toks = toks[:cut]
+        rows.append((raw, toks))
+    nested = list(subs)  # substitutions outside quotes are simple commands of their own in the lexer already
+    for k, (raw, toks) in enumerate(rows):
         nested.extend(_nc_here_strings(raw))  # taken from the words before the redirections go: `<<<` is one
         if inputs is not None:
             inputs.extend(_nc_inputs(raw))
+        piped = rows[k + 1][1] if k + 1 < len(rows) and seps[k + 1].strip(" \n") == "|" else None
+        nested.extend(_nc_fed(raw, toks, piped, bodies))
         if not toks:
             continue
         out.append(tuple(toks))
@@ -2241,7 +2264,7 @@ def _nc_read(text: str, depth: int, out: list, seen: set, local: bool = False,
     for script in nested:
         if script not in seen:  # one read per distinct script: a repeated nest costs nothing twice
             seen.add(script)
-            _nc_read(script, depth + 1, out, seen, local, inputs)
+            _nc_read(script, depth + 1, out, seen, local, inputs, bodies)
 
 
 def _nc_remote_word(toks: list[str]) -> Optional[int]:
@@ -2285,6 +2308,81 @@ def _nc_here_strings(toks: list[str]) -> list[str]:
         if mark:
             out.extend([tail] if tail else toks[k + 1 : k + 2])
     return out if shell else []
+
+
+def _nc_take_heredocs(text: str, bodies: list) -> str:
+    """The text with every here-document body taken out (a body is never lexed as commands of the line) and its
+    operator replaced by a mark that numbers the body in `bodies`; `<<-` strips the leading tabs of the body."""
+    if "<<" not in text or "\x00" in text:  # a NUL in the text: strip as before, read no body as a script
+        return strip_heredocs(text)
+
+    def take(m: re.Match) -> str:
+        dash = "-" if m.group(0)[2:3] == "-" else ""
+        body = m.group(3)
+        if dash:
+            body = "\n".join(line.lstrip("\t") for line in body.split("\n"))
+        bodies.append(body)
+        after = m.end(2) + len(m.group(1)) - m.start(0)  # past the delimiter and its closing quote
+        return f"<<{dash}\x00{len(bodies) - 1}\x00" + m.group(0)[after : m.start(3) - m.start(0)]
+
+    return _HEREDOC_RE.sub(take, text)
+
+
+def _nc_fed(raw: list[str], toks: list[str], piped: Optional[list], bodies: list) -> list[str]:
+    """The scripts one simple command feeds to a shell (0.8.0): its here-document bodies when it runs a shell
+    that reads standard input or an ssh without a command; and, when its output goes through one pipe into such
+    a command (`piped`), the bodies of a `cat` without a file operand and the words of an `echo` or `printf`."""
+    marks = [_NC_HEREDOC_MARK_RE.match(t) for t in raw]
+    own = [bodies[int(m.group(1))] for m in marks if m and int(m.group(1)) < len(bodies)]
+    if own and _nc_runs_stdin(toks):
+        return own
+    if piped is None or not toks or not _nc_runs_stdin(piped):
+        return []
+    for i in sorted(command_word_indexes(toks)):
+        name, args = os.path.basename(toks[i]), toks[i + 1 :]
+        if name == "cat":
+            return own if all(t == "-" or (t.startswith("-") and t != "--") for t in args) else []
+        if name == "echo":
+            k = 0
+            while k < len(args) and _NC_ECHO_OPTION_RE.match(args[k]):
+                k += 1
+            return [" ".join(args[k:]).replace("\\n", "\n")]
+        if name == "printf":
+            return [] if args[:1] == ["-v"] else [" ".join(args).replace("\\n", "\n")]  # -v sets a variable
+    return []
+
+
+def _nc_runs_stdin(toks) -> bool:
+    """The simple command runs a script read from its standard input: a shell at a command word with no -c
+    script and no script file (also behind a wrapper or in a container), or ssh with no command after the
+    host (the remote login shell reads it)."""
+    for i in command_word_indexes(toks):
+        name = os.path.basename(toks[i])
+        if name in _NC_STDIN_SHELLS and _hi_shell_reads_stdin(list(toks[i + 1 :])):
+            return True
+        if name == "ssh" and _ssh_reads_stdin(toks[i + 1 :]):
+            return True
+    return False
+
+
+def _ssh_reads_stdin(args) -> bool:
+    """ssh names a host and no command after it; `-N` runs no command at all."""
+    k = 0
+    while k < len(args):
+        t = args[k]
+        if t == "--":
+            k += 1
+            break
+        if not t.startswith("-") or len(t) < 2:
+            break
+        if "N" in t[1:]:
+            return False
+        for n, c in enumerate(t[1:], 1):
+            if c in _SSH_VALUED:
+                k += 0 if t[n + 1 :] else 1  # a value glued on (`-p2222`) or in the next word
+                break
+        k += 1
+    return k == len(args) - 1  # the host is the last word
 
 
 def _nc_scripts(toks: list[str]) -> list[str]:

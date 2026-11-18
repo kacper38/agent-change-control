@@ -162,6 +162,31 @@ Q2 | feat/x | secret-shell | deny | git -C . add .env
 Q2 | feat/x | secret-shell | deny | git -c core.autocrlf=false add .env
 Q2 | feat/x | secret-shell | deny | git --git-dir=.git add server.key
 Q2 | feat/x | secret-shell | deny | git -C sub stage .env
+N1 | feat/x | git-guard | deny | "bash -s <<'EOF'\ngit commit --no-verify -m x\nEOF"
+N1 | feat/x | git-guard | deny | "bash <<EOF\ngit push origin HEAD:main\nEOF"
+N1 | feat/x | secret-shell | ask | "bash -s <<'EOF'\ncat .env\nEOF"
+N1 | feat/x | deploy-ask | ask | "sudo bash <<'EOF'\nterraform apply -auto-approve\nEOF"
+N1 | feat/x | host-install | ask | "sh <<'EOF'\nnpm install -g x\nEOF"
+N1 | feat/x | tracker-guard | deny | "bash <<'EOF'\ngh issue close 3\nEOF"
+N1 | feat/x | git-guard | deny | "zsh <<'EOF'\ngit commit --no-verify -m x\nEOF"
+N1 | feat/x | git-guard | deny | "bash -e <<'EOF'\nset -x\ngit commit --no-verify -m x\nEOF"
+N1 | feat/x | git-guard | deny | "cat <<'EOF' | bash\ngit commit --no-verify -m x\nEOF"
+N1 | feat/x | git-guard | ask | "ssh build bash -s <<'EOF'\ngit push\nEOF"
+N1 | main | protected-branch | deny | "bash <<'EOF'\ngit commit -m x\nEOF"
+N2 | feat/x | delete-guard | ask | echo 'rm -rf build' | bash
+N2 | feat/x | git-guard | deny | echo "git commit --no-verify -m x" | sh
+N2 | feat/x | git-guard | deny | printf 'git push --force origin feat\n' | bash
+N2 | feat/x | secret-shell | ask | echo 'cat .env' | bash -s
+N2 | feat/x | deploy-ask | ask | echo 'terraform apply -auto-approve' | sudo bash
+N2 | feat/x | host-install | ask | echo 'npm install -g x' | sh
+N2 | feat/x | tracker-guard | deny | echo 'gh issue close 3' | bash
+N2 | feat/x | delete-guard | ask | echo 'rm -rf build' | ssh build bash
+N2 | main | protected-branch | deny | echo 'git commit -m x' | bash
+N3 | feat/x | git-guard | ask | "ssh build <<'EOF'\ngit push\nEOF"
+N3 | feat/x | secret-shell | ask | "ssh build <<'EOF'\ncat .env\nEOF"
+N3 | feat/x | delete-guard | ask | echo 'rm -rf build' | ssh build
+N3 | feat/x | deploy-ask | ask | "ssh -p 2222 build <<'EOF'\nterraform apply -auto-approve\nEOF"
+N3 | feat/x | deploy-ask | ask | "docker exec -i web sh <<'EOF'\nterraform apply -auto-approve\nEOF"
 """
 
 # forms of this work beyond the acceptance rows: the same readings, other spellings
@@ -178,6 +203,29 @@ Xs | feat/x | shell | silent | cat <&3
 X2 | feat/x | secret-shell | deny | git --no-pager -C sub add -- .env
 X2 | feat/x | secret-shell | deny | sudo git --work-tree=. stage -f id_rsa
 Xs | feat/x | shell | silent | git -C sub add -A
+X3 | feat/x | git-guard | deny | "timeout 60 bash -s <<'EOF'\ngit commit --no-verify -m x\nEOF"
+X3 | feat/x | git-guard | deny | "cat <<-EOF | sh\n\tgit commit --no-verify -m x\n\tEOF"
+X3 | feat/x | git-guard | deny | "cat << EOF | sudo bash\ngit push --force origin feat\nEOF"
+X3 | feat/x | git-guard | deny | printf '%s\n' 'git push --force origin feat' | sh
+X3 | feat/x | git-guard | deny | echo -e 'echo hi\ngit commit --no-verify -m x' | bash
+X3 | feat/x | git-guard | deny | "bash -c \"bash <<'EOF'\ngit commit --no-verify -m x\nEOF\n\""
+X3 | feat/x | delete-guard | ask | "ssh -l deploy -i key.pem build <<'EOF'\nrm -rf /srv/app\nEOF"
+X3 | feat/x | tracker-guard | deny | "echo ok; cat <<'EOF' | ssh build\ngh issue close 3\nEOF"
+X3 | main | protected-branch | deny | "cat <<'EOF' | bash -s\ngit commit -m x\nEOF"
+X3 | feat/x | host-install | ask | printf 'npm install -g x\n' | dash
+Xs | feat/x | shell | silent | cat script.sh | bash
+Xs | feat/x | shell | silent | bash < script.sh
+Xs | feat/x | shell | silent | echo "$CMD" | bash
+Xs | feat/x | shell | silent | base64 -d payload.txt | bash
+Xs | feat/x | shell | silent | echo 'rm -rf build' | sed s/rm/ls/ | bash
+Xs | feat/x | shell | silent | echo 'git commit --no-verify -m x' || bash
+Xs | feat/x | shell | silent | "bash script.sh <<'EOF'\ngit commit --no-verify -m x\nEOF"
+Xs | feat/x | shell | silent | "bash -c 'echo hi' <<'EOF'\ngit commit --no-verify -m x\nEOF"
+Xs | feat/x | shell | silent | "cat notes.txt <<'EOF' | bash\ngit commit --no-verify -m x\nEOF"
+Xs | feat/x | shell | silent | "ssh build cat <<'EOF'\ngit commit --no-verify -m x\nEOF"
+Xs | feat/x | shell | silent | "ssh -N build <<'EOF'\ngit commit --no-verify -m x\nEOF"
+Xs | feat/x | shell | silent | "cat <<'EOF' | tee out.txt\ngit commit --no-verify -m x\nEOF"
+Xs | main | protected-branch | silent | "cat <<'EOF' | ssh build bash\ngit commit -m x\nEOF"
 """
 
 

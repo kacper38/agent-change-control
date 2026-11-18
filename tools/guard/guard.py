@@ -547,7 +547,17 @@ _SECRET_DIRS = {".azure"}
 
 
 def secret_class(path: Optional[str]) -> Optional[str]:
-    """'secret' (deny on write, ask on read), 'tfvars' (ask on write), or None."""
+    """'secret' (deny on write, ask on read), 'tfvars' (ask on write), or None: the class of the path as written
+    or, when that is none, of the path in lower case (0.8.0). A file system that ignores case opens `.env` for
+    `.ENV`; as written first, so `.env.EXAMPLE` keeps asking while `.ENV.EXAMPLE` is an example file."""
+    cls = _secret_class_as_written(path)
+    if cls is None and path and path != path.lower():
+        cls = _secret_class_as_written(path.lower())
+    return cls
+
+
+def _secret_class_as_written(path: Optional[str]) -> Optional[str]:
+    """secret_class for the path exactly as given (the tables compare case)."""
     if not path:
         return None
     base = os.path.basename(path.rstrip("/"))

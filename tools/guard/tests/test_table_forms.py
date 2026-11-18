@@ -696,6 +696,28 @@ Zs | feat/x | shell | silent | echo az vm restart -g rg -n vm
 Zs | feat/x | shell | silent | grep -rn "az vm start" docs
 """  # noqa: E501 (a row holds its command as written)
 ROWS_B5 = r"""
+W1 | feat/x | tracker-guard | deny | curl -X PATCH https://API.GITHUB.COM/repos/o/r/issues/3
+W1 | feat/x | tracker-guard | deny | curl -X PATCH https://Api.GitHub.com/repos/o/r/issues/3 -d '{"state":"closed"}'
+W1 | feat/x | tracker-guard | deny | curl -XPOST https://API.GITHUB.COM/repos/o/r/issues -d '{"title":"x"}'
+W1 | feat/x | tracker-guard | deny | curl --request DELETE https://API.github.com/repos/o/r/labels/x
+W1 | feat/x | tracker-guard | deny | curl -d '{"name":"x"}' https://api.GITHUB.com/repos/o/r/labels
+W1 | feat/x | tracker-guard | deny | wget --method=PATCH https://API.GITHUB.COM/repos/o/r/issues/3
+W1 | feat/x | tracker-guard | deny | http PATCH https://API.GITHUB.COM/repos/o/r/issues/3 state=closed
+W1 | feat/x | tracker-guard | deny | curl -X PATCH HTTPS://API.GITHUB.COM/repos/o/r/issues/3
+W1 | feat/x | tracker-guard | deny | sudo curl -X PATCH https://API.GITHUB.COM/repos/o/r/issues/3
+W1 | feat/x | tracker-guard | deny | bash -c 'curl -X PATCH https://API.GITHUB.COM/repos/o/r/issues/3'
+W1 | main | tracker-guard | deny | curl -X PATCH https://API.GITHUB.COM/repos/o/r/issues/3
+W2 | feat/x | delete-guard | ask | brew UNINSTALL jq
+W2 | feat/x | delete-guard | ask | brew REMOVE jq
+W2 | feat/x | delete-guard | ask | sudo brew UNINSTALL jq
+W2 | feat/x | delete-guard | ask | bash -c 'brew UNINSTALL jq'
+W2 | feat/x | delete-guard | ask | BREW UNINSTALL jq
+W2 | feat/x | host-install | ask | brew UPGRADE
+W2 | feat/x | host-install | ask | brew REINSTALL jq
+W2 | feat/x | host-install | ask | brew TAP homebrew/cask
+W2 | feat/x | delete-guard | ask | gem UNINSTALL rake
+W2 | feat/x | delete-guard | ask | brew CLEANUP
+W2 | feat/x | delete-guard | ask | brew AUTOREMOVE
 Ws | feat/x | tracker-guard | deny | curl -X PATCH https://api.github.com/repos/o/r/issues/3
 Ws | feat/x | tracker-guard | deny | curl -XPOST https://api.github.com/repos/o/r/issues -d '{"title":"x"}'
 Ws | feat/x | tracker-guard | deny | wget --method=PATCH https://api.github.com/repos/o/r/issues/3
@@ -844,6 +866,20 @@ Ks | feat/x@client | shell | silent | grep -n openai README.md
 Ks | feat/x@client | shell | silent | grep -rn "codex" docs
 """  # noqa: E501 (a row holds its command as written)
 FILE_ROWS = r"""
+Y1 | Write | guard-config | ask | .claude/SETTINGS.json
+Y1 | Write | guard-config | ask | .claude/Settings.local.json
+Y1 | Write | guard-config | ask | .CLAUDE/settings.json
+Y1 | Write | guard-config | ask | .claude/GUARD.local.json
+Y1 | Edit | guard-config | ask | .Claude/guard.json
+Y1 | Edit | guard-config | ask | tools/GUARD/guard.py
+Y1 | Edit | guard-config | ask | TOOLS/guard/guard.py
+Y1 | Edit | guard-config | ask | Tools/Guard/tests/test_rules.py
+Y1 | Write | guard-config | ask | .GITHUB/hooks/guard.json
+Y1 | Write | guard-config | ask | .github/HOOKS/guard.json
+Y1 | Write | guard-config | ask | ~/.claude/SETTINGS.json
+Y1 | Write | guard-config | ask | ~/.CLAUDE/settings.json
+Y1 | Write | guard-config | ask | ~/.claude/HOOKS/pre.sh
+Y1 | Edit | guard-config | ask | sub/dir/.claude/Guard.json
 Yt | Write | guard-config | ask | .claude/settings.json
 Yt | Write | guard-config | ask | .claude/settings.local.json
 Yt | Write | guard-config | ask | .claude/guard.json

@@ -455,7 +455,7 @@ def delete_what(command: str) -> Optional[str]:
                             or _git_push_deletes(sub, rest)):
                     return f"`git {sub}` discards work"
                 continue
-            hit = subcommand_hit(list(toks[i + 1 :]), *entry)
+            hit = subcommand_hit(caps_verbs(name, list(toks[i + 1 :])), *entry)
             if hit and (name not in _DELETE_ONLY_WITH or _DELETE_ONLY_WITH[name] & set(toks[i + 1 :])):
                 return f"`{name} {hit}` deletes"
     return None
@@ -528,6 +528,19 @@ _GNU_NAMES = frozenset(
     " find xargs locate updatedb grep egrep fgrep sed tar time".split()
 )
 _GNU_G_NAMES = frozenset("g" + n for n in _GNU_NAMES)
+
+
+# 0.9.0: these tools take a verb written all in capitals as the verb (`brew UNINSTALL jq`, measured:
+# SC semantics4.log); gh, npm, uv, poetry, go, kubectl and pip refuse one, so their verbs are compared as written
+_CAPS_VERB_TOOLS = frozenset({"brew", "gem"})
+
+
+def caps_verbs(name: str, args: list[str]) -> list[str]:
+    """The arguments of a call of `name`, with a plain word written all in capitals in lower case when the tool
+    takes such a verb; options and every other tool's words stay as written."""
+    if name not in _CAPS_VERB_TOOLS:
+        return args
+    return [t.lower() if t.isupper() and not t.startswith("-") else t for t in args]
 
 
 def tool_name(word: str) -> str:
@@ -1844,10 +1857,18 @@ GUARD_CONFIG_MSG = (
 
 
 def guard_config_class(path: Optional[str]) -> Optional[str]:
-    """What kind of hook configuration a path is, or None for an ordinary file."""
+    """What kind of hook configuration a path is, or None for an ordinary file. 0.9.0: read as written and in
+    lower case, as secret_class reads a path since 0.8.0 (the owner's file system ignores case); the home prefix
+    is compared the same way."""
     if not path:
         return None
     home_claude = os.path.join(os.path.expanduser("~"), ".claude")
+    return (_guard_config_as_written(path, home_claude)
+            or _guard_config_as_written(path.lower(), home_claude.lower()))
+
+
+def _guard_config_as_written(path: str, home_claude: str) -> Optional[str]:
+    """guard_config_class for one reading of the path."""
     if path.startswith(home_claude + os.sep):
         rest = path[len(home_claude) + 1 :].split(os.sep)
         if rest[0] == "hooks" or (len(rest) == 1 and _SETTINGS_RE.match(rest[0])):
@@ -2192,7 +2213,8 @@ def _tracker_seg(seg: list[str]) -> Optional[Decision]:
             return "deny", TRACKER_MSG.format(what=f"`gh api {method} {path}` writes issues or labels",
                                               use="the tracker verbs")
     if head in ("curl", "wget", "http", "https", "xh"):
-        url = next((t for t in seg[1:] if ("api.github.com/repos/" in t and _ISSUE_API_RE.search(t))
+        # the host in any case, scheme included (0.9.0): `https://API.GITHUB.COM/repos/…` is the same host
+        url = next((t for t in seg[1:] if ("api.github.com/repos/" in t.lower() and _ISSUE_API_RE.search(t))
                     or _ADO_WIT_RE.search(t)), "")
         if url and _http_writes(seg, head, url):
             return "deny", TRACKER_MSG.format(what=f"`{head}` writes to {url}", use="the tracker verbs")
@@ -2627,7 +2649,8 @@ def _hi_judge(toks: list[str], depth: int) -> Optional[str]:
     toks = _hi_real(toks)
     if not toks:
         return None
-    head, args = os.path.basename(toks[0]), toks[1:]
+    head = os.path.basename(toks[0])
+    args = caps_verbs(head, toks[1:])  # `brew REINSTALL jq` (0.9.0)
     if head in _HI_SHELLS:
         script = _hi_dash_c(args)
         return None if script is None else _hi_script(script, head, depth)

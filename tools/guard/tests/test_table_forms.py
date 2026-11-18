@@ -385,6 +385,28 @@ Gs | feat/x | tracker-guard | deny | az boards work-item update --id 3 --state D
 Gs | feat/x | tracker-guard | deny | timeout 30 gh issue close 3
 Gs | main | protected-branch | deny | git commit -m x
 Gs | main | git-guard | deny | git push
+L1 | feat/x | tracker-guard | deny | gh api graphql -f query='mutation { closeIssue(input: {issueId: "I_1"}) { issue { id } } }'
+L1 | feat/x | tracker-guard | deny | gh api graphql -f query='mutation { updateIssue(input: {id: "I_1", state: CLOSED}) { issue { id } } }'
+L1 | feat/x | tracker-guard | deny | gh api graphql -f query='mutation { addLabelsToLabelable(input: {labelableId: "I_1", labelIds: ["L_1"]}) { clientMutationId } }'
+L1 | feat/x | tracker-guard | deny | gh api graphql -f query='mutation { reopenIssue(input: {issueId: "I_1"}) { clientMutationId } }'
+L1 | feat/x | tracker-guard | deny | gh api graphql -f query='mutation { createIssue(input: {repositoryId: "R_1", title: "x"}) { issue { number } } }'
+L1 | feat/x | tracker-guard | deny | gh api graphql -f query='mutation { deleteIssue(input: {issueId: "I_1"}) { clientMutationId } }'
+L1 | feat/x | tracker-guard | deny | gh api graphql -f query='mutation { removeLabelsFromLabelable(input: {labelableId: "I_1", labelIds: ["L_1"]}) { clientMutationId } }'
+L1 | feat/x | tracker-guard | deny | gh api graphql -f query='mutation { createLabel(input: {repositoryId: "R_1", name: "x", color: "ffffff"}) { clientMutationId } }'
+L1 | feat/x | tracker-guard | deny | gh api graphql -f query='mutation { deleteLabel(input: {id: "L_1"}) { clientMutationId } }'
+L1 | feat/x | tracker-guard | deny | gh api graphql -f query='mutation CloseIt($id: ID!) { closeIssue(input: {issueId: $id}) { clientMutationId } }' -F id=I_1
+L1 | feat/x | tracker-guard | deny | gh api graphql --raw-field query='mutation { closeIssue(input: {issueId: "I_1"}) { clientMutationId } }'
+L1 | feat/x | tracker-guard | deny | timeout 30 gh api graphql -f query='mutation { closeIssue(input: {issueId: "I_1"}) { clientMutationId } }'
+L1 | feat/x | tracker-guard | deny | curl -s -X POST https://api.github.com/graphql -H "Authorization: bearer $T" -d '{"query":"mutation { closeIssue(input: {issueId: \"I_1\"}) { clientMutationId } }"}'
+L2 | feat/x | tracker-guard | ask | gh api graphql -f query='mutation { addComment(input: {subjectId: "I_1", body: "x"}) { clientMutationId } }'
+L2 | feat/x | tracker-guard | ask | gh api graphql -f query='mutation { addStar(input: {starrableId: "R_1"}) { clientMutationId } }'
+L2 | feat/x | tracker-guard | ask | gh api graphql -f query='mutation { mergePullRequest(input: {pullRequestId: "PR_1"}) { clientMutationId } }'
+L2 | feat/x | tracker-guard | ask | gh api graphql -f query='mutation { addReaction(input: {subjectId: "I_1", content: THUMBS_UP}) { clientMutationId } }'
+L2 | feat/x | tracker-guard | ask | curl -s https://api.github.com/graphql -d '{"query":"mutation { addStar(input: {starrableId: \"R_1\"}) { clientMutationId } }"}'
+L3 | feat/x | tracker-guard | ask | gh api graphql -F query=@q.graphql
+L3 | feat/x | tracker-guard | ask | gh api graphql --input q.json
+L3 | feat/x | tracker-guard | ask | gh api graphql -f query="$Q"
+L3 | feat/x | tracker-guard | ask | curl -s https://api.github.com/graphql -d @body.json
 Ls | feat/x | shell | silent | gh api graphql -f query='query { viewer { login } }'
 Ls | feat/x | shell | silent | gh api graphql -f query='{ repository(owner: "o", name: "r") { issues(first: 5) { nodes { title } } } }'
 Ls | feat/x | shell | silent | gh api graphql --paginate -f query='query($endCursor: String) { viewer { repositories(first: 100, after: $endCursor) { nodes { name } } } }'

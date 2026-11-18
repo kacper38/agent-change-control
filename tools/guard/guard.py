@@ -1827,12 +1827,16 @@ def rule_tracker_guard(ev: Event, cfg: dict) -> Optional[Decision]:
     if _BYPASS_RULES_RE.search(command):
         return "deny", TRACKER_MSG.format(what="`bypassRules` skips the work item rules",
                                           use="the tracker verbs; process rules are never bypassed")
+    asks = []  # 0.9.0: the first pass can ask (a GraphQL mutation); a later deny of the line still wins
     for seg in segments(command):
         d = _tracker_seg(seg)
-        if d:
+        if d and d[0] == "deny":
             return d
+        if d:
+            asks.append(d)
     # the reader takes the bodies out (0.8.0); the net reads a gh or az behind an unknown word (0.9.0)
-    return reader_pass(ev.command, _tracker_seg, "tracker-guard", net=_tracker_seg)
+    return combine(asks + [d for d in (reader_pass(ev.command, _tracker_seg, "tracker-guard", net=_tracker_seg),)
+                           if d])
 
 
 def _gh_words(seg: list[str]) -> list[int]:
@@ -1856,6 +1860,105 @@ def _gh_api_mutating(t: str) -> bool:
     `--input v`, `--input=v` (gh api --help)."""
     return (t in _GH_API_MUTATING_FLAGS or t.startswith(("--field=", "--raw-field=", "--input="))
             or (t[:2] in ("-f", "-F") and len(t) > 2))
+
+
+# 0.9.0 (decision aa): GitHub's GraphQL endpoint. A mutation whose field names an issue or a label is the REST
+# write's twin and is denied; any other mutation, and a query the line does not hold, asks; a query is a read
+_GRAPHQL_URL_RE = re.compile(r"api\.github\.com/graphql(?![\w.-])", re.IGNORECASE)
+_GRAPHQL_TOKEN_RE = re.compile(r'"(?:\\.|[^"\\])*"|[{}()]|[A-Za-z_][A-Za-z0-9_]*')
+_GRAPHQL_TRACKER_RE = re.compile(r"Issue|Label")
+GRAPHQL_ASK_MSG = "tracker-guard: {what}. Confirm the command; the tracker is the only writer of issues and labels."
+
+
+def _graphql_fields(query: str) -> Optional[list]:
+    """The field names at the top of each `mutation` operation of a GraphQL document, or None when it holds no
+    mutation. A word at brace depth 1 outside parentheses is a field (or its alias)."""
+    m = re.search(r"\bmutation\b", query)
+    if not m:
+        return None
+    fields: list[str] = []
+    depth = parens = 0
+    for tok in _GRAPHQL_TOKEN_RE.findall(query, m.start()):
+        if tok == "{":
+            depth += 1
+        elif tok == "}":
+            depth -= 1
+        elif tok == "(":
+            parens += 1
+        elif tok == ")":
+            parens -= 1
+        elif depth == 1 and parens == 0 and not tok.startswith('"'):
+            fields.append(tok)
+    return fields
+
+
+def _graphql_verdict(query: Optional[str], via: str) -> Optional[Decision]:
+    """The verdict on a GraphQL document sent by `via`; None as the document means the line does not hold it."""
+    if query is None:
+        return "ask", GRAPHQL_ASK_MSG.format(what=f"`{via}` sends a GraphQL document the guard cannot read")
+    fields = _graphql_fields(query)
+    if fields is None:
+        return None
+    hit = next((f for f in fields if _GRAPHQL_TRACKER_RE.search(f)), None)
+    if hit:
+        return "deny", TRACKER_MSG.format(what=f"`{via}` mutation `{hit}` writes issues or labels",
+                                          use="the tracker verbs")
+    named = f" `{fields[0]}`" if fields else ""
+    return "ask", GRAPHQL_ASK_MSG.format(what=f"`{via}` sends the GraphQL mutation{named}")
+
+
+def _graphql_value(value: str) -> Optional[str]:
+    """The document a field value holds, or None when it names a file (`@q.graphql`) or is only a variable."""
+    if value.startswith("@") or re.fullmatch(r"\$\{?\w+\}?", value.strip()):
+        return None
+    return value
+
+
+def _gh_graphql_query(seg: list[str], start: int) -> tuple:
+    """(found, document) of `gh api graphql`: the value of its `query` field in every spelling of gh's field
+    flags (`-f query=…`, `-fquery=…`, `--raw-field=query=…`); `--input` names a file, read as no document."""
+    k = start
+    while k < len(seg):
+        t = seg[k]
+        if t == "--input" or t.startswith("--input="):
+            return True, None
+        value = None
+        if t in ("-f", "-F", "--field", "--raw-field") and k + 1 < len(seg):
+            value, k = seg[k + 1], k + 1
+        elif t.startswith(("--field=", "--raw-field=")):
+            value = t.split("=", 1)[1]
+        elif t[:2] in ("-f", "-F") and len(t) > 2:
+            value = t[2:]
+        if value is not None and value.startswith("query="):
+            return True, _graphql_value(value[len("query="):])
+        k += 1
+    return False, None
+
+
+def _http_graphql_query(seg: list[str], head: str) -> tuple:
+    """(found, document) of a curl, wget or httpie call: the `query` of the JSON body, or of httpie's `query=`
+    item; a body from a file or one that is no JSON with a query is read as no document."""
+    bodies = []
+    for k, t in enumerate(seg[1:], 1):
+        name, eq, value = t.partition("=")
+        if name in ("-T", "--upload-file", "--post-file"):
+            return True, None  # the body is a file
+        if name in _CURL_MUTATING_FLAGS or t.startswith("--data"):
+            bodies.append(value if eq else (seg[k + 1] if k + 1 < len(seg) else ""))
+        elif t[:2] == "-d" and len(t) > 2:
+            bodies.append(t[2:])
+        elif head not in ("curl", "wget") and name == "query" and eq:
+            return True, _graphql_value(value)
+    for body in bodies:
+        if body.startswith("@"):
+            return True, None
+        try:
+            doc = json.loads(body)
+        except (ValueError, RecursionError):  # no JSON the guard can read: it cannot tell what the server reads
+            return True, None
+        query = doc.get("query") if isinstance(doc, dict) else None
+        return True, query if isinstance(query, str) else None
+    return False, None
 
 
 def _tracker_seg(seg: list[str]) -> Optional[Decision]:
@@ -1887,6 +1990,11 @@ def _tracker_seg(seg: list[str]) -> Optional[Decision]:
         if method is None:  # `-XPATCH`: the value glued on
             method = next((t[2:] for t in seg[at[0] + 1 :] if t.startswith("-X") and len(t) > 2), "GET")
         method = method.upper()
+        if path == "graphql":
+            found, doc = _gh_graphql_query(seg, at[0] + 1)
+            d = _graphql_verdict(doc, "gh api graphql") if found else None
+            if d:
+                return d
         mutating = method != "GET" or any(_gh_api_mutating(t) for t in seg)
         if _ISSUE_API_RE.search(path) and mutating:
             return "deny", TRACKER_MSG.format(what=f"`gh api {method} {path}` writes issues or labels",
@@ -1896,6 +2004,11 @@ def _tracker_seg(seg: list[str]) -> Optional[Decision]:
                     or _ADO_WIT_RE.search(t)), "")
         if url and _http_writes(seg, head, url):
             return "deny", TRACKER_MSG.format(what=f"`{head}` writes to {url}", use="the tracker verbs")
+        if any(_GRAPHQL_URL_RE.search(t) for t in seg[1:]):
+            found, doc = _http_graphql_query(seg, head)
+            d = _graphql_verdict(doc, f"{head} …/graphql") if found else None
+            if d:
+                return d
     words = seg[1:] if head in ("python", "python3") else seg
     if words and os.path.basename(words[0]) in ("tracker", "tracker.py") and "owner" in words[1:2]:
         use = "`tracker new|claim|block|review|note`; ask the owner to promote or close"

@@ -17,6 +17,7 @@ Usage:
   guard.py rules | help | version
 """
 
+import copy
 import datetime as _dt
 import functools
 import json
@@ -451,8 +452,9 @@ def _delete_judge(ev: Event) -> Optional[str]:
         p = script if os.path.isabs(script) else os.path.join(ev.cwd, script)
         try:
             with open(p, encoding="utf-8", errors="replace") as fh:
-                if DELETE_RE.search(fh.read()):
-                    return f"script {script} contains a delete/discard pattern"
+                content = fh.read()
+            if DELETE_RE.search(content) or DELETE_RE.search(fold_names(content)):  # as written and folded (0.8.0)
+                return f"script {script} contains a delete/discard pattern"
         except (OSError, ValueError):
             continue  # not a readable file (missing, a directory, a NUL byte in the name): nothing to scan
     return delete_what(ev.command)  # the reader takes the here-document bodies out itself (0.8.0)
@@ -2854,24 +2856,114 @@ def subcommand_hit(args: list[str], verbs: frozenset, pairs: dict) -> Optional[s
 
 
 # ----------------------------------------------------------------------------
+# Names in capitals (0.8.0): the owner's file system ignores case, so `GIT`, `/usr/bin/GIT`, `SUDO` and `BASH -c`
+# run the real tools (measured). Every shell rule judges the command as written and, when a known tool name is
+# written with a capital letter, also the text with those names folded to the spelling the tables use.
+# ----------------------------------------------------------------------------
+
+# the names the shell rules and the reader compare a command's name with: the keys of their tables, plus the names
+# that stand only in an expression or a comparison of the code (SHELL_RE, FIND_RE, GIT_RE, TOOL_RE, CODE_RE,
+# SCRIPT_RE, _SQL_CLIENT_RE, _DEPLOY_PATTERNS, _HI_COARSE, `head == "…"`, `name in ("…", …)`). Verbs, options and
+# shell keywords are none; a key that is not lower-case itself (`$SHELL`) is not a folding target
+_NAMES_IN_CODE = frozenset(
+    "git gh sed az aws eval find xargs parallel curl wget http https xh cat echo printf tracker tracker.py ssh env"
+    " export command coproc source node ruby perl python python3 pip pip3 sudo exec time nohup doas rm rmdir unlink"
+    " trash shred truncate mise npm pnpm yarn brew cargo docker kubectl helm dropdb prisma rclone rsync bun deno"
+    " bash sh zsh dash ksh tsx ts-node php psql mysql mariadb cqlsh snowsql duckdb cockroach hbase clickhouse"
+    " terraform tofu hcloud pvesh qm pulumi cdk ansible-playbook flux del rd".split()
+)
+_FOLD_NAMES = frozenset(
+    k for table in (
+        _WRAPPERS, _RM_CLASS, _DELETE_TOOLS, _WRITERS_LAST, _WRITERS_ALL, _SEARCH_TOOLS, _DEPLOY_TABLE, _DEPLOY_ADDED,
+        _OTHER_LLM_CLIS, _HI_TABLE, _HI_PAIRS, _HI_PAIRS_ONLY, _HI_BARE, _HI_SELF_FETCH, _HI_SHELLS, _HI_DOWNLOADERS,
+        _HI_WRAPPERS, _HI_REMOTE, _NC_SHELLS, _NC_WRAPPERS, _NC_SUB_WRAPPERS, _NC_OPTION_RUNNERS, _NC_SCRIPT_OPTIONS,
+        _NC_FD, _NC_ELSEWHERE, _NC_SCRIPT_WORDS, _NC_STDIN_SHELLS, _NAMES_IN_CODE,
+    ) for k in table if k == k.lower()
+)
+_FOLD_RUN_RE = re.compile(r"[^\s;|&()<>`]+")  # a candidate: a run of characters between the shell's separators
+
+
+def _known_name(name: str) -> bool:
+    """A tool name the rules compare with, or a form _PIP_RE and _PYTHON_RE accept (`pip3.12`, `python3`)."""
+    return name in _FOLD_NAMES or bool(_PIP_RE.match(name) or _PYTHON_RE.match(name))
+
+
+def fold_names(text: str) -> str:
+    """The text with every known tool name that is written with a capital letter replaced by the spelling the
+    tables use. Of a run only the part after its last `/` counts; quotes and backslashes in it are looked through
+    and kept (`G"I"T` -> `g"i"t`, `\\GIT` -> `\\git`). A part is folded only when it is no known name as written and
+    its lower-case form is one, so `.ENV`, `FOO=GIT`, `$BASH`, `GIT-123-fix`, options and verbs stay as written."""
+    if text == text.lower():
+        return text
+    out: list[str] = []
+    last = 0
+    for m in _FOLD_RUN_RE.finditer(text):
+        run = m.group(0)
+        if run == run.lower():
+            continue
+        cut = run.rfind("/") + 1
+        part = run[cut:]
+        bare = part.replace('"', "").replace("'", "").replace("\\", "")
+        if _known_name(bare) or not _known_name(bare.lower()):
+            continue
+        out.append(text[last : m.start() + cut])
+        out.append(part.lower())
+        last = m.end()
+    if not out:
+        return text
+    out.append(text[last:])
+    return "".join(out)
+
+
+def judged_twice(name: str, rule: "Rule") -> "Rule":
+    """A shell rule that answers for the command as written and, when fold_names changes the text, also for the
+    folded text: a deny from either wins, asks are combined. A command without a capital name is judged once,
+    by the same code path as before. Two readings, not a `.lower()` at each comparison: three passes are
+    expressions over the raw text, some matches are case-sensitive on purpose (the SQL keyword TRUNCATE), and with
+    the reading as written kept nothing can get weaker."""
+
+    @functools.wraps(rule)
+    def judge(ev: Event, cfg: dict) -> Optional[Decision]:
+        first = rule(ev, cfg)
+        if ev.kind != "shell" or not ev.command:
+            return first
+        try:
+            folded = fold_names(ev.command)
+        except Exception as exc:  # main() turns a crash into exit 1, which both harnesses let run silently: ask
+            return combine([d for d in (first, ("ask", READER_MSG.format(
+                rule=name, what=f"the command could not be read ({type(exc).__name__})"))) if d])
+        if folded == ev.command:
+            return first
+        twin = copy.copy(ev)
+        twin.command = folded
+        second = rule(twin, cfg)
+        for d in (first, second):
+            if d and d[0] == "deny":
+                return d
+        return combine([d for d in (first, second) if d])
+
+    return judge
+
+
+# ----------------------------------------------------------------------------
 # Registry
 # ----------------------------------------------------------------------------
 
 Rule = Callable[[Event, dict], Optional[Decision]]
 RULES: dict[str, Rule] = {
-    "delete-guard": rule_delete_guard,
+    "delete-guard": judged_twice("delete-guard", rule_delete_guard),
     "secret-write": rule_secret_write,
     "secret-read": rule_secret_read,
-    "secret-shell": rule_secret_shell,
-    "git-guard": rule_git_guard,
-    "deploy-ask": rule_deploy_ask,
-    "egress-guard": rule_egress_guard,
+    "secret-shell": judged_twice("secret-shell", rule_secret_shell),
+    "git-guard": judged_twice("git-guard", rule_git_guard),
+    "deploy-ask": judged_twice("deploy-ask", rule_deploy_ask),
+    "egress-guard": judged_twice("egress-guard", rule_egress_guard),
     "scratch-md": rule_scratch_md,
-    "protected-branch": rule_protected_branch,
+    "protected-branch": judged_twice("protected-branch", rule_protected_branch),
     "fan-out": rule_fan_out,
     "guard-config": rule_guard_config,
-    "tracker-guard": rule_tracker_guard,
-    "host-install": rule_host_install,
+    "tracker-guard": judged_twice("tracker-guard", rule_tracker_guard),
+    "host-install": judged_twice("host-install", rule_host_install),
 }
 PRE_RULES = list(RULES)
 

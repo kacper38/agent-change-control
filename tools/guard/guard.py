@@ -2564,13 +2564,13 @@ def _http_method(seg: list[str]) -> str:
     return method
 
 
-_GITHUB_API_RE = re.compile(r"api\.github\.com\.?(/[^\s?#]*)", re.IGNORECASE)
+_GITHUB_API_RE = re.compile(r"api\.github\.com\.?(?::\d+)?(/[^\s?#]*)", re.IGNORECASE)
 
 
 def _github_api_path(word: str) -> Optional[str]:
     """The path a word names on GitHub's REST host, slashes doubled up taken as one, or None (F17: a second
     slash, `api.github.com//repos/…`, and the dot of the root zone, `api.github.com./repos/…`, reach the same
-    API; `api.github.com.evil.example` is another host)."""
+    API; `api.github.com.evil.example` is another host; second fix round: so does a port, `api.github.com:443`)."""
     m = _GITHUB_API_RE.search(word)
     return re.sub(r"/+", "/", m.group(1)) if m else None
 
@@ -2697,7 +2697,8 @@ def _gh_api_mutating(t: str) -> bool:
 
 # 0.9.0 (decision aa): GitHub's GraphQL endpoint. A mutation whose field names an issue or a label is the REST
 # write's twin and is denied; any other mutation, and a query the line does not hold, asks; a query is a read
-_GRAPHQL_URL_RE = re.compile(r"api\.github\.com/graphql(?![\w.-])", re.IGNORECASE)
+# second fix round: the host with the dot of the root zone or a port, and a doubled slash, as _GITHUB_API_RE has it
+_GRAPHQL_URL_RE = re.compile(r"api\.github\.com\.?(?::\d+)?/+graphql(?![\w.-])", re.IGNORECASE)
 _GRAPHQL_TOKEN_RE = re.compile(r'"(?:\\.|[^"\\])*"|[{}()]|[A-Za-z_][A-Za-z0-9_]*')
 _GRAPHQL_TRACKER_RE = re.compile(r"Issue|Label")
 GRAPHQL_ASK_MSG = "tracker-guard: {what}. Confirm the command; the tracker is the only writer of issues and labels."
@@ -2760,8 +2761,10 @@ def _graphql_join(values: list) -> tuple:
 
 
 def _gh_graphql_path(path: str) -> bool:
-    """`gh api` reaches the GraphQL API as `graphql`, `/graphql` or with the host (measured, gh 2.92.0)."""
-    return path.lower().rstrip("/") in ("graphql", "/graphql") or bool(_GRAPHQL_URL_RE.search(path))
+    """`gh api` reaches the GraphQL API as `graphql`, `/graphql` or with the host (measured, gh 2.92.0); slashes
+    doubled up are taken as one, as for the merge path."""
+    flat = re.sub(r"/+", "/", path)
+    return flat.lower().rstrip("/") in ("graphql", "/graphql") or bool(_GRAPHQL_URL_RE.search(path))
 
 
 def _gh_graphql_query(seg: list[str], start: int) -> tuple:
@@ -2865,7 +2868,9 @@ def _tracker_seg(seg: list[str]) -> Optional[Decision]:
             d = _graphql_verdict(doc, "gh api graphql") if found else None
             if d:
                 return d
-        if method == "PUT" and _MERGE_API_RE.search(path):
+        # second fix round: `repos/o/r/pulls//3/merge` is the same path, as curl's merge path reads it (the issue
+        # write below keeps its own reading)
+        if method == "PUT" and _MERGE_API_RE.search(re.sub(r"/+", "/", path)):
             return "ask", MERGE_ASK_MSG.format(what=f"`gh api PUT {path}`")
         mutating = method != "GET" or any(_gh_api_mutating(t) for t in seg)
         if _ISSUE_API_RE.search(path) and mutating:

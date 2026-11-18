@@ -401,6 +401,22 @@ _DELETE_TOOLS: dict = {
 # a verb of _DELETE_TOOLS that deletes only with one of these options (`go clean` cleans the build output; Go's
 # flag package takes one dash or two)
 _DELETE_ONLY_WITH = {"go": frozenset({"-modcache", "--modcache"})}
+# F27: Go's flag package takes a boolean flag with a value too (`-modcache=true`); strconv.ParseBool reads these
+# as false, and any other value (true, 1, T, or one the line does not show) is read as true
+_GO_BOOL_FALSE = frozenset({"0", "f", "F", "false", "FALSE", "False"})
+
+
+def _delete_only_with(name: str, args: list[str]) -> bool:
+    """The options of _DELETE_ONLY_WITH for `name` are given: bare, or as `-flag=value` with a value that is not
+    false (F27)."""
+    flags = _DELETE_ONLY_WITH[name]
+    for t in args:
+        flag, eq, value = t.partition("=")
+        if t in flags or (eq and flag in flags and value not in _GO_BOOL_FALSE):
+            return True
+    return False
+
+
 _SWITCH_DISCARDS = frozenset({"--discard-changes", "-f", "--force"})
 
 
@@ -457,7 +473,7 @@ def delete_what(command: str) -> Optional[str]:
                     return f"`git {sub}` discards work"
                 continue
             hit = subcommand_hit(caps_verbs(name, list(toks[i + 1 :])), *entry)
-            if hit and (name not in _DELETE_ONLY_WITH or _DELETE_ONLY_WITH[name] & set(toks[i + 1 :])):
+            if hit and (name not in _DELETE_ONLY_WITH or _delete_only_with(name, list(toks[i + 1 :]))):
                 return f"`{name} {hit}` deletes"
     return None
 

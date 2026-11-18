@@ -1525,6 +1525,27 @@ Fs | feat/x | secret-shell | ask | grep --context=3 TOKEN .env
 Fs | feat/x | secret-shell | ask | grep -C 3 TOKEN .env
 """  # noqa: E501 (a row holds its command as written)
 # --- fix rows, addendum 4: end ---
+# --- fix rows, addendum 5: begin (rows-b-fix-add5.txt, 2026-11-18) ---
+ROWS_FIX_ADD5 = r"""
+# Guard 0.9.0, fix pass, addendum 5 (2026-11-18): a finding of bin/fresh-review on the build.
+# Row: id | branch[@client] | rule | expected | command
+#
+# --- F27 (a spelling the new cache table leaves out; silent at 0.8.0 too): Go's flag package takes a boolean
+#     flag with a value (`-modcache=true`, `-modcache=1`, and with two dashes), so the module cache is emptied
+#     in these spellings as well (flag package: "-flag=x" for boolean flags; strconv.ParseBool reads 1, t, T,
+#     TRUE, true, True as true).
+F27 | feat/x | delete-guard | ask | go clean -modcache=true
+F27 | feat/x | delete-guard | ask | go clean --modcache=true
+F27 | feat/x | delete-guard | ask | go clean -modcache=1
+F27 | feat/x | delete-guard | ask | go clean -i -modcache=T
+# the neighbours that hold today and keep holding
+Fs | feat/x | delete-guard | ask | go clean -modcache
+Fs | feat/x | delete-guard | ask | go clean --modcache
+Fs | feat/x | shell | silent | go clean -modcache=false
+Fs | feat/x | shell | silent | go clean -cache
+Fs | feat/x | shell | silent | go clean
+"""  # noqa: E501 (a row holds its command as written)
+# --- fix rows, addendum 5: end ---
 
 _FILE_INPUT = {
     "Read": lambda p: {"file_path": p},
@@ -1553,6 +1574,7 @@ FIX_ADD_TABLE = _rows(ROWS_FIX_ADD)  # addendum 1 of the fix pass: F22 was due, 
 FIX_ADD2_TABLE = _rows(ROWS_FIX_ADD2)  # addendum 2 of the fix pass: F23 was due, Fs held
 FIX_ADD3_TABLE = _rows(ROWS_FIX_ADD3)  # addendum 3 of the fix pass: F24 was due, Fs held
 FIX_ADD4_TABLE = _rows(ROWS_FIX_ADD4)  # addendum 4 of the fix pass: F25 and F26 were due, Fs held
+FIX_ADD5_TABLE = _rows(ROWS_FIX_ADD5)  # addendum 5 of the fix pass: F27 was due, Fs held
 FILE_TABLE = [tuple(p.strip() for p in line.split(" | ", 4)) for line in FILE_ROWS.splitlines() if line.strip()]
 
 
@@ -1604,6 +1626,13 @@ def test_fix_add3_row(guard, monkeypatch, rid, branch, boundary, rule, expected,
 @pytest.mark.parametrize("rid, branch, boundary, rule, expected, command", FIX_ADD4_TABLE,
                          ids=[f"{row[0]}-{n}" for n, row in enumerate(FIX_ADD4_TABLE)])
 def test_fix_add4_row(guard, monkeypatch, rid, branch, boundary, rule, expected, command):
+    got = _answers(guard, monkeypatch, branch, boundary, rule, command)
+    assert {k: v for k, v in got.items() if v != expected} == {}, command
+
+
+@pytest.mark.parametrize("rid, branch, boundary, rule, expected, command", FIX_ADD5_TABLE,
+                         ids=[f"{row[0]}-{n}" for n, row in enumerate(FIX_ADD5_TABLE)])
+def test_fix_add5_row(guard, monkeypatch, rid, branch, boundary, rule, expected, command):
     got = _answers(guard, monkeypatch, branch, boundary, rule, command)
     assert {k: v for k, v in got.items() if v != expected} == {}, command
 

@@ -30,6 +30,18 @@
                                  are one candidate and become one line (recount.lines says how many);
                                  differing lines of one session are an error. A dry run unless --write; a
                                  line that fails stays as it was and the run exits 1.
+  ledger.py agents [--session ID] [--watch]
+                                 one session as a tree, read from local files and written nowhere: the session on the
+                                 first line, under it every agent it started (the agents of a workflow under the
+                                 workflow, an agent under the agent that started it where its meta file names one).
+                                 Per line: state, duration (first to last line of the transcript), cost in USD (the
+                                 ledger's own count: the lines add up to cost_usd_own), tool calls, model. The state
+                                 is inferred from the end of each transcript, Claude Code reports none: a session or
+                                 agent that was cut off still reads as running. Without --session: the session of the
+                                 current project folder whose transcript was written last; ID is a full id or a
+                                 prefix that fits one session. --watch draws the tree again every 2 s until Ctrl-C
+                                 (once when the output is no terminal). Prints no prompt, tool input or tool output.
+                                 Claude Code only.
 Telemetry dir: KZ_TELEMETRY_DIR or ~/.claude/telemetry.
 """
 import argparse
@@ -967,6 +979,131 @@ def read_agents(transcript: str, tdir: str, prices: dict) -> dict:
             "files_not_read": files_bad + (not top["read"]), "lines_not_read": lines_bad + top["errors"]}
 
 
+def fmt_duration(seconds: Optional[int]) -> str:
+    """45s, 3m46s, 1h05m, 2d03h: two units at most, so the column stays six wide; `-` for none."""
+    if seconds is None:
+        return "-"
+    if seconds < 60:
+        return f"{seconds}s"
+    if seconds < 3600:
+        return f"{seconds // 60}m{seconds % 60:02d}s"
+    if seconds < 86400:
+        return f"{seconds // 3600}h{seconds % 3600 // 60:02d}m"
+    return f"{seconds // 86400}d{seconds % 86400 // 3600:02d}h"
+
+
+def fmt_cost(cost: Optional[float], read: bool = True) -> str:
+    """`$1,234.50`; `<$0.01` for a cost above zero that rounds to nothing; `n/a` without a price, `-` unread."""
+    if cost is None:
+        return "n/a" if read else "-"
+    text = f"${cost:,.2f}"
+    return "<$0.01" if cost > 0 and text == "$0.00" else text
+
+
+def _row_line(state: str, time: str, cost: str, mark: bool, tools: str, model: str, label: str) -> str:
+    return f"{state:<8}  {time:>6}  {cost:>9}{'*' if mark else ' '}  {tools:>5}  {model:<14}  {label}".rstrip()
+
+
+AGENT_NOTES = ("columns: state, duration, cost in USD, tool calls, model",
+               "duration: first to last line of the transcript; cost: the ledger's own count",
+               "state: inferred from the transcript's end, so a cut-off run reads as running")
+
+
+def agent_lines(data: dict) -> list:
+    """The rows of read_agents() as a tree, then the notes under it; lines without line ends."""
+    rows = data["rows"]
+    last_child: dict = {}
+    for i, row in enumerate(rows):
+        if row["parent"] is not None:
+            last_child[row["parent"]] = i
+    lines = []
+    for i, row in enumerate(rows):
+        prefix = ""
+        if row["parent"] is not None:
+            prefix = "`- " if last_child[row["parent"]] == i else "|- "
+            up = row["parent"]
+            while rows[up]["parent"] is not None:  # each ancestor below the session, the outermost ends up first
+                prefix = ("   " if last_child[rows[up]["parent"]] == up else "|  ") + prefix
+                up = rows[up]["parent"]
+        lines.append(_row_line(row["state"], fmt_duration(row["seconds"]), fmt_cost(row["cost"], row["read"]),
+                               row["mark"], "-" if row["tools"] is None else str(row["tools"]), row["model"] or "-",
+                               prefix + row["label"]))
+    total = data["total"]
+    lines.append(_row_line("total", "", fmt_cost(total["cost"]), total["mark"], str(total["tools"]), "",
+                           f"agents {total['agents']}, running {total['running']}"))
+    lines += [""] + list(AGENT_NOTES)
+    if data["workflows"]:
+        lines.append("a workflow line sums the agents under it; the total counts each agent once")
+    if data["marks"]:
+        marks = ", ".join(f"{_clean(name)} {n}" for name, n in sorted(data["marks"].items()))
+        lines.append(f"* requests the ledger does not price ({marks}): these costs are too low")
+    if data["unpriced_models"]:
+        names = ", ".join(_clean(m) for m in data["unpriced_models"])
+        lines.append(f"n/a: no price row for {names}, so these lines and the total have no cost")
+    files, bad = data["files_not_read"], data["lines_not_read"]
+    if files + bad:
+        lines.append(f"not read: files {files}, lines {bad} (what they held is missing above)")
+    return lines
+
+
+def _encodable(text: str, stream) -> str:
+    """`text` with every character the stream cannot encode replaced, so that writing it never raises."""
+    encoding = getattr(stream, "encoding", None)
+    if not isinstance(encoding, str):  # a StringIO and its kind take any text
+        return text
+    try:
+        return text.encode(encoding, "replace").decode(encoding)
+    except LookupError:  # an encoding Python does not know: let the stream decide
+        return text
+
+
+def find_session(text: Optional[str], cwd: str) -> tuple:
+    """(transcript, None) or (None, error line): the session `--session TEXT` names, or without it the session
+    of the project folder of `cwd` whose transcript was written last."""
+    root = os.path.expanduser(os.environ.get("CLAUDE_CONFIG_DIR") or "~/.claude")
+    projects = os.path.join(root, "projects")
+    if text is not None:
+        if not re.fullmatch(r"[A-Za-z0-9_-]+", text):
+            return None, "ledger agents: a session id holds only letters, digits, - and _"
+        hits = sorted(glob.glob(os.path.join(glob.escape(projects), "*", text + "*.jsonl")))
+        exact = [h for h in hits if os.path.basename(h) == text + ".jsonl"]
+        if len(hits) == 1:
+            return hits[0], None
+        if len(exact) == 1:
+            return exact[0], None
+        if not hits:
+            return None, f"ledger agents: no session fits {text} under {projects}"
+        return None, f"ledger agents: {text} fits {len(hits)} sessions, give more of the id"
+    folder = os.path.join(projects, re.sub(r"[^A-Za-z0-9]", "-", cwd))
+    try:
+        names = os.listdir(folder)
+    except OSError:  # no project folder: the same answer as a folder without sessions
+        names = []
+    newest = None
+    for name in names:
+        path = os.path.join(folder, name)
+        if not name.endswith(".jsonl") or not os.path.isfile(path):
+            continue
+        try:
+            key = (os.stat(path).st_mtime_ns, name)
+        except OSError:  # gone since the listing: not a candidate
+            continue
+        newest = key if newest is None or key > newest else newest
+    if newest is None:
+        return None, f"ledger agents: no session of this folder under {folder}; name one with --session"
+    return os.path.join(folder, newest[1]), None
+
+
+def cmd_agents(session: Optional[str], out, err, tdir: str, prices: dict, cwd: Optional[str] = None) -> int:
+    """The `agents` verb: one session as a tree on `out`; an error is one line on `err` and exit 1."""
+    transcript, problem = find_session(session, os.getcwd() if cwd is None else cwd)
+    if problem:
+        err.write(_encodable(_clean(problem) + "\n", err))
+        return 1
+    out.write(_encodable("".join(line + "\n" for line in agent_lines(read_agents(transcript, tdir, prices))), out))
+    return 0
+
+
 def main(argv: list, stdin=None, out=None, err=None) -> int:
     stdin, out, err = stdin or sys.stdin, out or sys.stdout, err or sys.stderr
     ap = argparse.ArgumentParser(prog="ledger", add_help=False)
@@ -976,6 +1113,8 @@ def main(argv: list, stdin=None, out=None, err=None) -> int:
     s.add_argument("--days", type=int, default=7)
     r = sub.add_parser("recount")
     r.add_argument("--write", action="store_true")
+    g = sub.add_parser("agents")
+    g.add_argument("--session")
     if not argv or argv[0] in ("help", "-h", "--help"):
         out.write(__doc__.strip() + "\n")
         return 0
@@ -989,6 +1128,8 @@ def main(argv: list, stdin=None, out=None, err=None) -> int:
         return cost_report(telemetry_dir(), ns.days, out)
     if ns.verb == "recount":
         return recount(telemetry_dir(), ns.write, out)
+    if ns.verb == "agents":
+        return cmd_agents(ns.session, out, err, telemetry_dir(), load_prices())
     out.write(__doc__.strip() + "\n")
     return 1
 

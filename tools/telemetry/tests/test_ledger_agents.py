@@ -1,6 +1,9 @@
+import ast
+import io
 import json
 import os
 import pathlib
+import shutil
 
 import pytest
 
@@ -317,3 +320,180 @@ def test_model_label(ledger, tmp_path):
     long = [asst(model="a-model-name-that-is-long", req="r1")]
     rows = tree(ledger, make_session(tmp_path / "b", long), tmp_path / "telemetry")["rows"]
     assert rows[0]["model"] == "a-model-nam..."
+
+
+# step 2: the printed tree and the choice of the session
+EXPECTED = {"plain": "plain.txt", "two-agents": "two-agents.txt", "workflow": "workflow.txt", "nested": "nested.txt",
+            "running": "running.txt", "broken": "broken.txt", "noprice": "noprice.txt"}
+MARKERS = ("PROMPT-MARKER", "INPUT-MARKER", "OUTPUT-MARKER", "REPLY-MARKER", "THINKING-MARKER")
+ID_ERROR = "ledger agents: a session id holds only letters, digits, - and _\n"
+
+
+@pytest.fixture
+def fixture_prices(ledger, prices, monkeypatch):
+    monkeypatch.setattr(ledger, "load_prices", lambda *a, **k: prices)
+    return prices
+
+
+def run(ledger, argv, out=None):
+    out = out if out is not None else io.StringIO()
+    err = io.StringIO()
+    code = ledger.main(argv, out=out, err=err)
+    return code, out.getvalue() if isinstance(out, io.StringIO) else None, err.getvalue()
+
+
+@pytest.mark.parametrize("name", sorted(EXPECTED))
+def test_expected_trees_byte_for_byte(ledger, fixture_env, fixture_prices, name):
+    want = (FIX / "expected" / EXPECTED[name]).read_bytes().decode("utf-8")
+    assert run(ledger, ["agents", "--session", SESSIONS[name]]) == (0, want, "")
+
+
+def test_no_marker_is_ever_printed(ledger, fixture_env, fixture_prices):
+    for sid in SESSIONS.values():
+        code, out, err = run(ledger, ["agents", "--session", sid])
+        assert code == 0 and not any(m in out + err for m in MARKERS)
+
+
+def test_text_from_files_cannot_move_the_cursor_or_add_lines(ledger, tmp_path, monkeypatch):
+    nasty = "a\x1b[2J\x1b]0;t\x07b\nc\td\r\x00 e"
+    meta = {"agentType": nasty, "description": nasty}
+    t = make_session(tmp_path, [asst(), {"type": "cost-state", "totalCostUSD": 1.0}],
+                     [("", "x1", [user("b"), asst(model="claude-" + nasty)], meta),
+                      ("workflows/wf_1", "x2", [user("b"), asst()], None)], sid="s-1")
+    scripts = pathlib.Path(t).with_suffix("") / "workflows" / "scripts"
+    scripts.mkdir(parents=True)
+    (scripts / f"n{nasty.replace(chr(0), '')}-wf_1.js").write_text("")
+    write_lines(tmp_path / "telemetry" / "spawns.jsonl",
+                [{"event": "SubagentStart", "session": "s-1", "agent_id": "x9", "agent": nasty}])
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("KZ_TELEMETRY_DIR", str(tmp_path / "telemetry"))
+    monkeypatch.setattr(ledger, "load_prices", lambda *a, **k: OPUS)
+    code, out, err = run(ledger, ["agents", "--session", "s-1"])
+    assert code == 0 and err == ""
+    assert all(c.isprintable() for c in out.replace("\n", ""))
+    # session, agent, missing, workflow, its agent, total, blank, three notes, the workflow note, the n/a line
+    assert len(out.splitlines()) == 12
+
+
+def test_a_stream_that_only_encodes_ascii_never_raises(ledger, tmp_path, monkeypatch):
+    t = make_session(tmp_path, [asst()], [("", "x1", [user("b"), asst()], {"agentType": "Zürich",
+                                                                           "description": "naïve ✓ 東京"})])
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("KZ_TELEMETRY_DIR", str(tmp_path / "telemetry"))
+    raw = io.BytesIO()
+    out = io.TextIOWrapper(raw, encoding="ascii", errors="strict")
+    code, _, err = run(ledger, ["agents", "--session", pathlib.Path(t).stem], out=out)
+    out.flush()
+    assert code == 0 and err == ""
+    assert b"Z?rich  na?ve ? ??" in raw.getvalue()
+
+
+@pytest.mark.parametrize("text, code, first", [
+    (SESSIONS["two-agents"], 0, "finished  15m30s"),
+    ("2222", 0, "finished  15m30s"),
+    ("11111111-9", 0, "finished     42s"),
+])
+def test_session_by_id_or_prefix(ledger, fixture_env, fixture_prices, text, code, first):
+    got = run(ledger, ["agents", "--session", text])
+    assert got[0] == code and got[1].startswith(first) and got[2] == ""
+
+
+@pytest.mark.parametrize("text, msg", [
+    ("11111111-", "ledger agents: 11111111- fits 2 sessions, give more of the id\n"),
+    ("1", "ledger agents: 1 fits 2 sessions, give more of the id\n"),
+    ("zzz", f"ledger agents: no session fits zzz under {FIX / 'config' / 'projects'}\n"),
+    ("../x", ID_ERROR), ("*", ID_ERROR), ("", ID_ERROR), ("a b", ID_ERROR), ("x\n", ID_ERROR),
+])
+def test_session_errors_are_one_line(ledger, fixture_env, fixture_prices, text, msg):
+    assert run(ledger, ["agents", "--session", text]) == (1, "", msg)
+
+
+def test_an_exact_name_wins_over_longer_ones(ledger, tmp_path, monkeypatch):
+    for sid in ("abc", "abcd", "abc-2"):
+        make_session(tmp_path, [asst()], sid=sid)
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("KZ_TELEMETRY_DIR", str(tmp_path / "telemetry"))
+    code, out, _ = run(ledger, ["agents", "--session", "abc"])
+    assert code == 0 and out.splitlines()[0].endswith("session abc")
+
+
+def copy_config(tmp_path, newest):
+    shutil.copytree(str(FIX / "config"), str(tmp_path / "config"), symlinks=True)
+    for i, path in enumerate(sorted((tmp_path / "config" / "projects" / "-work-demo").glob("*.jsonl"))):
+        when = 1_700_000_000 + (10_000 if path.stem == newest else i)
+        os.utime(str(path), (when, when))
+    return tmp_path / "config"
+
+
+def test_without_session_the_newest_of_the_folder(ledger, tmp_path, monkeypatch, prices):
+    copy_config(tmp_path, SESSIONS["nested"])
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "config"))
+    out, err = io.StringIO(), io.StringIO()
+    code = ledger.cmd_agents(None, out, err, str(FIX / "telemetry"), prices, cwd="/work/demo")
+    assert (code, err.getvalue()) == (0, "")
+    assert out.getvalue() == (FIX / "expected" / "nested.txt").read_text(encoding="utf-8")
+
+
+def test_without_session_a_tie_takes_the_name_that_sorts_last(ledger, tmp_path, monkeypatch, prices):
+    config = copy_config(tmp_path, "none")
+    for path in (config / "projects" / "-work-demo").glob("*.jsonl"):
+        os.utime(str(path), (1_700_000_000, 1_700_000_000))
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(config))
+    out, err = io.StringIO(), io.StringIO()
+    assert ledger.cmd_agents(None, out, err, str(FIX / "telemetry"), prices, cwd="/work/demo") == 0
+    assert out.getvalue().splitlines()[0].endswith(f"session {SESSIONS['broken']}")
+
+
+def test_without_session_and_no_project_folder(ledger, fixture_env, prices):
+    out, err = io.StringIO(), io.StringIO()
+    assert ledger.cmd_agents(None, out, err, str(FIX / "telemetry"), prices, cwd="/work/none.x") == 1
+    folder = FIX / "config" / "projects" / "-work-none-x"
+    assert (out.getvalue(), err.getvalue()) == (
+        "", f"ledger agents: no session of this folder under {folder}; name one with --session\n")
+
+
+@pytest.mark.parametrize("seconds, text", [(None, "-"), (0, "0s"), (59, "59s"), (60, "1m00s"), (226, "3m46s"),
+                                           (3599, "59m59s"), (3600, "1h00m"), (3900, "1h05m"), (86399, "23h59m"),
+                                           (86400, "1d00h"), (2 * 86400 + 3 * 3600 + 59, "2d03h")])
+def test_duration_format(ledger, seconds, text):
+    assert ledger.fmt_duration(seconds) == text
+
+
+@pytest.mark.parametrize("cost, read, text", [(0.0, True, "$0.00"), (0.004, True, "<$0.01"), (0.005, True, "$0.01"),
+                                              (1234.5, True, "$1,234.50"), (None, True, "n/a"), (None, False, "-")])
+def test_cost_format(ledger, cost, read, text):
+    assert ledger.fmt_cost(cost, read) == text
+
+
+def snapshot(*folders):
+    seen = []
+    for folder in folders:
+        for root, dirs, files in os.walk(str(folder)):
+            for name in sorted(dirs + files):
+                st = os.lstat(os.path.join(root, name))
+                seen.append((os.path.relpath(os.path.join(root, name), str(folder)), st.st_size, st.st_mtime_ns))
+    return sorted(seen)
+
+
+def test_the_view_writes_nothing(ledger, fixture_env, fixture_prices):
+    before = snapshot(FIX / "config", FIX / "telemetry")
+    for sid in SESSIONS.values():
+        assert run(ledger, ["agents", "--session", sid])[0] == 0
+    assert snapshot(FIX / "config", FIX / "telemetry") == before
+
+
+def test_help_names_the_verb_and_the_inference(ledger):
+    code, out, _ = run(ledger, ["help"])
+    assert code == 0 and "inferred" in out and "ledger.py agents [--session ID] [--watch]" in out
+
+
+def test_imports_are_standard_library_only():
+    allowed = {"argparse", "datetime", "fcntl", "glob", "json", "math", "os", "re", "shutil", "sys", "time", "typing"}
+    tree_ = ast.parse((FIX.parents[2] / "ledger.py").read_text(encoding="utf-8"))
+    names = set()
+    for node in ast.walk(tree_):
+        if isinstance(node, ast.Import):
+            names.update(a.name.split(".")[0] for a in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            names.add((node.module or "").split(".")[0])
+    assert names <= allowed

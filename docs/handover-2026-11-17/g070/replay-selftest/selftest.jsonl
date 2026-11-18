@@ -1,0 +1,9 @@
+{"type": "assistant", "cwd": "/nonexistent-scratch", "gitBranch": "feat/x", "message": {"content": [{"type": "tool_use", "id": "t1", "name": "Bash", "input": {"command": "git status --short"}}]}}
+{"type": "assistant", "cwd": "/nonexistent-scratch", "gitBranch": "feat/x", "message": {"content": [{"type": "tool_use", "id": "t2", "name": "Bash", "input": {"command": "docker run --env-file=.env img"}}]}}
+{"type": "assistant", "cwd": "/nonexistent-scratch", "gitBranch": "feat/x", "message": {"content": [{"type": "tool_use", "id": "t3", "name": "Bash", "input": {"command": "docker run --env-file=.env img"}}]}}
+{"type": "assistant", "cwd": "/nonexistent-scratch", "gitBranch": "feat/x", "message": {"content": [{"type": "tool_use", "id": "t4", "name": "Bash", "input": {"command": "docker run --env-file=.env img"}}]}}
+{"type": "assistant", "cwd": "/nonexistent-scratch", "gitBranch": "feat/x", "message": {"content": [{"type": "tool_use", "id": "t5", "name": "Bash", "input": {"command": "HUSKY=0 git commit -m x"}}]}}
+{"type": "assistant", "cwd": "/nonexistent-scratch", "gitBranch": "main", "message": {"content": [{"type": "tool_use", "id": "t6", "name": "Read", "input": {"file_path": ".ENV"}}]}}
+{"type": "assistant", "cwd": "/nonexistent-scratch", "gitBranch": "main", "message": {"content": [{"type": "tool_use", "id": "t7", "name": "Read", "input": {"file_path": "README.md"}}]}}
+{"type": "user", "cwd": "/nonexistent-scratch", "gitBranch": "main", "message": {"content": [{"type": "tool_result", "tool_use_id": "t7", "content": "docker run --env-file=.env img"}]}}
+{"type": "assistant", "cwd": "/nonexistent-scratch", "gitBranch": "main", "message": {"content": [{"type": "tool_use", "id": "t8", "name": "WebSearch", "input": {"query": "docker run --env-file=.env img"}}]}}

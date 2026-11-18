@@ -1,0 +1,7 @@
+{
+  "plain": "git status --short",
+  "row_files": ["../g080/rows-a.txt", "../g080/rows-a-added.txt", "../g080/rows-a-caps.txt"],
+  "big_unit": "echo hello world from the build log; ",
+  "big_caps_unit": "echo hello world from the build log; GIT status; ",
+  "big_bytes": 100000
+}

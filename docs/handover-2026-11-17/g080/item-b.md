@@ -65,11 +65,15 @@ Guard 0.9.0: tools, verbs and secret stores the tables did not name are read, an
     that day keeps asking (`find . -name .env`, `cat ca.pem`, `chmod 600 .env`, `cp .env.example .env`,
     `touch .env`, `git reset f`, `git rm --cached f`, `git branch -d x`, `wc -c .env`, `ssh-add`), and
     `ls .env | xargs cat` and `cat $(echo .env)` keep asking
-14. the acceptance rows written before the build hold (the files and counts below); apart from the rows of
-    criterion 13, nothing that asked or denied at 0.8.0 stops doing so; forms the engineer did not see are
-    checked and reported; a replay over the session commands of the last 45 days lists every verdict that
-    changed, with the number of asks that went away and the number that came; the time of the hook through
-    its real entry point is measured before and after
+14. the acceptance rows written before the build hold: 934 shell rows and 36 file rows, 507 of them red at
+    0.8.0 and 463 that held and keep holding (on the branch `docs/handover-2026-11-17`, with the first 16
+    characters of the sha256: `rows-b.txt` 298 `fa392bca5f44e50f`, `rows-b4.txt` 255 `f23eafab8dc33308`,
+    `rows-b4-az.txt` 123 `13dfa135930530c3`, `rows-b5.txt` 119 `ddacf3cdb9e0ed89`, `rows-b5-files.txt` 36
+    `3ce73c16c2d178d9`, `rows-c.txt` 139 `0a611fa833d0aad5`); apart from the rows of criterion 13, nothing
+    that asked or denied at 0.8.0 stops doing so; forms the engineer did not see are checked and reported; a
+    replay over the session commands of the last 45 days lists every verdict that changed, with the number of
+    asks that went away and the number that came; the time of the hook through its real entry point is
+    measured before and after
 15. ask and deny fixtures for both harnesses; `ruff check tools` and `pytest` pass on Python 3.9 and 3.13;
     README, `docs/SYSTEM.md` and `docs/USING-AT-WORK.md` say what changed; one `DECISIONS.md` block names what
     this version does not cover
@@ -107,5 +111,12 @@ the build; "hold" must keep holding. The unseen forms are for the orchestrating 
 | `g080-heldout/heldout-b4.txt` | 295 | | | `371f1f7b395d88ca` | unseen forms for criteria 4 to 9 |
 | `g080-heldout/heldout-b5.txt` | 79 | | | `280eb856aedf6a44` | unseen forms for criteria 10 to 12 |
 
-Together: 934 shell rows and 36 file rows, 507 of them red at 0.8.0. The counts are frozen when the item
-names them; a file changed after that gets a new hash and a line in the decision log, as the rows of #50 did.
+Together: 934 shell rows and 36 file rows, 507 of them red at 0.8.0. Criterion 14 carries these figures into
+the item, since the tracker builds the item from the criteria, the scope and the source and this table stays
+here. An answer that strikes rows changes a file, its hash and the figures in criterion 14 before the item is
+filed. The counts are frozen when the item names them; a file changed after that gets a new hash and a line
+in the decision log, as the rows of #50 did.
+
+The call that files the item is printed by `python3 -I g080/item_cmd.py g080/item-b.md`, which refuses this
+file while it is a draft. The criteria quote guarded commands as text, so the guard will ask about the
+command line that files the item; the owner runs it in his own terminal or confirms that one ask.

@@ -68,10 +68,13 @@ under (e).
 | `fresh-review-178055a.json` | Receipt of the third run, over the three commits after `9cc43e1` only: the whole diff had grown to 307 kB, and the tool's egress screen lets 200 kB through. COMMENT, 3 findings. They led to the section on asks above and to (e) in `DECISIONS.md`, to the two tools in `reviewer/probes/`, and to `SHA256SUMS`. |
 | `SHA256SUMS` | The sha256 of each file above as it was copied out of the container. For the decision log and the three receipts it is the sum of the container's own file. The reports are the text the agent handed back, written out with one closing line break. |
 | `ruff.txt`, `pytest-py313.txt`, `captures.json` | `ruff check tools` and the test suite on Python 3.13 at `9cc43e1`, captured with `tools/tracker/evidence_export.py capture`: lint clean, 5,271 passed, 9 skipped. |
+| `closeout-mac.txt`, `checks-mac.txt` | Added after the merge, from the owner's machine on 2026-11-18, and not out of the container. The first is what `a_mac_closeout.sh` printed: the replay of the recorded calls against guard 0.7.1 and 0.8.0 with the own boundary and inside a client boundary, and the hook timing; its first line and its last two are the calling session's (start, exit code, end). The second is what `orch/closeout_checks.sh` printed: the time span of the replayed transcripts, the rows of group A, the draft rows of groups B and C, lint and the suite on Python 3.13 and 3.9 on `main` at `ec23d5d`. Both scripts are on the branch `docs/handover-2026-11-17` under `docs/handover-2026-11-17/g080-heldout/` (at `c992b81`). The files hold totals: no command text, no path. Their two lines in `SHA256SUMS` were taken on that machine. `DECISIONS.md`, second block of 2026-11-18, reads them. |
 
 ## Gaps
 
-- Who answered the three asks that ran is open (section above).
+- Who answered the three asks that ran is open (section above). Asked on 2026-11-18 whether he
+  had tapped for any of them, the owner answered "I can't say" (`DECISIONS.md`, second block of
+  2026-11-18, with what the harness's record says).
 - The session transcripts are not here: every tool call with its input, the dialog, and the
   harness's record of each permission decision. They stay with the Claude Code session named in
   the commit trailers. The file column of the join, the quotes and the harness's records above
@@ -85,7 +88,9 @@ under (e).
   `178055a`. The commit that answers its third run was not read by a fresh context.
 - Owed on the owner's machine before #50 can be accepted: the replay over 45 days of real
   commands (criterion 6), the hook timing, a local Python 3.9 run (CI runs 3.9), and
-  `tracker.py review 50 --pr …`.
+  `tracker.py review 50 --pr …`. The first three ran there on 2026-11-18, after the merge
+  (`closeout-mac.txt`, `checks-mac.txt`): nothing weaker than 0.7.1. The replay covers the 36
+  days of transcripts that machine holds, not 45.
 - No traceability table: the acceptance rows are test cases in
   `tools/guard/tests/test_bypass_forms.py`, and the pull request lists the seven criteria of #50
   with their state.

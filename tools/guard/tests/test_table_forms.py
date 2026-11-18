@@ -118,6 +118,73 @@ Rs | feat/x | shell | silent | brew list
 Rs | feat/x | shell | silent | apt list --installed
 Rs | feat/x | shell | silent | grep -rn "uv remove" docs
 Rs | feat/x | shell | silent | echo "run poetry remove requests to drop it"
+T1 | feat/x | delete-guard | ask | unshare -n rm -rf build
+T1 | feat/x | delete-guard | ask | ltrace rm -rf build
+T1 | feat/x | delete-guard | ask | gdb --args rm -rf build
+T1 | feat/x | delete-guard | ask | gdb -batch -ex run --args rm -rf build
+T1 | feat/x | delete-guard | ask | lldb -b -o run -- rm -rf build
+T1 | feat/x | delete-guard | ask | valgrind rm -rf build
+T1 | feat/x | delete-guard | ask | noglob rm -rf build
+T1 | feat/x | delete-guard | ask | nocorrect rm -rf build
+T1 | feat/x | delete-guard | ask | - rm -rf build
+T1 | feat/x | delete-guard | ask | noglob nocorrect rm -rf build
+T1 | feat/x | delete-guard | ask | lockf /tmp/l rm -rf build
+T1 | feat/x | delete-guard | ask | lockf -t 0 /tmp/l rm -rf build
+T1 | feat/x | delete-guard | ask | ssh-agent rm -rf build
+T1 | feat/x | delete-guard | ask | fakeroot rm -rf build
+T1 | feat/x | delete-guard | ask | faketime '2020-01-01' rm -rf build
+T1 | feat/x | delete-guard | ask | unbuffer rm -rf build
+T1 | feat/x | delete-guard | ask | taskset -c 0 rm -rf build
+T1 | feat/x | delete-guard | ask | chrt 10 rm -rf build
+T1 | feat/x | delete-guard | ask | nsenter -t 1 -m rm -rf build
+T1 | feat/x | delete-guard | ask | runuser -u ci -- rm -rf build
+T1 | feat/x | delete-guard | ask | pkexec rm -rf build
+T1 | feat/x | delete-guard | ask | gosu ci rm -rf build
+T1 | feat/x | delete-guard | ask | systemd-run --user rm -rf build
+T1 | feat/x | delete-guard | ask | firejail rm -rf build
+T1 | feat/x | delete-guard | ask | watchexec -- rm -rf build
+T1 | feat/x | delete-guard | ask | hyperfine 'rm -rf build'
+T1 | feat/x | delete-guard | ask | hyperfine --runs 3 'rm -rf build'
+T1 | feat/x | delete-guard | ask | entr -s 'rm -rf build'
+T1 | feat/x | delete-guard | ask | op run -- rm -rf build
+T1 | feat/x | delete-guard | ask | aws-vault exec prod -- rm -rf build
+T1 | feat/x | delete-guard | ask | doppler run -- rm -rf build
+T1 | feat/x | delete-guard | ask | dotenv run -- rm -rf build
+T1 | feat/x | delete-guard | ask | launchctl submit -l x -- rm -rf build
+T1 | feat/x | delete-guard | ask | sshpass -e rm -rf build
+T1 | feat/x | delete-guard | ask | sudo unshare -n rm -rf build
+T1 | feat/x | delete-guard | ask | bash -c 'noglob rm -rf build'
+T2 | feat/x | git-guard | deny | noglob git push --force origin feat
+T2 | feat/x | git-guard | deny | nocorrect git commit --no-verify -m x
+T2 | feat/x | git-guard | deny | noglob git push origin HEAD:main
+T2 | main | git-guard | deny | noglob git push
+T2 | feat/x | git-guard | deny | xcrun git push --force origin feat
+T2 | feat/x | git-guard | deny | ssh-agent git push --force origin feat
+T2 | feat/x | git-guard | deny | unshare -n git push --force origin feat
+T2 | feat/x | git-guard | deny | ltrace git push --force origin feat
+T2 | feat/x | git-guard | deny | valgrind git push --force origin feat
+T2 | feat/x | git-guard | deny | fakeroot git push --force origin feat
+T2 | feat/x | git-guard | deny | lockf -t 0 /tmp/l git push --force origin feat
+T2 | feat/x | git-guard | deny | op run -- git push --force origin feat
+T2 | feat/x | git-guard | deny | runuser -u ci -- git push --force origin feat
+T2 | feat/x | git-guard | deny | watchexec -e py -- git push --force origin feat
+T2 | feat/x | git-guard | deny | hyperfine 'git push --force origin feat'
+T2 | feat/x | git-guard | deny | gdb -batch -ex run --args git push --force origin feat
+T2 | feat/x | git-guard | deny | sshpass -p x git push --force origin feat
+T3 | feat/x | host-install | ask | noglob npm install -g x
+T3 | feat/x | host-install | ask | nocorrect brew install jq
+T3 | feat/x | host-install | ask | unshare -n npm install -g x
+T3 | feat/x | host-install | ask | op run -- npm install -g x
+T3 | feat/x | host-install | ask | hyperfine 'npm install -g x'
+T3 | feat/x | host-install | ask | lockf /tmp/l npm install -g x
+T3 | feat/x | host-install | ask | ssh-agent npm install -g x
+T4 | feat/x | tracker-guard | deny | noglob gh issue close 3
+T4 | feat/x | tracker-guard | deny | op run -- gh issue close 3
+T4 | feat/x | deploy-ask | ask | hyperfine --runs 3 'terraform apply -auto-approve'
+T4 | main | protected-branch | deny | noglob git commit -m x
+T4 | main | protected-branch | deny | nocorrect git commit -m x
+T4 | feat/x@client | egress-guard | ask | noglob gemini -p hi
+T4 | feat/x@client | egress-guard | ask | op run -- codex exec hi
 Ts | feat/x | delete-guard | ask | strace rm -rf build
 Ts | feat/x | delete-guard | ask | caffeinate rm -rf build
 Ts | feat/x | delete-guard | ask | timeout 30 rm -rf build

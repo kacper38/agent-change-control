@@ -2428,7 +2428,18 @@ _NC_WRAPPERS: dict = {
     **dict.fromkeys("sudo doas env command exec builtin nohup time nice ionice stdbuf caffeinate arch setsid strace"
                     " watch xargs parallel coproc busybox toybox".split(), 0),
     **dict.fromkeys("timeout gtimeout flock chroot ssh script".split(), 1),  # BSD `script file command …`
+    # 0.9.0, each from its manual: util-linux 2.39 unshare(1), nsenter(1), runuser(1), taskset(1) (`taskset MASK
+    # command`, or `-c LIST`), chrt(1) (`chrt PRIORITY command`); ltrace(1); valgrind 3.2x; zsh 5.9 precommand
+    # modifiers `noglob`, `nocorrect`, `-`; FreeBSD/macOS lockf(1) (`lockf FILE command`); OpenSSH ssh-agent(1)
+    # (`ssh-agent command`); fakeroot(1); libfaketime faketime(1) (`faketime TIMESTAMP command`); expect's
+    # unbuffer(1); polkit pkexec(1); gosu (`gosu USER command`); systemd-run(1); firejail(1); watchexec 2
+    # (`watchexec … -- command`); entr(1); sshpass(1); Xcode xcrun(1) (`xcrun TOOL …`)
+    **dict.fromkeys("unshare nsenter runuser ltrace valgrind noglob nocorrect - ssh-agent fakeroot unbuffer pkexec"
+                    " systemd-run firejail watchexec entr sshpass xcrun".split(), 0),
+    **dict.fromkeys("lockf faketime gosu chrt taskset".split(), 1),
 }
+# 0.9.0: debuggers that run the command after one of their options: gdb(1) `--args`, lldb(1) `--`
+_NC_AFTER_OPTION: dict = {"gdb": frozenset({"--args"}), "lldb": frozenset({"--"})}
 # 0.7.0: a tool plus a subcommand that runs a command -> {subcommand words: plain words before that command}.
 # Runners run it on this machine; container tools run it in a container (the image, container, service or pod
 # comes first). The subcommand is found past the tool's own options; a `--` after it puts the command next.
@@ -2444,6 +2455,14 @@ _NC_SUB_WRAPPERS: dict = {
     "kubectl": {("run",): 1, ("exec",): 1, ("debug",): 1},  # fix pass: `kubectl debug <pod> … -- <command…>`
     "oc": {("run",): 1, ("exec",): 1, ("rsh",): 1, ("debug",): 1},  # `oc rsh <pod> <command…>`
     "devcontainer": {("exec",): 0},
+    # 0.9.0: secret injectors that run a command (1Password CLI 2 `op run -- …`, aws-vault 7 `aws-vault exec
+    # PROFILE -- …`, Doppler CLI 3 `doppler run -- …`) and launchd's launchctl(1) `submit -l LABEL -- …`,
+    # `asuser UID …`
+    "op": {("run",): 0},
+    "aws-vault": {("exec",): 1},
+    "doppler": {("run",): 0},
+    "launchctl": {("submit",): 0, ("asuser",): 1},
+    "dotenv": {("run",): 0},  # python-dotenv 1 `dotenv run -- …`
 }
 # fix pass: a tool plus a subcommand whose command follows an option: `nix develop … -c <command…>`,
 # `nix shell <installables…> --command <command…>`; the word after the first such option is a command word
@@ -2461,7 +2480,9 @@ _NC_FD_EXEC = frozenset("-x -X --exec --exec-batch".split())  # fd runs the comm
 _NC_ELSEWHERE = _HI_REMOTE | {"podman-compose"}
 # names whose quoted words are command lines for a shell: `ssh host '…'`, `watch '…'`, `parallel '…' ::: a`,
 # `trap '…' EXIT`, `tmux send-keys '…' Enter`
-_NC_SCRIPT_WORDS = frozenset("ssh watch parallel trap tmux".split())
+_NC_SCRIPT_WORDS = frozenset("ssh watch parallel trap tmux hyperfine watchexec entr".split())  # 0.9.0: the last
+# three take a command line as one quoted word (hyperfine 1.18 `hyperfine '…'`, watchexec 2 `watchexec '…'`,
+# entr(1) `entr -s '…'`)
 _NC_FIND_EXEC = frozenset("-exec -execdir -ok -okdir".split())
 _NC_HELP = frozenset("-h -help --help".split())
 _NC_FALLBACK_SPLIT_RE = re.compile(r"\|\||&&|[;|\n()`]")
@@ -2978,6 +2999,8 @@ def _command_word_indexes(toks: tuple) -> set:
             later = _nc_wrapped(toks, j + 1, 0)  # `coproc NAME { …`: a name stands only before a compound command
         elif name in _NC_OPTION_RUNNERS:
             later = _nc_option_wrapped(toks, j, _NC_OPTION_RUNNERS[name])
+        elif name in _NC_AFTER_OPTION:  # `gdb … --args <command…>`, `lldb … -- <command…>`
+            later = [k + 1 for k in range(j + 1, n - 1) if toks[k] in _NC_AFTER_OPTION[name]][:1]
         elif name in _NC_WRAPPERS:
             later = _nc_wrapped(toks, j, _NC_WRAPPERS[name])
         elif name in _NC_SUB_WRAPPERS:
@@ -3146,7 +3169,7 @@ _FOLD_NAMES = frozenset(
         _WRAPPERS, _RM_CLASS, _DELETE_TOOLS, _WRITERS_LAST, _WRITERS_ALL, _SEARCH_TOOLS, _DEPLOY_TABLE, _DEPLOY_ADDED,
         _OTHER_LLM_CLIS, _HI_TABLE, _HI_PAIRS, _HI_PAIRS_ONLY, _HI_BARE, _HI_SELF_FETCH, _HI_SHELLS, _HI_DOWNLOADERS,
         _HI_WRAPPERS, _HI_REMOTE, _NC_SHELLS, _NC_WRAPPERS, _NC_SUB_WRAPPERS, _NC_OPTION_RUNNERS, _NC_SCRIPT_OPTIONS,
-        _NC_FD, _NC_ELSEWHERE, _NC_SCRIPT_WORDS, _NC_STDIN_SHELLS, _NAMES_IN_CODE,
+        _NC_FD, _NC_ELSEWHERE, _NC_SCRIPT_WORDS, _NC_STDIN_SHELLS, _NC_AFTER_OPTION, _NAMES_IN_CODE,
     ) for k in table if k == k.lower()
 )
 _FOLD_RUN_RE = re.compile(r"[^\s;|&()<>`]+")  # a candidate: a run of characters between the shell's separators

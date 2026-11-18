@@ -551,12 +551,15 @@ _SECRET_DIRS = {".azure"}
 
 
 def secret_class(path: Optional[str]) -> Optional[str]:
-    """'secret' (deny on write, ask on read), 'tfvars' (ask on write), or None: the class of the path as written
-    or, when that is none, of the path in lower case (0.8.0). A file system that ignores case opens `.env` for
-    `.ENV`; as written first, so `.env.EXAMPLE` keeps asking while `.ENV.EXAMPLE` is an example file."""
+    """'secret' (deny on write, ask on read), 'tfvars' (ask on write), or None: the stricter class of the path
+    as written and of the path in lower case, secret over tfvars over none (0.8.0). A file system that ignores
+    case opens `.env` for `.ENV`; `.env.EXAMPLE` keeps asking (as written a secret name), `.ENV.EXAMPLE` is an
+    example file, and `~/.AZURE/prod.tfvars` is in a secret directory."""
     cls = _secret_class_as_written(path)
-    if cls is None and path and path != path.lower():
-        cls = _secret_class_as_written(path.lower())
+    if cls != "secret" and path and path != path.lower():
+        lower = _secret_class_as_written(path.lower())
+        if lower == "secret" or cls is None:  # the stricter of the two readings: secret over tfvars over none
+            cls = lower
     return cls
 
 
@@ -649,7 +652,7 @@ def _path_candidates(t: str) -> list[str]:
     out = [word]
     _name, at, path = word.partition("@")
     if at and path:
-        out.append(path.split(";", 1)[0])
+        out.append(path.split(";", 1)[0].strip("\"'"))  # curl takes a quoted name too: `file=@".env"` (0.8.0)
     return out
 
 

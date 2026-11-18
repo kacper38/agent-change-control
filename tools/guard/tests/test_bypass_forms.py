@@ -916,8 +916,7 @@ As | Read | secret-read | ask | .ENV
 As | Read | secret-read | silent | docs/ENV.md
 """
 
-_FIX_OPEN = ("A10", "A14")  # the ids of the fix pass still open; the table holds every row of the pass
-TABLE = _rows(PINNED) + _rows(CLOSED) + _rows(CAPS) + [r for r in _rows(FIX) if r[0] not in _FIX_OPEN]
+TABLE = _rows(PINNED) + _rows(CLOSED) + _rows(CAPS) + _rows(FIX)
 OWN_TABLE = _rows(OWN)
 
 
@@ -945,9 +944,8 @@ def test_own_row(guard, monkeypatch, rid, branch, boundary, rule, expected, comm
     assert {k: v for k, v in got.items() if v != expected} == {}, command
 
 
-FILE_TABLE = [row for row in (tuple(p.strip() for p in line.split(" | ", 4))
-                              for line in (FILES + FIX_FILES).splitlines() if line.strip())
-              if row[0] not in _FIX_OPEN]
+FILE_TABLE = [tuple(p.strip() for p in line.split(" | ", 4)) for line in (FILES + FIX_FILES).splitlines()
+              if line.strip()]
 
 
 @pytest.mark.parametrize("rid, tool, rule, expected, path", FILE_TABLE,

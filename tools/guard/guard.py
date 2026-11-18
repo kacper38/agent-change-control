@@ -17,6 +17,7 @@ Usage:
   guard.py rules | help | version
 """
 
+import bisect
 import copy
 import datetime as _dt
 import functools
@@ -1104,7 +1105,9 @@ def rule_git_guard(ev: Event, cfg: dict) -> Optional[Decision]:
     gate = _git_env_gate(ev.command)
     if gate and gate[0] == "deny":
         return gate
-    return combine(asks + [d for d in (gate, reader_pass(ev.command, judge, "git-guard")) if d])
+    # the net (0.9.0) judges a git behind an unknown word as run here: what that word does is not known
+    net = reader_pass(ev.command, judge, "git-guard", net=lambda seg: _git_guard_seg(seg, ev.cwd, protected))
+    return combine(asks + [d for d in (gate, net) if d])
 
 
 def _local_simple_commands(command: str) -> Optional[set]:
@@ -1548,8 +1551,10 @@ def rule_protected_branch(ev: Event, cfg: dict) -> Optional[Decision]:
             if d:
                 return d
         # the local reading: a commit behind ssh or inside a container happens in another checkout
-        return reader_pass(ev.command, lambda seg: _commit_on_protected(seg, ev.cwd, protected), "protected-branch",
-                           local=True)
+        def judge(seg: list[str]) -> Optional[Decision]:
+            return _commit_on_protected(seg, ev.cwd, protected)
+
+        return reader_pass(ev.command, judge, "protected-branch", local=True, net=judge)
     return None
 
 
@@ -1826,7 +1831,8 @@ def rule_tracker_guard(ev: Event, cfg: dict) -> Optional[Decision]:
         d = _tracker_seg(seg)
         if d:
             return d
-    return reader_pass(ev.command, _tracker_seg, "tracker-guard")  # the reader takes the bodies out (0.8.0)
+    # the reader takes the bodies out (0.8.0); the net reads a gh or az behind an unknown word (0.9.0)
+    return reader_pass(ev.command, _tracker_seg, "tracker-guard", net=_tracker_seg)
 
 
 def _gh_words(seg: list[str]) -> list[int]:
@@ -2637,13 +2643,54 @@ def _nc_remote_word(toks: list[str]) -> Optional[int]:
 
 
 READER_MSG = "{rule}: {what}. Confirm the command; the guard could not check it."
+NET_MSG = ("{rule}: `{tool}` is a command the guard does not know, and the `{name}` command behind it would {verdict}"
+           " on its own. Confirm the command.")
+# 0.9.0, the net (decision 3b): a later word naming one of these, behind a command word no table knows, starts
+# that tool's command. Text tools print their words and run none of them
+_NET_TOOLS = frozenset({"git", "gh", "az"})
+_NET_TEXT = frozenset("echo printf man which type tldr whereis whatis apropos info help".split())
+
+
+def net_starts(toks) -> tuple:
+    """(index of the unknown command word, index of the `git`, `gh` or `az` behind it) for each command word of a
+    simple command that no table knows and that is no text tool, when such a word follows it before the next
+    command word. Memoised per token tuple: three rules ask for the same simple commands."""
+    got = _net_cached(tuple(toks))
+    if isinstance(got, CommandNotRead):
+        raise CommandNotRead(str(got))
+    return got
+
+
+@functools.lru_cache(maxsize=256)
+def _net_cached(toks: tuple):
+    """net_starts' memo: the pairs, or the CommandNotRead that stopped the command word walk."""
+    try:
+        words = sorted(command_word_indexes(toks))
+    except CommandNotRead as exc:  # kept as a value, as _cwi_cached keeps it
+        return exc
+    tools = [j for j, t in enumerate(toks) if os.path.basename(t) in _NET_TOOLS]  # one walk of the words
+    if not tools:
+        return ()
+    out = []
+    for n, i in enumerate(words):
+        name = tool_name(toks[i])
+        if _known_name(name) or name in _NET_TEXT:
+            continue
+        k = bisect.bisect_right(tools, i)
+        nxt = words[n + 1] if n + 1 < len(words) else len(toks)
+        if k < len(tools) and tools[k] < nxt:  # a later command word is judged as itself
+            out.append((i, tools[k]))
+    return tuple(out)
 
 
 def reader_pass(text: str, judge: Callable[[list[str]], Optional[Decision]], rule: str,
-                local: bool = False) -> Optional[Decision]:
+                local: bool = False, net: Optional[Callable[[list[str]], Optional[Decision]]] = None
+                ) -> Optional[Decision]:
     """The token pass of a rule that first reads segments(): judge the words from every command word of every
     simple command the line runs. The first deny wins; asks are combined. Never raises: a line the reader could
-    not read, or a crash, asks with the reason (a rule's own deny from its first pass is returned before this)."""
+    not read, or a crash, asks with the reason (a rule's own deny from its first pass is returned before this).
+    With `net` (0.9.0), the words from a `git`, `gh` or `az` behind an unknown command word are judged by it too,
+    and whatever it answers, ask or deny, asks: the guard does not know what the word in front does."""
     try:
         asks = []
         for toks in nested_commands(text, local):
@@ -2653,6 +2700,11 @@ def reader_pass(text: str, judge: Callable[[list[str]], Optional[Decision]], rul
                     return d
                 if d:
                     asks.append(d)
+            for i, j in net_starts(toks) if net else ():
+                d = net(list(toks[j:]))
+                if d:
+                    asks.append(("ask", NET_MSG.format(rule=rule, tool=os.path.basename(toks[i]),
+                                                       name=os.path.basename(toks[j]), verdict=d[0])))
         return combine(asks)
     except CommandNotRead as exc:  # too deep or too many words: ask rather than pass it unread
         what = str(exc)

@@ -314,6 +314,34 @@ Us | feat/x | shell | silent | grep -rn grm docs
 Us | feat/x | shell | silent | echo grm -rf build
 """  # noqa: E501 (a row holds its command as written)
 ROWS_B4 = r"""
+G1 | feat/x | git-guard | ask | mytool git push --force origin feat
+G1 | feat/x | git-guard | ask | mytool run git commit --no-verify -m x
+G1 | feat/x | git-guard | ask | sandbox-exec -f p.sb git push --force origin feat
+G1 | feat/x | git-guard | ask | ./with-env.sh prod git push --force origin feat
+G1 | feat/x | git-guard | ask | proxychains4 git push -f origin feat
+G1 | feat/x | git-guard | ask | retry 3 git push --force origin feat
+G1 | feat/x | git-guard | ask | sudo mytool git push --force origin feat
+G1 | feat/x | git-guard | ask | FOO=1 mytool git push --force origin feat
+G1 | feat/x | git-guard | ask | bash -c 'mytool git push --force origin feat'
+G1 | feat/x | git-guard | ask | mytool /usr/bin/git push --force origin feat
+G1 | feat/x | git-guard | ask | mytool git push origin HEAD:main
+G1 | feat/x | git-guard | ask | mytool git push origin +feat
+G1 | feat/x | git-guard | ask | mytool git -c core.hooksPath=/dev/null commit -m x
+G1 | feat/x | git-guard | ask | timeout 30 mytool git commit --no-verify -m x
+G1 | main | git-guard | ask | mytool git push
+G2 | feat/x | tracker-guard | ask | mytool gh issue close 3
+G2 | feat/x | tracker-guard | ask | sandbox-exec -f p.sb gh issue edit 3 --add-label status/done
+G2 | feat/x | tracker-guard | ask | mytool gh label create x
+G2 | feat/x | tracker-guard | ask | mytool gh api -X PATCH repos/o/r/issues/3 -f state=closed
+G2 | feat/x | tracker-guard | ask | mytool /opt/homebrew/bin/gh issue close 3
+G2 | feat/x | tracker-guard | ask | retry 3 gh issue comment 3 --body x
+G2 | feat/x | tracker-guard | ask | bash -c 'mytool gh issue close 3'
+G2 | feat/x | tracker-guard | ask | mytool az boards work-item update --id 3 --state Done
+G2 | feat/x | tracker-guard | ask | mytool az devops invoke --area wit --resource workitems
+G3 | main | protected-branch | ask | mytool git commit -m x
+G3 | main | protected-branch | ask | mytool run git commit -m x
+G3 | main | protected-branch | ask | sandbox-exec -f p.sb git commit -am x
+G3 | main | protected-branch | ask | FOO=1 mytool git commit -m x
 Gs | feat/x | shell | silent | echo git commit --no-verify -m x
 Gs | feat/x | git-guard | silent | printf '%s\n' git push --force
 Gs | feat/x | shell | silent | man git push

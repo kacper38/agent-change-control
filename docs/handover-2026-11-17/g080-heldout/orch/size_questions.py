@@ -49,16 +49,20 @@ def main(argv):
                     and "/merge" not in command:
                 continue
             try:
-                segs = guard.segments(command)
-            except Exception:  # a command the first pass cannot split is counted, not judged
+                # the reader's simple commands, so that a name in a message or a here-document for a file is
+                # no call; a first version of this script split the text and counted such mentions
+                read = guard.nested_commands(command)
+            except Exception:  # a command the reader cannot read is counted, not judged
                 unread += count
                 continue
             where = cwd if cwd and os.path.isdir(cwd) else "/nonexistent-scratch"
             got = None
-            for seg in segs:
-                names = [os.path.basename(t) for t in seg]
+            for toks in read:
+                starts = sorted(guard.command_word_indexes(toks))
+                names = {os.path.basename(toks[i]): i for i in reversed(starts)}
+                seg = list(toks)
                 if "az" in names:
-                    words = plain_words(seg[names.index("az") + 1:])
+                    words = plain_words(seg[names["az"] + 1:])
                     if not words:
                         continue
                     verb = words[-1]
@@ -71,7 +75,7 @@ def main(argv):
                                               branch, "own")
                     az_today[(kind, got["deploy-ask"], got["tracker-guard"])] += count
                 if "gh" in names:
-                    rest = seg[names.index("gh") + 1:]
+                    rest = seg[names["gh"] + 1:]
                     joined = " ".join(rest)
                     if "pr merge" in joined or ("api" in rest and "/merge" in joined):
                         form = "gh pr merge" if "pr merge" in joined else "gh api …/merge"
@@ -84,7 +88,7 @@ def main(argv):
                             got = replay.verdicts(guard, ["deploy-ask", "tracker-guard"], tool, tool_input, where,
                                                   branch, "own")
                         merge_today[got["tracker-guard"]] += count
-        print(f"Bash calls {per_tool['Bash']} | not split by the first pass: {unread}")
+        print(f"Bash calls {per_tool['Bash']} | not read by the reader: {unread}")
         print(f"\n== az: {sum(az.values())} calls")
         for kind in ("read", "local", "other"):
             rows = sorted(((n, w) for (k, w), n in az.items() if k == kind), reverse=True)

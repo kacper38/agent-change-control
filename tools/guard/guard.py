@@ -2662,7 +2662,12 @@ def rule_tracker_guard(ev: Event, cfg: dict) -> Optional[Decision]:
                                           use="the tracker verbs; process rules are never bypassed")
     asks = []  # 0.9.0: the first pass can ask (a GraphQL mutation); a later deny of the line still wins
     for seg in segments(command):
-        d = _tracker_seg(seg)
+        # second fix round: a group, subshell or compound in front (`{`, `(`, `then`) hid the head here, and the
+        # reader has the head without the redirections, so httpie's `< q.json` was read nowhere
+        k = 0
+        while k < len(seg) - 1 and (seg[k] in _NC_SHELL_WORDS or seg[k] == "("):
+            k += 1
+        d = _tracker_seg(seg[k:])
         if d and d[0] == "deny":
             return d
         if d:

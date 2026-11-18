@@ -1,6 +1,6 @@
 # Plan — Phase 1: a box to build in, then local orchestration (plan rev 3, steps 1.1 to 1.8, 2.3 and 0.3, and three new steps: 1.0a, 1.0b and 1.9)
 
-Status: PROPOSED on 2026-11-18. It waits for the owner's one approval (`DECISIONS.md`, block "the owner's standing word": one plan per phase). Nothing in it is built before that.
+Status: APPROVED by the owner on 2026-11-18, by his words at 20:16 UTC and by the `ready` marks on the nine items (`DECISIONS.md`, block "Phase 1 plan put up", last line). It was put up as PROPOSED the same day, and nothing in it was built before the approval.
 
 Parent: `docs/PLAN-2026-11-orchestration-ci.md` (rev 3). "Row" below means that plan's row, unchanged (lines 227 to 245); only additions are written out. Line numbers in this file refer to `main` at `0a1cf2b`; they are evidence for the facts as read on 2026-11-18. They move when guard 0.9.0 is merged, so each step's brief reads its places again at its start.
 

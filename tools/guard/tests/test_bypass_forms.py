@@ -959,7 +959,7 @@ Y5 | feat/x | git-guard | deny | HUSKY=0 bash -c "bash -c 'git commit -m x'"
 Y5 | feat/x | git-guard | deny | "HUSKY=0 bash <<'EOF'\nbash -c 'git commit -m x'\nEOF"
 """  # noqa: E501 (a row holds its command as written)
 
-_FIX2_OPEN = ("Y4", "Y5")  # the ids of the second round still open; the table holds every row of the round
+_FIX2_OPEN = ()  # the ids of the second round still open; the table holds every row of the round
 TABLE = (_rows(PINNED) + _rows(CLOSED) + _rows(CAPS) + _rows(FIX)
          + [r for r in _rows(FIX2) if r[0] not in _FIX2_OPEN])
 OWN_TABLE = _rows(OWN)

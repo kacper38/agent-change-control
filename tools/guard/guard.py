@@ -918,7 +918,7 @@ def _git_env_gate(command: str) -> Optional[Decision]:
         exported: list[str] = []
         assigned: dict = {}  # NAME -> `NAME=value` of a plain assignment, which an `export NAME` exports later
         allexport = False  # `set -a`: every later assignment is exported
-        for toks in nested_commands(command):
+        for toks, inherited in zip(nested_commands(command), nested_envs(command)):
             if all(_ASSIGN_RE.match(t) for t in toks):
                 for t in toks:
                     assigned[t.partition("=")[0]] = t
@@ -940,7 +940,9 @@ def _git_env_gate(command: str) -> Optional[Decision]:
                 continue
             for i in sorted(command_word_indexes(toks)):
                 if os.path.basename(toks[i]) == "git":
-                    what = _git_env_bypass([t for t in toks[:i] if _ASSIGN_RE.match(t)] + exported, list(toks[i:]))
+                    # the environment the script inherits from the shell that runs it, the words in front, exports
+                    env = list(inherited) + [t for t in toks[:i] if _ASSIGN_RE.match(t)] + exported
+                    what = _git_env_bypass(env, list(toks[i:]))
                     if what:
                         return "deny", GIT_MSG.format(what=what)
     except CommandNotRead:  # reader_pass reads the same memo next and asks with the reason
@@ -2460,11 +2462,22 @@ def _nc_cached(command: str, local: bool = False):
     """nested_commands' memo: the token tuples and the input files, or the CommandNotRead that stopped the read."""
     out: list[tuple[str, ...]] = []
     inputs: list[str] = []
+    envs: list[tuple[str, ...]] = []
     try:
-        _nc_read(command, 0, out, set(), local, inputs, [])
+        _nc_read(command, 0, out, set(), local, inputs, [], envs)
     except CommandNotRead as exc:  # kept as a value so the second rule does not read the line again
         return exc
-    return tuple(out), tuple(inputs)
+    return tuple(out), tuple(inputs), tuple(envs)
+
+
+def nested_envs(command: str) -> tuple[tuple[str, ...], ...]:
+    """For each token tuple of nested_commands (the full reading), the hook-gate assignments it inherits from the
+    simple commands that run its script (`HUSKY=0 bash -c '…'`), from the same memoised read. Raises as
+    nested_commands."""
+    got = _nc_cached(command, False)
+    if isinstance(got, CommandNotRead):
+        raise CommandNotRead(str(got))
+    return got[2]
 
 
 def _nc_inputs(raw: list[str]) -> list[str]:
@@ -2481,9 +2494,11 @@ def _nc_inputs(raw: list[str]) -> list[str]:
 
 
 def _nc_read(text: str, depth: int, out: list, seen: set, local: bool = False,
-             inputs: Optional[list] = None, bodies: Optional[list] = None) -> None:
+             inputs: Optional[list] = None, bodies: Optional[list] = None, envs: Optional[list] = None,
+             env: tuple = ()) -> None:
     """Append the simple commands of one line to out, then read what each nests one level deeper. `bodies`
-    holds the here-document bodies of the whole read, so a mark in a nested script still finds its body."""
+    holds the here-document bodies of the whole read, so a mark in a nested script still finds its body; `envs`
+    gets, for each tuple of out, `env`: the hook-gate assignments the script inherits (0.8.0)."""
     if depth > _HI_MAX_DEPTH:
         if text.strip():
             raise CommandNotRead(_HI_NOT_READ)
@@ -2508,24 +2523,29 @@ def _nc_read(text: str, depth: int, out: list, seen: set, local: bool = False,
                 raw = raw[: kept[cut]]
                 toks = toks[:cut]
         rows.append((raw, toks))
-    nested = list(subs)  # substitutions outside quotes are simple commands of their own in the lexer already
+    # (script, the environment it inherits); substitutions outside quotes are simple commands of their own in the
+    # lexer already, and a substitution runs in the environment of this text
+    nested = [(s, env) for s in subs]
     for k, (raw, toks) in enumerate(rows):
-        env = _nc_hook_env(toks)
+        own = env + _nc_hook_env(toks)
         # taken from the words before the redirections go: `<<<` is one
-        nested.extend(_nc_with_env(env, _nc_here_strings(raw)))
+        nested.extend((s, own) for s in _nc_here_strings(raw))
         if inputs is not None:
             inputs.extend(_nc_inputs(raw))
         piped = rows[k + 1][1] if k + 1 < len(rows) and seps[k + 1].strip(" \n") in ("|", "|&") else None
         fed, runner = _nc_fed(raw, toks, piped, bodies)
-        nested.extend(_nc_with_env(env if runner is toks else _nc_hook_env(runner or []), fed))
+        fed_env = own if runner is toks else env + _nc_hook_env(runner or [])
+        nested.extend((s, fed_env) for s in fed)
         if not toks:
             continue
         out.append(tuple(toks))
-        nested.extend(_nc_with_env(env, _nc_scripts(toks)))
-    for script in nested:
-        if script not in seen:  # one read per distinct script: a repeated nest costs nothing twice
-            seen.add(script)
-            _nc_read(script, depth + 1, out, seen, local, inputs, bodies)
+        if envs is not None:
+            envs.append(env)
+        nested.extend((s, own) for s in _nc_scripts(toks))
+    for script, script_env in nested:
+        if (script, script_env) not in seen:  # one read per distinct script: a repeated nest costs nothing twice
+            seen.add((script, script_env))
+            _nc_read(script, depth + 1, out, seen, local, inputs, bodies, envs, script_env)
 
 
 def _nc_remote_word(toks: list[str]) -> Optional[int]:
@@ -2682,21 +2702,13 @@ def _nc_fed(raw: list[str], toks: list[str], piped: Optional[list], bodies: list
 _HOOK_ENV_RE = re.compile(r"^(HUSKY|LEFTHOOK|SKIP|GIT_CONFIG_KEY_\w*|GIT_CONFIG_PARAMETERS)=")
 
 
-def _nc_hook_env(toks) -> list[str]:
+def _nc_hook_env(toks) -> tuple:
     """The hook-gate assignments in front of the last command word of a simple command (`HUSKY=0 bash -c …`,
-    `env SKIP=x sh -c …`): the environment of the script a shell there runs."""
+    `env SKIP=x sh -c …`): the environment of the script a shell there runs, and of nothing else."""
     if not toks or not any(_HOOK_ENV_RE.match(t) for t in toks):
-        return []
+        return ()
     last = max(command_word_indexes(toks), default=0)
-    return [t for t in toks[:last] if _HOOK_ENV_RE.match(t)]
-
-
-def _nc_with_env(env: list[str], scripts: list[str]) -> list[str]:
-    """The scripts, each behind an `export` of the environment it gets, so the reader of git-guard sees it."""
-    if not env:
-        return scripts
-    head = "export " + " ".join(shlex.quote(w) for w in env) + "\n"
-    return [head + s for s in scripts]
+    return tuple(t for t in toks[:last] if _HOOK_ENV_RE.match(t))
 
 
 def _nc_runs_stdin(toks) -> bool:

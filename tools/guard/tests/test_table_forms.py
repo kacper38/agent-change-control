@@ -817,9 +817,18 @@ Xs | feat/x | git-guard | silent | "git commit -m \"$(cat <<'EOF'\nfix: \"make; 
 Xs | feat/x | git-guard | deny | "echo \"$(bash <<EOF\ngit commit --no-verify -m x\nEOF\n)\""
 """  # noqa: E501 (a row holds its command as written)
 ROWS_C = r"""
+K1 | feat/x | shell | silent | find . -name yarn
+K1 | feat/x | shell | silent | find . -iname yarn -print
+K1 | feat/x | shell | silent | find node_modules -type d -name yarn
+K1 | feat/x | shell | silent | find . -path ./vendor -prune -o -name yarn
 Ks | feat/x | host-install | ask | find . -name package.json -execdir yarn \;
 Ks | feat/x | host-install | ask | yarn
 Ks | feat/x | shell | silent | find / -name npm -type f
+K2 | feat/x | shell | silent | git restore --staged f
+K2 | feat/x | shell | silent | git restore --staged .
+K2 | feat/x | shell | silent | git restore -S f
+K2 | feat/x | shell | silent | git -C sub restore --staged a b
+K2 | feat/x | shell | silent | git restore --staged --source=HEAD~1 f
 Ks | feat/x | delete-guard | ask | git restore f
 Ks | feat/x | delete-guard | ask | git restore .
 Ks | feat/x | delete-guard | ask | git restore --staged --worktree f
@@ -839,6 +848,17 @@ Ks | feat/x | secret-shell | ask | cat ca.pem
 Ks | feat/x | secret-shell | ask | cat fullchain.pem
 Ks | feat/x | secret-shell | ask | wc -c .env
 Ks | feat/x | secret-shell | ask | ssh-add ~/.ssh/id_ed25519
+K4 | feat/x | shell | silent | git clean -n
+K4 | feat/x | shell | silent | git clean -nd
+K4 | feat/x | shell | silent | git clean -fdn
+K4 | feat/x | shell | silent | git clean -ndx
+K4 | feat/x | shell | silent | git clean --dry-run -fd
+K4 | feat/x | shell | silent | git clean -f -d --dry-run
+K4 | feat/x | shell | silent | kubectl delete --dry-run=client -f x.yaml
+K4 | feat/x | shell | silent | kubectl delete pod x --dry-run=server
+K4 | feat/x | shell | silent | git worktree prune --dry-run
+K4 | feat/x | shell | silent | git worktree prune -n
+K4 | feat/x | shell | silent | git worktree prune -n -v
 Ks | feat/x | delete-guard | ask | git clean -f
 Ks | feat/x | delete-guard | ask | git clean -fd
 Ks | feat/x | delete-guard | ask | git clean -fdx
@@ -849,6 +869,16 @@ Ks | feat/x | delete-guard | ask | kubectl delete pod x
 Ks | feat/x | delete-guard | ask | kubectl delete pod x --dry-run=none
 Ks | feat/x | delete-guard | ask | git worktree prune
 Ks | feat/x | delete-guard | ask | git worktree remove ../wt
+K5 | feat/x | shell | silent | rm --help
+K5 | feat/x | shell | silent | rmdir --help
+K5 | feat/x | shell | silent | shred --help
+K5 | feat/x | shell | silent | truncate --help
+K5 | feat/x | shell | silent | rm --version
+K5 | feat/x | shell | silent | git clean --help
+K5 | feat/x | shell | silent | git clean -h
+K5 | feat/x | shell | silent | docker system prune --help
+K5 | feat/x | shell | silent | kubectl delete --help
+K5 | feat/x | shell | silent | brew uninstall --help
 Ks | feat/x | delete-guard | ask | rm -rf build --help
 Ks | feat/x | delete-guard | ask | rm --help build
 Ks | feat/x | delete-guard | ask | rm -- --help

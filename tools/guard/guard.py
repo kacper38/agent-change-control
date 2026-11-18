@@ -474,8 +474,76 @@ def _truncate_in_the_open(command: str) -> bool:
     return any(_OPEN_WORD_RE.match(t) for toks in nested_commands(command) for t in toks)
 
 
+_DELETE_HELP = frozenset({"--help", "-h", "--version"})
+
+
+def _git_clean_dry(rest: list[str]) -> bool:
+    """`git clean` with -n or --dry-run (also in a cluster, `-fdn`); the letters after an `e` in a cluster, and
+    the word after `-e`, are an exclude pattern (`-f -e -n` deletes) (git-clean(1))."""
+    skip = False
+    for t in rest:
+        if skip:
+            skip = False
+        elif t == "--":
+            return False
+        elif t == "--dry-run":
+            return True
+        elif t in ("-e", "--exclude"):
+            skip = True
+        elif t.startswith("-") and not t.startswith("--"):
+            letters = t[1:].split("e", 1)
+            if "n" in letters[0]:
+                return True
+            skip = len(letters) > 1 and not letters[1]
+    return False
+
+
+def _delete_preview(toks) -> bool:
+    """Group C (decision 3a, rows K2, K4, K5): a simple command that names a deleting tool and deletes nothing:
+    `git restore --staged` (the index only), a preview (`git clean -n`, `git worktree prune -n`, `kubectl delete
+    --dry-run=client`), or a help probe as the sole argument after the tool and its deleting verb (`rm --help`,
+    `git clean -h`, `docker system prune --help`)."""
+    toks = list(toks)
+    if not toks:
+        return False
+    name = tool_name(toks[0])
+    if toks[-1] in _DELETE_HELP and not any(t.startswith("-") for t in toks[1:-1]):
+        if name in _RM_CLASS:
+            return len(toks) == 2
+        if name == "git":
+            return len(toks) == 3
+        entry = _DELETE_TOOLS.get(name)
+        hit = subcommand_hit(toks[1:-1] + ["x"], *entry) if entry else None
+        return bool(hit) and hit.split() == toks[1:-1]
+    if name == "git":
+        sub, rest = _git_subcommand(toks)
+        if sub == "restore":
+            shorts = "".join(t[1:] for t in rest if t.startswith("-") and not t.startswith("--"))
+            return (("--staged" in rest or "S" in shorts) and "--worktree" not in rest and "W" not in shorts)
+        if sub == "clean":
+            return _git_clean_dry(rest)
+        if sub == "worktree" and rest[:1] == ["prune"]:
+            return "-n" in rest or "--dry-run" in rest
+        return False
+    if name == "kubectl":
+        return _dry_run("kubectl", toks[1:])
+    return False
+
+
+def _single_preview(command: str) -> bool:
+    """The whole line is one simple command, with nothing nested, that _delete_preview finds harmless: then the
+    text pass, which cannot tell a preview, is not asked either. Any other line is read as before."""
+    try:
+        cmds = nested_commands(command)
+    except CommandNotRead:  # an unread line is judged by the passes below, which ask for it
+        return False
+    return len(cmds) == 1 and _delete_preview(cmds[0])
+
+
 def _delete_judge(ev: Event) -> Optional[str]:
     """What the command would delete: the text pass, the scan of a script it names, then the token pass."""
+    if _single_preview(ev.command):
+        return None
     if DELETE_RE.search(ev.command) or (
         _SQL_TRUNCATE_RE.search(ev.command)
         and (_SQL_CLIENT_RE.search(ev.command) or _truncate_in_the_open(ev.command))
@@ -1593,6 +1661,8 @@ def rule_deploy_ask(ev: Event, cfg: dict) -> Optional[Decision]:
     if ev.event != "PreToolUse" or ev.kind != "shell" or not ev.command:
         return None
     try:
+        if _single_preview(ev.command):  # 0.9.0 (K5): `kubectl delete --help` as the whole line changes nothing
+            return None
         text = strip_heredocs(ev.command)
         # the 0.6.0 verdict OR the token verdict; the reader takes the here-document bodies out itself (0.8.0)
         what = _deploy_text(text) or deploy_what(ev.command)
@@ -2534,7 +2604,11 @@ def _hi_real(toks: list[str]) -> list[str]:
         return toks
     if os.path.basename(toks[0]) == "command" and toks[1:2] in (["-v"], ["-V"]):
         return []  # a lookup
-    for j in range(1, len(toks)):
+    start = 1
+    if tool_name(toks[0]) == "find":
+        # 0.9.0 (K1): find runs a command only after -exec, -execdir, -ok or -okdir; `-name yarn` is a pattern
+        start = next((k + 1 for k in range(1, len(toks)) if toks[k] in _NC_FIND_EXEC), len(toks))
+    for j in range(start, len(toks)):
         name = os.path.basename(toks[j])
         if name in _HI_REMOTE:
             # the container or remote route, also behind a wrapper

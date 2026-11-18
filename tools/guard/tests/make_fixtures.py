@@ -40,7 +40,7 @@ CASES: dict = {
             "git push origin :old-branch", "find . -name '*.pyc' -delete", "kubectl delete pod web-0",
             "docker system prune -af", "rclone sync remote:a remote:b", "psql -c \"DELETE FROM users WHERE id = 1\"",
             "python3 -c \"import shutil; shutil.rmtree('x')\"", "npm uninstall lodash", "cd dist && rm bundle.js",
-            "git -C ../repo clean -fd", "truncate -s 0 app.log", "git restore --staged main.py", "git stash drop",
+            "git -C ../repo clean -fd", "truncate -s 0 app.log", "git restore main.py", "git stash drop",
         ),
         *shell(
             "allow",
@@ -99,6 +99,8 @@ CASES: dict = {
         *shell("allow", "git checkout -b feat origin/feat"),
         # guard 0.8.0: a script fed to a shell on standard input is read as a script
         *shell("ask", "echo 'rm -rf build' | bash"),
+        # guard 0.9.0, group C (rows K2): `git restore --staged` changes the index only; it asked before
+        *shell("allow", "git restore --staged main.py"),
     ],
     "secret-write": [
         ("deny", "write", {"path": ".env", "content": "TOKEN=abc"}),

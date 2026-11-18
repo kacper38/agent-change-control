@@ -531,6 +531,28 @@ def _git_clean_dry(rest: list[str]) -> bool:
     return _git_dry(rest, "e", ("--exclude",))
 
 
+def _restore_index_only(rest: list[str]) -> bool:
+    """`git restore` that touches the index only: --staged (or -S) and no word that can mean the work tree.
+    git 2.55 parse-options (measured) takes any unambiguous prefix of a long option, so `--w`, `--work`, `--wor`
+    are --worktree; `--n`, `--no`, `--no-` and the prefixes of `--no-staged` may take --staged back. The words
+    after `--` are paths."""
+    staged = False
+    for t in rest:
+        if t == "--":
+            break
+        if t.startswith("--"):
+            name = t.split("=", 1)[0]
+            if len(name) >= 3 and ("--worktree".startswith(name) or "--no-staged".startswith(name)):
+                return False
+            staged = staged or name == "--staged"
+        elif t.startswith("-") and len(t) > 1:
+            letters = t[1:].split("s", 1)[0]  # -s takes the source as its value, glued or as the next word
+            if "W" in letters:
+                return False
+            staged = staged or "S" in letters
+    return staged
+
+
 def _delete_preview(toks) -> bool:
     """Group C (decision 3a, rows K2, K4, K5): a simple command that names a deleting tool and deletes nothing:
     `git restore --staged` (the index only), a preview (`git clean -n`, `git worktree prune -n`, `kubectl delete
@@ -551,8 +573,7 @@ def _delete_preview(toks) -> bool:
     if name == "git":
         sub, rest = _git_subcommand(toks)
         if sub == "restore":
-            shorts = "".join(t[1:] for t in rest if t.startswith("-") and not t.startswith("--"))
-            return (("--staged" in rest or "S" in shorts) and "--worktree" not in rest and "W" not in shorts)
+            return _restore_index_only(rest)
         if sub == "clean":
             return _git_clean_dry(rest)
         if sub == "worktree" and rest[:1] == ["prune"]:

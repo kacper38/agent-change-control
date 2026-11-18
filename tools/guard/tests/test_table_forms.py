@@ -1139,6 +1139,9 @@ Fs | feat/x | delete-guard | ask | git clean -fe -n
 
 # --- F15 (weaker than 0.8.0): git takes `--work` and `--wor` for `--worktree` (measured, git 2.55: the work
 #     tree file is restored and the change is gone)
+F15 | feat/x | delete-guard | ask | git restore --staged --work f.py
+F15 | feat/x | delete-guard | ask | git restore --staged --wor f.py
+F15 | feat/x | delete-guard | ask | git restore -S --work f.py
 Fs | feat/x | shell | silent | git restore --staged f.py
 Fs | feat/x | shell | silent | git restore -S f.py
 Fs | feat/x | delete-guard | ask | git restore --staged --worktree f.py

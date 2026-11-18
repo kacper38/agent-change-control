@@ -1,0 +1,55 @@
+# Guard, group B, part 5, file tools: rows for open question 1 of 2026-11-17 (the guard's own configuration
+# written in capitals passes `guard-config`).
+# DRAFT of 2026-11-18, written by a cloud session. Not frozen: it needs the owner's answer to that question
+# (recommended there: yes, the same two readings as for a secret file name).
+#
+# Row: id | tool | rule | expected | path      (the path is data; no file is opened, written or created)
+#   Y1  red at 0.8.0: the guard's own path with a capital letter in it asks like the plain path
+#   Yt  the plain forms; they ask at 0.8.0 and must keep asking
+#   Ys  paths that are no configuration of the guard, in capitals or not; silent at 0.8.0 and must stay so
+# Why it matters on the owner's machine: its file system ignores case, so `.claude/SETTINGS.json` opens
+# `.claude/settings.json` (measured for secret file names on 2026-11-17, `semantics4.log`).
+# No rows: a shell command that writes these paths. `guard-config` reads the file tools only; plan rev 3,
+# step 1.7, is to change that. Today's verdicts for 17 such commands: probe-b5-guardcfg-shell.at080.log.
+
+# ---------------------------------------------------------------- Y1: a capital letter in the guard's own path
+Y1 | Write | guard-config | ask | .claude/SETTINGS.json
+Y1 | Write | guard-config | ask | .claude/Settings.local.json
+Y1 | Write | guard-config | ask | .CLAUDE/settings.json
+Y1 | Write | guard-config | ask | .claude/GUARD.local.json
+Y1 | Edit | guard-config | ask | .Claude/guard.json
+Y1 | Edit | guard-config | ask | tools/GUARD/guard.py
+Y1 | Edit | guard-config | ask | TOOLS/guard/guard.py
+Y1 | Edit | guard-config | ask | Tools/Guard/tests/test_rules.py
+Y1 | Write | guard-config | ask | .GITHUB/hooks/guard.json
+Y1 | Write | guard-config | ask | .github/HOOKS/guard.json
+Y1 | Write | guard-config | ask | ~/.claude/SETTINGS.json
+Y1 | Write | guard-config | ask | ~/.CLAUDE/settings.json
+Y1 | Write | guard-config | ask | ~/.claude/HOOKS/pre.sh
+Y1 | Edit | guard-config | ask | sub/dir/.claude/Guard.json
+
+# ---------------------------------------------------------------- Yt: the plain forms
+Yt | Write | guard-config | ask | .claude/settings.json
+Yt | Write | guard-config | ask | .claude/settings.local.json
+Yt | Write | guard-config | ask | .claude/guard.json
+Yt | Write | guard-config | ask | .claude/guard.local.json
+Yt | Edit | guard-config | ask | tools/guard/guard.py
+Yt | Edit | guard-config | ask | tools/guard/tests/test_rules.py
+Yt | Write | guard-config | ask | .github/hooks/guard.json
+Yt | Write | guard-config | ask | ~/.claude/settings.json
+Yt | Write | guard-config | ask | ~/.claude/hooks/pre.sh
+
+# ---------------------------------------------------------------- Ys: no configuration of the guard
+Ys | Write | guard-config | silent | docs/SETTINGS.json
+Ys | Write | guard-config | silent | docs/settings.json
+Ys | Write | guard-config | silent | .claude/skills/x/SKILL.md
+Ys | Write | guard-config | silent | .claude/SKILLS/x/SKILL.md
+Ys | Edit | guard-config | silent | .claude/agents/GUARD.md
+Ys | Edit | guard-config | silent | tools/GUARDRAILS/x.py
+Ys | Edit | guard-config | silent | tools/tracker/tracker.py
+Ys | Write | guard-config | silent | src/Guard.py
+Ys | Write | guard-config | silent | docs/tools/guard-notes.md
+Ys | Write | guard-config | silent | .github/workflows/ci.yml
+Ys | Write | guard-config | silent | README.md
+Ys | Read | guard-config | silent | .claude/SETTINGS.json
+Ys | Read | guard-config | silent | tools/guard/guard.py

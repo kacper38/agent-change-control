@@ -1,0 +1,192 @@
+# Guard, group B, part 5: rows for open questions 2, 3 and 6 of 2026-11-17, and for what the reviews of
+# group A left.
+# DRAFT of 2026-11-18, written by a cloud session after group A was merged (guard 0.8.0 on `main`). Nothing here
+# is frozen and nothing is decided: there is no tracker item, and each part rests on a word the owner has not
+# given yet.
+#   W1        needs his answer to open question 2 (recommended there: yes)
+#   W2        needs his answer to open question 3 (recommended there: group B's tables)
+#   W3 W4     need his answer to open question 6 (recommended there: deny `--admin`, ask for a plain merge)
+#   X1 to X5  need his word that the forms the reviews of group A left go into this pull request
+#
+# Row: id | branch[@client] | rule | expected | command      (commands are data, nothing runs)
+# Ids ending in `s` hold at 0.8.0 and must keep holding; every other id is red at 0.8.0.
+#   W1        the GitHub API host in capitals: a write to an issue or a label is denied like the plain host
+#   W2        a verb of brew or gem in capitals answers like the plain verb
+#   W3 W4     merging a pull request with gh or through the API: ask; with `--admin`: deny
+#   X1        the hook gate switched off by an export inside `eval`, in front of a commit or a push
+#   X2        `LEFTHOOK=false`, the second spelling of lefthook's off switch
+#   X3        a script fed to `ssh host` with an option behind the host
+#   X4        a script fed to a shell inside a group or a subshell
+#   X5        a `case` pattern inside `"$( … )"`: no false deny, and a shell fed there is read
+#
+# Calls this session made. Each is the owner's to strike:
+#   1. W1 covers the host and the scheme. A path in capitals (`/REPOS/o/r/ISSUES/3`) has no row: whether the
+#      forge serves it was not measured.
+#   2. W2 holds verbs in capitals only for brew and gem, and only all in capitals. Measured on the owner's
+#      machine on 2026-11-17 (`semantics4.log`): `brew LIST --help` and `gem LIST --help` work, `brew Config`
+#      does not, and gh, npm, uv, poetry, go, kubectl and pip refuse a verb in capitals. The removing and
+#      installing verbs were not run in capitals; that they work like LIST is an inference.
+#      `brew INSTALL jq` and `gem INSTALL rake` ask already at 0.8.0, because `install` is itself a known tool
+#      name and is folded (rows Ws).
+#   3. W3 and W4 are rows of `tracker-guard`, the rule that denies the Azure DevOps twins today
+#      (`az repos pr update --status completed`: "merges behind the tracker"; `--bypass-policy`). The twins are
+#      denied outright; the recommended answer for gh is an ask for a plain merge. If the owner wants gh like
+#      az, the W3 rows become deny rows. Plan rev 3 (step 1.7) denies `gh pr merge` in a cloud session whatever
+#      this answer is. Two fixture cases expect `gh pr merge` to pass today, each for both harnesses: the one
+#      of `tracker-guard` (`gh pr merge 3 --rebase`) has to follow, the one of `git-guard` stays as it is.
+#   4. X2: lefthook's documentation names `LEFTHOOK=0` and `LEFTHOOK=false` as its off switch. Not measured
+#      here: no lefthook on this machine.
+#   5. X3: OpenSSH reads options behind the host name as its own, so `ssh build -T` still has no command and
+#      the remote login shell reads the here-document. Read in ssh's manual and source, not run.
+# No rows, because nothing is decided or designed: a NUL character in the command (it switches the reading of
+# a here-document as a script off; an ask on any NUL would close it), `gh pr review --approve`,
+# `gh pr merge --disable-auto`, `az repos pr update --auto-complete true`, `az repos pr set-vote`, the forge's
+# API path in capitals, a mixed-case verb (`brew Uninstall`), and the two false denies the review named
+# (`HUSKY=0 ssh build 'git commit -m x'`, `bash -c 'export HUSKY=0'; bash -c 'git commit -m x'`).
+
+# ---------------------------------------------------------------- W1: the GitHub API host in capitals (tracker-guard, deny)
+W1 | feat/x | tracker-guard | deny | curl -X PATCH https://API.GITHUB.COM/repos/o/r/issues/3
+W1 | feat/x | tracker-guard | deny | curl -X PATCH https://Api.GitHub.com/repos/o/r/issues/3 -d '{"state":"closed"}'
+W1 | feat/x | tracker-guard | deny | curl -XPOST https://API.GITHUB.COM/repos/o/r/issues -d '{"title":"x"}'
+W1 | feat/x | tracker-guard | deny | curl --request DELETE https://API.github.com/repos/o/r/labels/x
+W1 | feat/x | tracker-guard | deny | curl -d '{"name":"x"}' https://api.GITHUB.com/repos/o/r/labels
+W1 | feat/x | tracker-guard | deny | wget --method=PATCH https://API.GITHUB.COM/repos/o/r/issues/3
+W1 | feat/x | tracker-guard | deny | http PATCH https://API.GITHUB.COM/repos/o/r/issues/3 state=closed
+W1 | feat/x | tracker-guard | deny | curl -X PATCH HTTPS://API.GITHUB.COM/repos/o/r/issues/3
+W1 | feat/x | tracker-guard | deny | sudo curl -X PATCH https://API.GITHUB.COM/repos/o/r/issues/3
+W1 | feat/x | tracker-guard | deny | bash -c 'curl -X PATCH https://API.GITHUB.COM/repos/o/r/issues/3'
+W1 | main | tracker-guard | deny | curl -X PATCH https://API.GITHUB.COM/repos/o/r/issues/3
+
+# ---------------------------------------------------------------- W2: a verb of brew or gem in capitals (the plain verb's answer)
+W2 | feat/x | delete-guard | ask | brew UNINSTALL jq
+W2 | feat/x | delete-guard | ask | brew REMOVE jq
+W2 | feat/x | delete-guard | ask | sudo brew UNINSTALL jq
+W2 | feat/x | delete-guard | ask | bash -c 'brew UNINSTALL jq'
+W2 | feat/x | delete-guard | ask | BREW UNINSTALL jq
+W2 | feat/x | host-install | ask | brew UPGRADE
+W2 | feat/x | host-install | ask | brew REINSTALL jq
+W2 | feat/x | host-install | ask | brew TAP homebrew/cask
+# the plain form of these three is red too, due with rows-b.txt (R2, R3)
+W2 | feat/x | delete-guard | ask | gem UNINSTALL rake
+W2 | feat/x | delete-guard | ask | brew CLEANUP
+W2 | feat/x | delete-guard | ask | brew AUTOREMOVE
+
+# ---------------------------------------------------------------- W3: merging a pull request (tracker-guard, ask)
+W3 | feat/x | tracker-guard | ask | gh pr merge 3
+W3 | feat/x | tracker-guard | ask | gh pr merge
+W3 | feat/x | tracker-guard | ask | gh pr merge 3 --squash
+W3 | feat/x | tracker-guard | ask | gh pr merge 3 --merge --delete-branch
+W3 | feat/x | tracker-guard | ask | gh pr merge 3 --auto --squash
+W3 | feat/x | tracker-guard | ask | gh -R o/r pr merge 3
+W3 | feat/x | tracker-guard | ask | gh pr -R o/r merge 3
+W3 | feat/x | tracker-guard | ask | gh api -X PUT repos/o/r/pulls/3/merge
+W3 | feat/x | tracker-guard | ask | gh api --method PUT /repos/o/r/pulls/3/merge
+W3 | feat/x | tracker-guard | ask | gh api -XPUT repos/o/r/pulls/3/merge -f merge_method=squash
+W3 | feat/x | tracker-guard | ask | curl -X PUT https://api.github.com/repos/o/r/pulls/3/merge
+W3 | feat/x | tracker-guard | ask | sudo gh pr merge 3
+W3 | feat/x | tracker-guard | ask | bash -c 'gh pr merge 3'
+W3 | main | tracker-guard | ask | gh pr merge 3
+# behind a word no table knows the safety net of decision 3b answers (rows G2 of rows-b4.txt): ask
+W3 | feat/x | tracker-guard | ask | mytool gh pr merge 3 --admin
+
+# ---------------------------------------------------------------- W4: merging past the branch protection (tracker-guard, deny)
+W4 | feat/x | tracker-guard | deny | gh pr merge 3 --admin
+W4 | feat/x | tracker-guard | deny | gh pr merge --admin --squash 3
+W4 | feat/x | tracker-guard | deny | gh -R o/r pr merge 3 --admin
+W4 | feat/x | tracker-guard | deny | sudo gh pr merge 3 --admin
+W4 | feat/x | tracker-guard | deny | bash -c 'gh pr merge 3 --admin'
+W4 | main | tracker-guard | deny | gh pr merge 3 --admin
+
+# ---------------------------------------------------------------- Ws: holds
+# the plain host denies, and gh and the Azure DevOps host are read whatever the case
+Ws | feat/x | tracker-guard | deny | curl -X PATCH https://api.github.com/repos/o/r/issues/3
+Ws | feat/x | tracker-guard | deny | curl -XPOST https://api.github.com/repos/o/r/issues -d '{"title":"x"}'
+Ws | feat/x | tracker-guard | deny | wget --method=PATCH https://api.github.com/repos/o/r/issues/3
+Ws | feat/x | tracker-guard | deny | http PATCH https://api.github.com/repos/o/r/issues/3 state=closed
+Ws | feat/x | tracker-guard | deny | sudo curl -X PATCH https://api.github.com/repos/o/r/issues/3
+Ws | feat/x | tracker-guard | deny | bash -c 'curl -X PATCH https://api.github.com/repos/o/r/issues/3'
+Ws | feat/x | tracker-guard | deny | gh api -X PATCH https://API.GITHUB.COM/repos/o/r/issues/3 -f state=closed
+Ws | feat/x | tracker-guard | deny | curl -X PATCH https://DEV.AZURE.COM/org/proj/_apis/wit/workitems/3?api-version=7.1 -d '[]'
+# a read, another host, text
+Ws | feat/x | shell | silent | curl https://API.GITHUB.COM/repos/o/r/issues
+Ws | feat/x | shell | silent | curl https://API.GITHUB.COM/repos/o/r/issues/3
+Ws | feat/x | shell | silent | curl -X PATCH https://example.com/API.GITHUB.COM/x
+Ws | feat/x | shell | silent | echo https://API.GITHUB.COM/repos/o/r/issues/3
+# the plain verbs, and the verbs in capitals that change nothing
+Ws | feat/x | delete-guard | ask | brew uninstall jq
+Ws | feat/x | delete-guard | ask | brew remove jq
+Ws | feat/x | delete-guard | ask | sudo brew uninstall jq
+Ws | feat/x | delete-guard | ask | bash -c 'brew uninstall jq'
+Ws | feat/x | host-install | ask | brew upgrade
+Ws | feat/x | host-install | ask | brew reinstall jq
+Ws | feat/x | host-install | ask | brew tap homebrew/cask
+Ws | feat/x | host-install | ask | brew INSTALL jq
+Ws | feat/x | host-install | ask | gem INSTALL rake
+Ws | feat/x | shell | silent | brew LIST
+Ws | feat/x | shell | silent | brew INFO jq
+Ws | feat/x | shell | silent | gem LIST
+Ws | feat/x | shell | silent | brew --version
+# a pull request read, opened or changed is no merge; the Azure DevOps twins keep their answer
+Ws | feat/x | shell | silent | gh pr view 3
+Ws | feat/x | shell | silent | gh pr list
+Ws | feat/x | shell | silent | gh pr checks 3
+Ws | feat/x | shell | silent | gh pr create --fill
+Ws | feat/x | shell | silent | gh pr merge --help
+Ws | feat/x | shell | silent | gh pr close 3
+Ws | feat/x | shell | silent | gh pr ready 3
+Ws | feat/x | shell | silent | gh pr edit 3 --title x
+Ws | feat/x | shell | silent | gh pr review 3 --comment -b x
+Ws | feat/x | shell | silent | gh api repos/o/r/pulls/3/merge
+Ws | feat/x | shell | silent | echo gh pr merge 3
+Ws | feat/x | tracker-guard | deny | az repos pr update --id 3 --status completed
+Ws | feat/x | tracker-guard | deny | az repos pr update --id 3 --bypass-policy true
+Ws | feat/x | shell | silent | az repos pr create --title x
+
+# ---------------------------------------------------------------- X1: an export inside `eval` (git-guard, deny)
+X1 | feat/x | git-guard | deny | eval 'export HUSKY=0'; git commit -m x
+X1 | feat/x | git-guard | deny | eval 'set -a; HUSKY=0'; git commit -m x
+X1 | feat/x | git-guard | deny | eval "export HUSKY=0"; git push origin feat
+X1 | feat/x | git-guard | deny | eval 'export LEFTHOOK=0'; git commit -m x
+X1 | feat/x | git-guard | deny | eval 'export SKIP=ruff' && git commit -m x
+
+# ---------------------------------------------------------------- X2: LEFTHOOK=false (git-guard, deny)
+X2 | feat/x | git-guard | deny | LEFTHOOK=false git commit -m x
+X2 | feat/x | git-guard | deny | env LEFTHOOK=false git commit -m x
+X2 | feat/x | git-guard | deny | export LEFTHOOK=false; git push origin feat
+X2 | feat/x | git-guard | deny | LEFTHOOK=false bash -c 'git commit -m x'
+
+# ---------------------------------------------------------------- X3: ssh with an option behind the host (git-guard, deny)
+X3 | feat/x | git-guard | deny | "ssh build -T <<EOF\ngit commit --no-verify -m x\nEOF"
+X3 | feat/x | git-guard | deny | "ssh build -t -t <<EOF\ngit commit --no-verify -m x\nEOF"
+X3 | feat/x | git-guard | deny | "ssh build -o BatchMode=yes <<EOF\ngit commit --no-verify -m x\nEOF"
+X3 | feat/x | git-guard | deny | "ssh -p 2222 build -T <<EOF\ngit commit --no-verify -m x\nEOF"
+
+# ---------------------------------------------------------------- X4: a shell fed inside a group or a subshell (git-guard, deny)
+X4 | feat/x | git-guard | deny | "{ bash; } <<EOF\ngit commit --no-verify -m x\nEOF"
+X4 | feat/x | git-guard | deny | "{ sh -s; } <<EOF\ngit commit --no-verify -m x\nEOF"
+X4 | feat/x | git-guard | deny | "( bash ) <<EOF\ngit commit --no-verify -m x\nEOF"
+X4 | feat/x | git-guard | deny | "{ cd repo && bash; } <<EOF\ngit commit --no-verify -m x\nEOF"
+
+# ---------------------------------------------------------------- X5: a `case` pattern inside "$( … )"
+X5 | feat/x | git-guard | silent | "git commit -m \"$(case x in a) cat <<'EOF'\nfix: \"make; git push --force origin main\"\nnpm install x\nEOF\n;; esac)\""
+X5 | feat/x | git-guard | deny | "echo \"$(case x in a) bash <<EOF\ngit commit --no-verify -m x\nEOF\n;; esac)\""
+
+# ---------------------------------------------------------------- Xs: holds
+Xs | feat/x | git-guard | deny | export HUSKY=0; git commit -m x
+Xs | feat/x | git-guard | deny | eval 'export HUSKY=0; git commit -m x'
+Xs | feat/x | shell | silent | bash -c 'export HUSKY=0'; git commit -m x
+Xs | feat/x | shell | silent | eval 'echo HUSKY=0'; git commit -m x
+Xs | feat/x | git-guard | deny | LEFTHOOK=0 git commit -m x
+Xs | feat/x | shell | silent | LEFTHOOK=true git commit -m x
+Xs | feat/x | shell | silent | LEFTHOOK=1 git commit -m x
+Xs | feat/x | shell | silent | LEFTHOOK=false git status
+Xs | feat/x | git-guard | deny | "ssh build <<EOF\ngit commit --no-verify -m x\nEOF"
+Xs | feat/x | git-guard | deny | "ssh -T build <<EOF\ngit commit --no-verify -m x\nEOF"
+Xs | feat/x | shell | silent | "ssh build -T <<EOF\ngit status\nEOF"
+Xs | feat/x | git-guard | deny | "bash <<EOF\ngit commit --no-verify -m x\nEOF"
+Xs | feat/x | shell | silent | "{ cat; } <<EOF\ngit commit --no-verify -m x\nEOF"
+Xs | feat/x | shell | silent | "{ cat > notes.txt; } <<EOF\ngit commit --no-verify -m x\nEOF"
+Xs | feat/x | shell | silent | "while read l; do echo \"$l\"; done <<EOF\ngit commit --no-verify -m x\nEOF"
+Xs | feat/x | git-guard | silent | "git commit -m \"$(case x in (a) cat <<'EOF'\nfix: \"make; git push --force origin main\"\nEOF\n;; esac)\""
+Xs | feat/x | git-guard | silent | "git commit -m \"$(cat <<'EOF'\nfix: \"make; git push --force origin main\"\nEOF\n)\""
+Xs | feat/x | git-guard | deny | "echo \"$(bash <<EOF\ngit commit --no-verify -m x\nEOF\n)\""

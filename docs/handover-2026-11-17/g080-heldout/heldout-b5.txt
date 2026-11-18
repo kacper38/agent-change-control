@@ -1,0 +1,94 @@
+# Guard, group B, part 5: forms the engineer never sees, for rows-b5.txt.
+# DRAFT of 2026-11-18, written by a cloud session together with those rows. Same format, checked by expect.py.
+# HR = due with the build (other spellings and arrangements of what the rows name): a red row afterwards is a
+#      defect or a missed spelling for the fix pass
+# HS = must answer as at 0.8.0 (holds today): a red row afterwards is a regression or new noise
+# HO = observed only (a neighbour of the class or an undecided form): reported as a limit or a proposal,
+#      never required
+
+# ---------------------------------------------------------------- the GitHub API host in capitals
+HR | feat/x | tracker-guard | deny | curl -sS -X PATCH https://Api.Github.Com/repos/o/r/issues/3 -d @body.json
+HR | feat/x | tracker-guard | deny | curl --json '{"labels":["x"]}' https://API.GITHUB.COM/repos/o/r/issues/3/labels
+HR | feat/x | tracker-guard | deny | curl -X PATCH "https://API.GITHUB.COM/repos/o/r/issues/3"
+HR | feat/x | tracker-guard | deny | env X=1 curl -X DELETE https://API.GITHUB.COM/repos/o/r/labels/bug
+HR | feat/x | tracker-guard | deny | timeout 30 curl -X PATCH https://API.GITHUB.COM/repos/o/r/issues/3
+HR | feat/x | tracker-guard | deny | curl -X POST https://api.GitHub.com/repos/o/r/issues/3/comments -d '{"body":"x"}'
+HS | feat/x | tracker-guard | deny | curl -sS -X PATCH https://api.github.com/repos/o/r/issues/3 -d @body.json
+HS | feat/x | tracker-guard | deny | curl --json '{"labels":["x"]}' https://api.github.com/repos/o/r/issues/3/labels
+HS | feat/x | tracker-guard | deny | curl -X POST https://api.github.com/repos/o/r/issues/3/comments -d '{"body":"x"}'
+HS | feat/x | shell | silent | curl "https://Api.Github.Com/repos/o/r/issues?state=open"
+HS | feat/x | shell | silent | curl -I https://API.GITHUB.COM/repos/o/r/labels
+HS | feat/x | shell | silent | grep -rn API.GITHUB.COM docs
+HO | feat/x | tracker-guard | deny | curl -X PATCH https://api.github.com/REPOS/o/r/ISSUES/3
+
+# ---------------------------------------------------------------- a verb of brew or gem in capitals
+HR | feat/x | delete-guard | ask | brew UNINSTALL --force jq
+HR | feat/x | delete-guard | ask | sudo -n brew REMOVE jq
+HR | feat/x | host-install | ask | env HOMEBREW_NO_AUTO_UPDATE=1 brew UPGRADE jq
+HR | feat/x | host-install | ask | timeout 300 brew REINSTALL jq
+HS | feat/x | delete-guard | ask | brew uninstall --force jq
+HS | feat/x | delete-guard | ask | brew rm jq
+HS | feat/x | delete-guard | ask | brew RM jq
+HS | feat/x | host-install | ask | env HOMEBREW_NO_AUTO_UPDATE=1 brew upgrade jq
+HS | feat/x | shell | silent | brew LIST --versions
+HS | feat/x | shell | silent | brew OUTDATED
+HS | feat/x | shell | silent | gem ENV
+HS | feat/x | shell | silent | echo brew UNINSTALL jq
+HO | feat/x | delete-guard | ask | brew Uninstall jq
+HO | feat/x | delete-guard | ask | npm UNINSTALL lodash
+
+# ---------------------------------------------------------------- merging a pull request
+HR | feat/x | tracker-guard | ask | gh pr merge 3 -s
+HR | feat/x | tracker-guard | ask | gh pr merge 3 -r -d
+HR | feat/x | tracker-guard | ask | gh pr merge https://github.com/o/r/pull/3
+HR | feat/x | tracker-guard | ask | gh pr merge feat/x --merge
+HR | feat/x | tracker-guard | ask | GH_REPO=o/r gh pr merge 3
+HR | feat/x | tracker-guard | ask | gh --repo o/r pr merge 3 --squash
+HR | feat/x | tracker-guard | ask | timeout 60 gh pr merge 3
+HR | feat/x | tracker-guard | ask | gh api --method=PUT repos/o/r/pulls/3/merge
+HR | feat/x | tracker-guard | ask | gh api -X PUT /repos/o/r/pulls/3/merge --input body.json
+HR | feat/x | tracker-guard | ask | curl -sS -X PUT -H "Accept: application/vnd.github+json" https://api.github.com/repos/o/r/pulls/3/merge
+HR | feat/x | tracker-guard | ask | wget --method=PUT https://api.github.com/repos/o/r/pulls/3/merge
+HR | feat/x | tracker-guard | deny | gh pr merge 3 --admin --rebase
+HR | feat/x | tracker-guard | deny | gh pr merge --squash --admin
+HR | feat/x | tracker-guard | deny | env GH_PAGER=cat gh pr merge 3 --admin
+HR | feat/x | tracker-guard | deny | cd repo && gh pr merge 3 --admin
+HS | feat/x | shell | silent | gh pr status
+HS | feat/x | shell | silent | gh pr diff 3
+HS | feat/x | shell | silent | gh pr checkout 3
+HS | feat/x | shell | silent | gh api repos/o/r/pulls/3
+HS | feat/x | shell | silent | gh api -X PUT repos/o/r/pulls/3/update-branch
+HS | feat/x | shell | silent | curl -X PUT https://api.github.com/repos/o/r/pulls/3/update-branch
+HS | feat/x | shell | silent | git merge feat
+HS | feat/x | shell | silent | grep -rn "gh pr merge" docs
+HO | feat/x | tracker-guard | ask | gh pr review 3 --approve
+HO | feat/x | tracker-guard | ask | gh pr merge 3 --disable-auto
+HO | feat/x | tracker-guard | ask | az repos pr update --id 3 --auto-complete true
+HO | feat/x | tracker-guard | ask | az repos pr set-vote --id 3 --vote approve
+
+# ---------------------------------------------------------------- what the reviews of group A left
+HR | feat/x | git-guard | deny | eval 'export HUSKY=0' && git commit -m x
+HR | feat/x | git-guard | deny | eval 'declare -x HUSKY=0'; git commit -m x
+HR | feat/x | git-guard | deny | eval 'export HUSKY=0'; git merge feat
+HR | feat/x | git-guard | deny | LEFTHOOK=false git push origin feat
+HR | feat/x | git-guard | deny | declare -x LEFTHOOK=false; git commit -m x
+HR | feat/x | git-guard | deny | "ssh build -A <<EOF\ngit commit --no-verify -m x\nEOF"
+HR | feat/x | git-guard | deny | "ssh user@build -T <<'EOF'\ngit commit --no-verify -m x\nEOF"
+HR | feat/x | git-guard | deny | "ssh build -l deploy <<EOF\ngit commit --no-verify -m x\nEOF"
+HR | feat/x | git-guard | deny | "{ bash -s; } <<'EOF'\ngit commit --no-verify -m x\nEOF"
+HR | feat/x | git-guard | deny | "( cd repo; bash ) <<EOF\ngit commit --no-verify -m x\nEOF"
+HR | feat/x | git-guard | deny | "{ sudo bash; } <<EOF\ngit commit --no-verify -m x\nEOF"
+HR | feat/x | git-guard | deny | "{ ssh build; } <<EOF\ngit commit --no-verify -m x\nEOF"
+HR | feat/x | git-guard | silent | "git commit -m \"$(case $x in a|b) cat <<'EOF'\nsee \"make; git push --force origin main\"\nEOF\n;; esac)\""
+HS | feat/x | git-guard | deny | export HUSKY=0 && git commit -m x
+HS | feat/x | git-guard | deny | LEFTHOOK=0 git push origin feat
+HS | feat/x | git-guard | silent | LEFTHOOK=false npm ci
+HS | feat/x | shell | silent | LEFTHOOK=false lefthook run pre-commit
+HS | feat/x | shell | silent | "ssh build -T 'git status' <<EOF\ngit commit --no-verify -m x\nEOF"
+HS | feat/x | shell | silent | "{ python3 -; } <<EOF\nprint('git commit --no-verify -m x')\nEOF"
+HS | feat/x | shell | silent | "{ grep -c git; } <<EOF\ngit commit --no-verify -m x\nEOF"
+HS | feat/x | git-guard | deny | "sudo bash <<EOF\ngit commit --no-verify -m x\nEOF"
+HO | feat/x | git-guard | deny | "if true; then bash; fi <<EOF\ngit commit --no-verify -m x\nEOF"
+HO | feat/x | git-guard | deny | eval "$(echo 'export HUSKY=0')"; git commit -m x
+HO | feat/x | git-guard | silent | HUSKY=0 ssh build 'git commit -m x'
+HO | feat/x | git-guard | deny | "bash <<EOF\ngit commit --no-verify -m x\u0000\nEOF"

@@ -1314,6 +1314,10 @@ Fs | feat/x | shell | silent | doppler run --command 'ls -la'
 # --- F17: a pull request merged through the API in another spelling: curl's `-T` uploads with PUT, httpie
 #     takes the method word in small letters (measured offline: `http put …` sends PUT), a second slash in
 #     the path, a dot behind the host name
+F17 | feat/x | tracker-guard | ask | curl https://api.github.com/repos/o/r/pulls/3/merge -T body.json
+F17 | feat/x | tracker-guard | ask | http put https://api.github.com/repos/o/r/pulls/3/merge
+F17 | feat/x | tracker-guard | ask | curl -X PUT https://api.github.com//repos/o/r/pulls/3/merge
+F17 | feat/x | tracker-guard | ask | curl -X PUT https://api.github.com./repos/o/r/pulls/3/merge
 Fs | feat/x | tracker-guard | ask | curl -X PUT https://api.github.com/repos/o/r/pulls/3/merge
 Fs | feat/x | tracker-guard | ask | http PUT https://api.github.com/repos/o/r/pulls/3/merge
 Fs | feat/x | shell | silent | curl https://api.github.com/repos/o/r/pulls/3/merge

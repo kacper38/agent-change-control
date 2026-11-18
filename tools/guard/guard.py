@@ -2466,9 +2466,26 @@ def _http_method(seg: list[str]) -> str:
     method = (_flag_value(seg, {"-X", "--request", "--method"}) or "").upper()
     if not method:  # curl -XPATCH
         method = next((t[2:].upper() for t in seg[1:] if t.startswith("-X") and len(t) > 2), "")
-    if not method and os.path.basename(seg[0]) not in ("curl", "wget"):
-        method = next((t for t in seg[1:] if t in _HTTP_VERBS), "")
+    curl = os.path.basename(seg[0]) in ("curl", "wget")
+    # F17: curl(1), curl 8: `-T, --upload-file` "this uses PUT" on HTTP, unless -X names another method
+    if not method and os.path.basename(seg[0]) == "curl" and any(
+            t == "-T" or t == "--upload-file" or t.startswith("--upload-file=") or (t.startswith("-T") and len(t) > 2)
+            for t in seg[1:]):
+        method = "PUT"
+    if not method and not curl:  # F17: httpie takes the method word in any case (`http put …` sends PUT)
+        method = next((t.upper() for t in seg[1:] if t.upper() in _HTTP_VERBS), "")
     return method
+
+
+_GITHUB_API_RE = re.compile(r"api\.github\.com\.?(/[^\s?#]*)", re.IGNORECASE)
+
+
+def _github_api_path(word: str) -> Optional[str]:
+    """The path a word names on GitHub's REST host, slashes doubled up taken as one, or None (F17: a second
+    slash, `api.github.com//repos/…`, and the dot of the root zone, `api.github.com./repos/…`, reach the same
+    API; `api.github.com.evil.example` is another host)."""
+    m = _GITHUB_API_RE.search(word)
+    return re.sub(r"/+", "/", m.group(1)) if m else None
 
 
 def _http_writes(seg: list[str], head: str, url: str) -> bool:
@@ -2773,7 +2790,7 @@ def _tracker_seg(seg: list[str]) -> Optional[Decision]:
                     or _ADO_WIT_RE.search(t)), "")
         if url and _http_writes(seg, head, url):
             return "deny", TRACKER_MSG.format(what=f"`{head}` writes to {url}", use="the tracker verbs")
-        merge = next((t for t in seg[1:] if "api.github.com/repos/" in t.lower() and _MERGE_API_RE.search(t)), "")
+        merge = next((t for t in seg[1:] if _MERGE_API_RE.search(_github_api_path(t) or "")), "")
         if merge and _http_method(seg) == "PUT":
             return "ask", MERGE_ASK_MSG.format(what=f"`{head} PUT {merge}`")
         if any(_GRAPHQL_URL_RE.search(t) for t in seg[1:]):

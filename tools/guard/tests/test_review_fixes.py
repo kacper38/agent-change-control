@@ -130,9 +130,10 @@ ROWS = [
     ("P2", "feat/x", "secret-shell", "ask", "bash -c 'grep -f.env notes.txt'"),
     ("P2", "feat/x", "secret-shell", "ask", "bash -c 'grep -rn KEY config/ .env'"),
     ("P2", "feat/x", "secret-shell", "ask", "bash -c 'grep KEY notes.txt -e x .env'"),
-    ("P2", "feat/x", "secret-shell", "ask", 'grep -c ".env" notes.txt'),
+    # 0.9.0, group C (rows K3): a search tool's pattern operand is no path at the top level either
+    ("P2", "feat/x", "secret-shell", "silent", 'grep -c ".env" notes.txt'),
     ("P2", "feat/x", "secret-shell", "ask", 'grep -e ".env" notes.txt'),
-    ("P2", "feat/x", "secret-shell", "ask", 'git grep -n "\\.pem" -- tools'),
+    ("P2", "feat/x", "secret-shell", "silent", 'git grep -n "\\.pem" -- tools'),
     ("P2", "feat/x", "secret-shell", "deny", "bash -c 'grep KEY notes.txt > .env'"),
     # P2, short options in one cluster: the first e or f of the cluster names the pattern, and what follows an f
     # is its file; -E and -F are other options and name nothing

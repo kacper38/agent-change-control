@@ -18,6 +18,7 @@ Usage:
 """
 
 import bisect
+import collections
 import copy
 import datetime as _dt
 import functools
@@ -639,6 +640,9 @@ def _segments_cached(command: str) -> tuple[tuple[str, ...], ...]:
         toks = tokens(part)
         i = 0
         while i < len(toks) and (_ASSIGN_RE.match(toks[i]) or toks[i] in _WRAPPERS):
+            if toks[i] == "command" and toks[i + 1 : i + 2] in (["-v"], ["-V"]):
+                i = len(toks)  # 0.9.0 (K10): `command -v codex` is a lookup and runs nothing, as the reader reads it
+                break
             i += 1
             while i < len(toks) and toks[i].startswith("-") and toks[i] != "--":
                 i += 1
@@ -794,7 +798,9 @@ def _path_candidates(t: str) -> list[str]:
 def _secret_reads(seg: list[str], cwd: str, skip: list[str]) -> list[str]:
     """The secret files the argument words of one simple command name, past those in `skip` (written ones)."""
     out = []
-    for t in seg[1:]:
+    for k, t in enumerate(seg[1:], 1):
+        if seg[k - 1] in _PATTERN_VALUE_OPTIONS:  # 0.9.0 (K8): `tar --exclude .env`, the value in the next word
+            continue
         for p in _path_candidates(t):
             if p and p not in skip and secret_class(_expand(p, cwd)) == "secret":
                 out.append(p)
@@ -1010,6 +1016,54 @@ SECRET_STORE_MSG = ("secret-shell: {what}. A secret printed into the session lea
                     "(AGENTS.md: secrets stay in the vault).")
 
 
+# 0.9.0, group C (K6, K7, K9): commands that name a secret path and read nothing of it: they print their words,
+# list or test the file, or report git's view of the name
+_REPORT_HEADS = frozenset({"echo", "printf", "ls", "stat", "test", "[", "[["})
+_REPORT_GIT_SUBS = frozenset({"check-ignore", "ls-files", "status"})
+_QUIET_SEPS = frozenset({"", ";", "&&", "||", "&", "\n"})  # a simple command of the line itself, not of a nest
+
+
+def _report_words(toks) -> tuple:
+    """The words of a simple command without leading assignments and shell words and without redirections: the
+    form both passes of secret-shell compare."""
+    words = drop_redirections(list(toks))
+    k = 0
+    while k < len(words) and (_ASSIGN_RE.match(words[k]) or words[k] in _NC_SHELL_WORDS):
+        k += 1
+    return tuple(words[k:])
+
+
+def _quiet_reports(command: str) -> tuple:
+    """The report commands (_REPORT_HEADS, `git check-ignore|ls-files|status`) that stand as simple commands at
+    the top level of the line and whose output goes to no other command (no pipe after them, no substitution
+    around them): `ls .env | xargs cat` and `cat $(ls .env)` read the file. A line with a here-document is read
+    as before."""
+    if "<<" in command:
+        return ()
+    cmds = simple_commands(command)
+    out = []
+    for k, (sep, toks) in enumerate(cmds):
+        nxt = cmds[k + 1][0].strip(" ") if k + 1 < len(cmds) else ""
+        if sep.strip(" ") not in _QUIET_SEPS or nxt in ("|", "|&", "("):
+            continue
+        words = _report_words(toks)
+        if not words:
+            continue
+        head = tool_name(words[0])
+        if head in _REPORT_HEADS or (head == "git" and _git_subcommand(list(words))[0] in _REPORT_GIT_SUBS):
+            out.append(words)
+    return tuple(out)
+
+
+def _take_quiet(quiet: "collections.Counter", seg) -> bool:
+    """The simple command is one of the quiet reports: count it off, so a twin nested elsewhere is still read."""
+    words = _report_words(seg)
+    if quiet.get(words, 0) > 0:
+        quiet[words] -= 1
+        return True
+    return False
+
+
 def rule_secret_shell(ev: Event, cfg: dict) -> Optional[Decision]:
     if ev.event != "PreToolUse" or ev.kind != "shell" or not ev.command:
         return None
@@ -1020,15 +1074,24 @@ def rule_secret_shell(ev: Event, cfg: dict) -> Optional[Decision]:
         target = target.strip("\"'`,;)")
         if secret_class(_expand(target, ev.cwd)) == "secret":
             writes.append(target)
+    quiet = _quiet_reports(ev.command)
+    first_quiet = collections.Counter(quiet)
     for seg in segments(command):
-        _secret_seg(seg, ev.cwd, writes, reads)
+        if _take_quiet(first_quiet, seg):
+            continue
+        # 0.9.0 (K3): the first pass leaves a search tool's pattern out as the reader pass does
+        _secret_reader_seg(seg, ev.cwd, writes, reads)
     if writes:
         return _secret_verdict(writes, reads)
     # the reader pass adds to the same lists, so one message names every file of both passes; the reader gets
     # the here-documents and reads a body only where a shell runs it (0.8.0)
     stored: list[Decision] = []
 
+    reader_quiet = collections.Counter(quiet)
+
     def judge(seg: list[str]) -> None:
+        if _take_quiet(reader_quiet, seg):
+            return
         _secret_reader_seg(seg, ev.cwd, writes, reads)
         what = secret_store_what(seg)  # 0.9.0: a stored secret printed (decision af)
         if what:
@@ -1700,12 +1763,66 @@ def rule_egress_guard(ev: Event, cfg: dict) -> Optional[Decision]:
         return None
     if str(cfg.get("boundary") or "own") != "client":
         return None
-    for seg in segments(strip_heredocs(ev.command)):
+    text = strip_heredocs(ev.command)
+    for seg in segments(text):
         d = _egress_seg(seg)
-        if d:
+        if d and not _only_in_search_patterns(text, ev.command, seg):
             return d
     # 0.8.0: the full reading (not the local one): a container or another host still sends the data out
     return reader_pass(ev.command, _egress_seg, "egress-guard")
+
+
+def _search_patterns(command: str) -> list[str]:
+    """The pattern words of the search tools the reader finds in the line (grep and kin, `git grep`): the operand
+    _search_pattern names, and the values of -e and --regexp. None are found in a line the reader cannot read."""
+    out = []
+    try:
+        for toks in nested_commands(command):
+            for k in command_word_indexes(toks):
+                name = tool_name(toks[k])
+                if name not in _SEARCH_TOOLS and name != "git":
+                    continue
+                idx, _files = _search_pattern(list(toks), k)
+                if idx is not None:
+                    out.append(toks[idx])
+                for m in range(k + 1, len(toks)):
+                    t = toks[m]
+                    if t in ("-e", "--regexp") and m + 1 < len(toks):
+                        out.append(toks[m + 1])
+                    elif t.startswith("--regexp="):
+                        out.append(t[len("--regexp=") :])
+    except CommandNotRead:  # no patterns: every hit of the first pass keeps asking
+        return []
+    return out
+
+
+def _only_in_search_patterns(text: str, command: str, seg: list[str]) -> bool:
+    """Group C (K11, the owner's answer of 2026-11-18): the first pass splits the line at every `|`, also inside a
+    quoted word, so the words of a quoted search pattern (`grep -E 'a|openai|b'`) look like a command. A hit is
+    dropped when every place of the line that gives this segment lies inside such a pattern, written between a
+    pair of quotes; a hit anywhere else keeps asking."""
+    spans = []
+    for p in _search_patterns(command):
+        if not _SEP_RE.search(p):
+            continue
+        for q in ("'", '"'):
+            start = text.find(q + p + q)
+            while start >= 0:
+                spans.append((start + 1, start + 1 + len(p)))
+                start = text.find(q + p + q, start + 1)
+    if not spans:
+        return False
+    places = 0
+    pos = 0
+    for m in [*_SEP_RE.finditer(text), None]:
+        end = m.start() if m else len(text)
+        part = text[pos:end]
+        if [list(s) for s in _segments_cached(part)] == [seg]:
+            places += 1
+            if not any(a <= pos and end <= b for a, b in spans):
+                return False
+        pos = m.end() if m else end
+    return places > 0
 
 
 def _egress_seg(seg: list[str]) -> Optional[Decision]:

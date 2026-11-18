@@ -838,6 +838,14 @@ Ks | feat/x | delete-guard | ask | git restore --source HEAD~1 f
 Ks | feat/x | delete-guard | ask | git reset f
 Ks | feat/x | delete-guard | ask | git rm --cached f
 Ks | feat/x | delete-guard | ask | git branch -d merged-feat
+K3 | feat/x | shell | silent | grep -rn .env docs
+K3 | feat/x | shell | silent | grep -n id_rsa README.md
+K3 | feat/x | shell | silent | grep -c .env .gitignore
+K3 | feat/x | shell | silent | grep -rn -- .env docs
+K3 | feat/x | shell | silent | rg .env
+K3 | feat/x | shell | silent | rg -n server.pem src
+K3 | feat/x | shell | silent | git grep .env
+K3 | feat/x | shell | silent | git grep -n .env -- docs
 Ks | feat/x | secret-shell | ask | grep -rn password .env
 Ks | feat/x | secret-shell | ask | grep TOKEN .env.local
 Ks | feat/x | secret-shell | ask | grep -f .env notes.txt
@@ -884,6 +892,18 @@ Ks | feat/x | delete-guard | ask | rm --help build
 Ks | feat/x | delete-guard | ask | rm -- --help
 Ks | feat/x | delete-guard | ask | git clean -f --help
 Ks | feat/x | delete-guard | ask | docker system prune -f --help
+K6 | feat/x | shell | silent | ls -la .env
+K6 | feat/x | shell | silent | ls -l ~/.ssh/id_ed25519
+K6 | feat/x | shell | silent | ls ~/.aws/credentials
+K6 | feat/x | shell | silent | stat .env
+K6 | feat/x | shell | silent | stat -f %z .env
+K6 | feat/x | shell | silent | test -f .env
+K6 | feat/x | shell | silent | [ -f .env ]
+K6 | feat/x | shell | silent | [[ -e .env ]] && echo yes
+K6 | feat/x | shell | silent | test -f .env && echo yes
+K6 | feat/x | shell | silent | [ -s certs/server.key ] || echo missing
+K6 | feat/x | shell | silent | if [ -f .env ]; then echo present; fi
+K6 | feat/x | shell | silent | ls -la .env; echo done
 Ks | feat/x | secret-shell | ask | ls .env | xargs cat
 Ks | feat/x | secret-shell | ask | ls -la .env | head -1
 Ks | feat/x | secret-shell | ask | cat $(ls .env)
@@ -896,6 +916,13 @@ Ks | feat/x | secret-shell | ask | diff .env.example .env
 Ks | feat/x | secret-shell | deny | chmod 600 .env
 Ks | feat/x | secret-shell | deny | cp .env.example .env
 Ks | feat/x | secret-shell | deny | touch .env
+K7 | feat/x | shell | silent | git check-ignore .env
+K7 | feat/x | shell | silent | git check-ignore -v .env
+K7 | feat/x | shell | silent | git ls-files .env
+K7 | feat/x | shell | silent | git ls-files --error-unmatch .env
+K7 | feat/x | shell | silent | git status .env
+K7 | feat/x | shell | silent | git status --short -- .env
+K7 | feat/x | shell | silent | git -C sub check-ignore .env
 Ks | feat/x | secret-shell | ask | git diff .env
 Ks | feat/x | secret-shell | ask | git log -p -- .env
 Ks | feat/x | secret-shell | ask | git log --oneline -- .env
@@ -903,19 +930,48 @@ Ks | feat/x | secret-shell | ask | git blame .env
 Ks | feat/x | secret-shell | deny | git add .env
 Ks | feat/x | secret-shell | ask | git ls-files .env | xargs cat
 Ks | feat/x | secret-shell | ask | git rm --cached .env
+K8 | feat/x | shell | silent | tar --exclude .env -czf out.tgz .
+K8 | feat/x | shell | silent | tar -czf out.tgz --exclude .env --exclude '*.pem' .
+K8 | feat/x | shell | silent | rsync -a --exclude .env src/ dst/
+K8 | feat/x | shell | silent | grep -r --exclude .env TODO .
+K8 | feat/x | shell | silent | grep -r --exclude-dir .git --exclude .env TODO .
 Ks | feat/x | secret-shell | ask | tar -czf out.tgz .env
 Ks | feat/x | secret-shell | ask | tar --exclude node_modules -czf out.tgz .env
 Ks | feat/x | secret-shell | ask | rsync -a .env host:/tmp/
 Ks | feat/x | secret-shell | ask | tar --exclude .git -czf out.tgz . .env.local
+K9 | feat/x | shell | silent | echo .env >> .gitignore
+K9 | feat/x | shell | silent | echo ".env" >> .gitignore
+K9 | feat/x | shell | silent | echo "*.pem" >> .gitignore
+K9 | feat/x | shell | silent | echo .env
+K9 | feat/x | shell | silent | printf '%s\n' .env .env.local >> .gitignore
 Ks | feat/x | secret-shell | deny | echo X=1 > .env
 Ks | feat/x | secret-shell | deny | echo X=1 >> .env
 Ks | feat/x | secret-shell | ask | echo .env | xargs cat
 Ks | feat/x | secret-shell | ask | cat $(echo .env)
 Ks | feat/x | secret-shell | ask | echo .env | xargs -I{} cp {} /tmp/
+K10 | feat/x@client | shell | silent | command -v codex
+K10 | feat/x@client | shell | silent | command -V gemini
+K10 | feat/x@client | shell | silent | command -v codex >/dev/null 2>&1 && echo yes
 Ks | feat/x@client | egress-guard | ask | command codex exec hi
 Ks | feat/x@client | egress-guard | ask | command -p codex exec hi
 Ks | feat/x@client | shell | silent | which codex
 Ks | feat/x@client | shell | silent | type codex
+K11 | feat/x@client | shell | silent | grep -n -i -E 'model|openai|ollama' README.md
+K11 | feat/x@client | shell | silent | grep -rIn -i -E "anthropic|openai|bedrock" src
+K11 | feat/x@client | shell | silent | grep -nE 'fleet|llama|gemini|codex' DECISIONS.md
+K11 | feat/x@client | shell | silent | rg -n 'aider|codex|gemini|cursor' docs
+K11 | feat/x@client | shell | silent | egrep 'a|llm|b' notes.txt
+K11 | feat/x@client | shell | silent | grep -n -E 'A|OPENAI|OLLAMA|B' README.md
+K11 | feat/x@client | shell | silent | grep -c 'x|hf|y' models.txt
+K11 | feat/x@client | shell | silent | ag 'x|agy|y' src
+K11 | feat/x@client | shell | silent | grep -E 'a|openai|b' notes.txt | head -3
+K11 | feat/x@client | shell | silent | ls docs; grep -n -E "x|gemini|y" docs/a.md
+K11 | feat/x@client | shell | silent | command grep -E 'a|codex|b' notes.txt
+K11 | feat/x@client | shell | silent | rg -e 'a|openai|b' -e x docs
+K11 | feat/x@client | shell | silent | grep -E 'a|openai api|b' notes.txt
+K11 | feat/x@client | shell | silent | git grep -n -E 'x|openai|y'
+K11 | feat/x@client | shell | silent | git grep -n -E 'x|ollama|y' -- docs
+K11 | feat/x@client | shell | silent | cat notes.txt | grep -E 'a|openai|b'
 Ks | feat/x@client | egress-guard | ask | grep -n x README.md | ollama run llama3
 Ks | feat/x@client | egress-guard | ask | grep -c x notes.txt | llm "summarise"
 Ks | feat/x@client | egress-guard | ask | rg -n 'a|b' docs | gemini -p "summarise"

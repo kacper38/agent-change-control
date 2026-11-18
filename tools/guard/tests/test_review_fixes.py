@@ -149,8 +149,9 @@ ROWS = [
     ("P2", "feat/x", "secret-shell", "silent", "bash -c \"grep -rnF '.env|.pem' tools\""),
     ("P2", "feat/x", "secret-shell", "silent", "bash -c \"grep -rniw '\\.env|\\.pem' tools\""),
     ("P2", "feat/x", "secret-shell", "silent", "bash -c 'grep -rnf patterns.txt notes.txt'"),
-    # the named limit: an option's value taken for the pattern (`-A 3`) leaves the pattern read as a path
-    ("P2", "feat/x", "secret-shell", "ask", "bash -c \"grep -A 3 -B 3 -rn '\\.env|\\.pem' tools\""),
+    # the named limit until 0.9.0: an option's value taken for the pattern (`-A 3`) left the pattern read as a
+    # path; the fix pass of 0.9.0 knows the options that take no value (_SEARCH_FLAGS), so `3` is -A's value
+    ("P2", "feat/x", "secret-shell", "silent", "bash -c \"grep -A 3 -B 3 -rn '\\.env|\\.pem' tools\""),
     # A1: `git checkout <ref> <path…>` without `--` overwrites the working copy; -b, -B, --orphan, -t and
     # --track name a new branch and its start point
     ("A1", "feat/x", "delete-guard", "ask", "git checkout HEAD src/app.py"),

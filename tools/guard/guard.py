@@ -763,6 +763,9 @@ _WRITERS_ALL = {"tee", "truncate", "touch", "chmod", "chown"}
 # grep, rg, fd, ag, git ls-files): `tar --exclude=.env` stays silent
 _PATTERN_VALUE_OPTIONS = frozenset("--exclude --exclude-dir --exclude-from --include --glob --iglob --ignore"
                                    " --filter".split())
+# 0.9.0 (K8): the options whose value, in the next word, is a name to leave out; an option that selects the files
+# a tool reads (`--include`, `--glob`) or names a file it reads (`--exclude-from`) names a path
+_EXCLUDE_VALUE_OPTIONS = frozenset({"--exclude", "--exclude-dir"})
 # the reader marks an unquoted input redirection `<` with \x01 (_hi_prepare), so a quoted `'<.env'` is none:
 # `<f`, `0<f`, `<>f` (read and write); not `<<`, `<<<`, `<&3`, `<(…)`
 _INPUT_REDIRECT_RE = re.compile(r"^\d*<\x01>?(\S+)$")
@@ -799,7 +802,7 @@ def _secret_reads(seg: list[str], cwd: str, skip: list[str]) -> list[str]:
     """The secret files the argument words of one simple command name, past those in `skip` (written ones)."""
     out = []
     for k, t in enumerate(seg[1:], 1):
-        if seg[k - 1] in _PATTERN_VALUE_OPTIONS:  # 0.9.0 (K8): `tar --exclude .env`, the value in the next word
+        if seg[k - 1] in _EXCLUDE_VALUE_OPTIONS:  # 0.9.0 (K8): `tar --exclude .env`, the value in the next word
             continue
         for p in _path_candidates(t):
             if p and p not in skip and secret_class(_expand(p, cwd)) == "secret":
@@ -865,13 +868,64 @@ def _search_pattern(seg: list[str], k: int) -> tuple[Optional[int], list[str]]:
                     files.append(t[at + 1 :])
     if named:
         return None, files
+    shorts, longs = _SEARCH_FLAGS.get("grep" if name in ("egrep", "fgrep", "zgrep") else name, ("", frozenset()))
+    value_next = False  # 0.9.0: the word after an option that takes a value is that value, not the pattern
     for m in range(start, len(seg)):
         t = seg[m]
+        if value_next:
+            value_next = False
+            continue
         if t == "--":  # grep: the pattern follows; git grep: paths follow, the pattern came before
             return (m + 1 if name != "git" and m + 1 < len(seg) else None), files
-        if not t.startswith("-"):
+        if not t.startswith("-") or t == "-":
             return m, files
+        value_next = _search_option_takes_next(t, shorts, longs)
     return None, files
+
+
+# 0.9.0: the options of the search tools that take no value (each tool's --help: GNU grep 3.11, ripgrep 14, the
+# silver searcher 2.2, ack 3.7, git grep 2.4x). Any other option is read as one that takes the next word, so an
+# option missing here leaves the real pattern read as a path or as a command, which errs towards asking.
+_GREP_LONG_FLAGS = (
+    "--extended-regexp --fixed-strings --basic-regexp --perl-regexp --ignore-case --no-ignore-case --word-regexp"
+    " --line-regexp --no-messages --invert-match --version --help --count --color --colour --files-without-match"
+    " --files-with-matches --only-matching --quiet --silent --byte-offset --with-filename --no-filename"
+    " --line-number --no-line-number --line-buffered --initial-tab --null --null-data --text --recursive"
+    " --dereference-recursive"
+)
+_SEARCH_FLAGS: dict = {
+    "grep": ("abcEFGHhiIlLnoPqrRsTUvVwxyzZ0123456789", frozenset(_GREP_LONG_FLAGS.split())),
+    "rg": ("abcFHhiIlLnNopPqsSuUvVwxz0123456789.", frozenset((
+        _GREP_LONG_FLAGS + " --hidden --no-hidden --no-ignore --no-ignore-vcs --no-ignore-dot --no-ignore-global"
+        " --no-ignore-parent --follow --files --smart-case --case-sensitive --no-heading --heading --json --vimgrep"
+        " --multiline --pcre2 --search-zip --stats --trim --unrestricted --column --no-column --passthru --no-config"
+        " --one-file-system --binary --crlf --debug --trace --pretty --sort-files --no-unicode --invert-match"
+        " --count-matches --type-list --files-with-matches").split())),
+    "ag": ("acfHilLnQsStuUvwz0", frozenset((
+        _GREP_LONG_FLAGS + " --hidden --literal --nocolor --case-sensitive --smart-case --files-with-matches"
+        " --files-without-matches --follow --skip-vcs-ignores --unrestricted --search-binary --stats --nobreak"
+        " --noheading --heading --column --numbers --nonumbers --vimgrep --one-device --search-zip"
+        " --print-long-lines --filename --nofilename --all-types --all-text --print0 --silent").split())),
+    "ack": ("cfhHiIlLnosvwx1", frozenset((
+        _GREP_LONG_FLAGS + " --smart-case --nocolor --nocolour --column --nocolumn --heading --noheading --break"
+        " --nobreak --group --nogroup --follow --nofollow --flush --literal --passthru --print0 --sort-files"
+        " --show-types --noenv --nopager --known-types --nofilter").split())),
+    "git": ("aiIvwFEGPnhHlLcoqrzWp", frozenset((
+        _GREP_LONG_FLAGS + " --cached --untracked --no-index --index --recurse-submodules --textconv --no-textconv"
+        " --full-name --name-only --break --heading --show-function --function-context --all-match --and --or"
+        " --not --column --exclude-standard --no-exclude-standard").split())),
+}
+
+
+def _search_option_takes_next(t: str, shorts: str, longs: frozenset) -> bool:
+    """A search tool's option takes the next word as its value: a long option without `=` that is no flag, or a
+    short cluster whose first letter that is no flag stands last (`-A 3`, `-rnA 3`); `-A3` holds its value."""
+    if t.startswith("--"):
+        return "=" not in t and t not in longs
+    for n, c in enumerate(t[1:], 1):
+        if c not in shorts:
+            return n == len(t) - 1
+    return False
 
 
 def _secret_reader_seg(seg: list[str], cwd: str, writes: list[str], reads: list[str]) -> None:
@@ -1778,10 +1832,13 @@ def _search_patterns(command: str) -> list[str]:
     out = []
     try:
         for toks in nested_commands(command):
-            for k in command_word_indexes(toks):
+            words = sorted(command_word_indexes(toks))
+            for k in words:
                 name = tool_name(toks[k])
                 if name not in _SEARCH_TOOLS and name != "git":
                     continue
+                if any(tool_name(toks[j]) == "ssh" for j in words if j < k):
+                    continue  # ssh hands its words to the remote shell unquoted: the bars there are pipes
                 idx, _files = _search_pattern(list(toks), k)
                 if idx is not None:
                     out.append(toks[idx])

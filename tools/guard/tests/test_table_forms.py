@@ -1030,6 +1030,250 @@ Ys | Read | guard-config | silent | .claude/SETTINGS.json
 Ys | Read | guard-config | silent | tools/guard/guard.py
 """  # noqa: E501 (a row holds its command as written)
 # --- row tables: end ---
+# --- fix rows: begin (rows-b-fix.txt, the fix pass of 2026-11-18) ---
+ROWS_FIX = r"""
+# Guard 0.9.0, groups B and C, fix pass of 2026-11-18. Rows from the orchestrating session's checks of the build
+# and from the review. Same format as rows-b.txt, checked by expect.py.
+# Ids `Fs` and `Fm` hold at the build head 8879cd5 and must keep holding (`Fm` pins a condition that no test
+# pinned: a planted break of it passed the whole suite). Every other id is red at the build head and is due.
+# F09 to F15 are weaker than guard 0.8.0 and outside the K rows of #57: they come first.
+
+# --- F09 (weaker than 0.8.0): the value of an option is no pattern to leave out. K8 names the exclude options
+#     (`--exclude`, `--exclude-dir`); an option that selects the files a tool reads or copies, or that names a
+#     file the tool reads, still names a path. Read in the tools' own help: grep and bsdtar `--include pattern`,
+#     rsync 3.4 `--include`, `--exclude-from=FILE`, rg 15 `-g GLOB`, `--iglob`, `--ignore-file=PATH`, ag
+#     `-G --file-search-regex PATTERN`, `-p --path-to-ignore STRING`.
+F09 | feat/x | secret-shell | ask | grep -r --include .env TOKEN .
+F09 | feat/x | secret-shell | ask | grep -rn TOKEN --include .env .
+F09 | feat/x | secret-shell | ask | grep -r --include .env.production TOKEN .
+F09 | feat/x | secret-shell | ask | rg --glob .env TOKEN
+F09 | feat/x | secret-shell | ask | rg -g .env TOKEN
+F09 | feat/x | secret-shell | ask | rg --hidden --iglob .ENV TOKEN
+F09 | feat/x | secret-shell | ask | ag -G .env TOKEN
+F09 | feat/x | secret-shell | ask | rsync -a --include .env --exclude '*' src/ host:dst/
+F09 | feat/x | secret-shell | ask | tar --include .env -czf out.tgz .
+F09 | feat/x | secret-shell | ask | tar --exclude-from .env -czf out.tgz .
+F09 | feat/x | secret-shell | ask | sudo grep -r --include .env TOKEN .
+F09 | feat/x | secret-shell | ask | rg --ignore-file .env pattern
+F09 | feat/x | secret-shell | ask | ag --path-to-ignore .env pattern
+F09 | feat/x | secret-shell | ask | ag -p .env pattern
+Fs | feat/x | shell | silent | tar --exclude .env -czf out.tgz .
+Fs | feat/x | shell | silent | tar -czf out.tgz --exclude .env --exclude '*.pem' .
+Fs | feat/x | shell | silent | rsync -a --exclude .env src/ dst/
+Fs | feat/x | shell | silent | grep -r --exclude .env TODO .
+Fs | feat/x | shell | silent | grep -r --exclude-dir .git --exclude .env TODO .
+Fs | feat/x | shell | silent | grep -rn .env docs
+Fs | feat/x | shell | silent | grep -c ".env" notes.txt
+Fs | feat/x | shell | silent | grep -rniE '\.env|\.pem' docs
+Fs | feat/x | shell | silent | rg -n -i '\.env' src
+Fs | feat/x | shell | silent | git grep -n "\.pem" -- tools
+Fs | feat/x | secret-shell | ask | grep --exclude x TOKEN .env
+Fs | feat/x | secret-shell | ask | tar -czf out.tgz --exclude secrets .env
+Fs | feat/x | secret-shell | ask | rg TOKEN .env
+Fs | feat/x | secret-shell | ask | grep -f .env notes.txt
+Fs | feat/x | secret-shell | ask | grep -A 3 TOKEN .env
+
+# --- F10 (weaker than 0.8.0), inside a client boundary: the value of an option is no search pattern either.
+#     ag and ack hand the value of --pager to a shell; ssh hands its words to the remote shell without the
+#     local quotes, so the bars of `ssh h grep -E 'a|ollama|b' f` are pipes there
+F10 | feat/x@client | egress-guard | ask | ag --pager 'less|ollama|x' x .
+F10 | feat/x@client | egress-guard | ask | ack --pager 'less|ollama|x' x .
+F10 | feat/x@client | egress-guard | ask | rg --pre 'x|ollama|y' pat .
+F10 | feat/x@client | egress-guard | ask | ssh h grep -E 'a|ollama|b' f
+Fs | feat/x@client | shell | silent | grep -E 'a|ollama|b' f
+Fs | feat/x@client | shell | silent | grep -rn -E 'a|ollama|b' src
+Fs | feat/x@client | shell | silent | grep -c -i -E 'a|ollama|b' f
+Fs | feat/x@client | shell | silent | rg -n 'aider|codex|gemini' docs
+Fs | feat/x@client | shell | silent | rg -n -i --hidden 'a|ollama|b' src
+Fs | feat/x@client | shell | silent | git grep -n -E 'openai|ollama|x' -- docs
+Fs | feat/x@client | egress-guard | ask | grep -E 'a|ollama|b' f | ollama
+Fs | feat/x@client | egress-guard | ask | grep -E 'a|ollama|b' "$(ollama)"
+Fs | feat/x@client | egress-guard | ask | ssh h grep -E 'a|ollama run m|b' f
+
+# --- F11 (weaker than 0.8.0): a report of a secret name inside a group or a compound whose output is piped on
+Fs | feat/x | shell | silent | ls .env
+Fs | feat/x | shell | silent | ls -la .env && echo ok
+Fs | feat/x | shell | silent | test -f .env && echo yes
+Fs | feat/x | shell | silent | echo .env >> .gitignore
+Fs | feat/x | secret-shell | ask | ls .env | xargs cat
+Fs | feat/x | secret-shell | ask | echo .env | xargs cat
+Fs | feat/x | secret-shell | ask | cat $(ls .env)
+Fs | feat/x | secret-shell | ask | x=$(ls .env); cat "$x"
+Fs | feat/x | secret-shell | ask | ( ls .env ) | xargs cat
+
+# --- F12 (weaker than 0.8.0): a line the reader cannot split (an apostrophe in a comment, `$'…\'…'`) has no
+#     quiet report: the pipe behind the report is not seen in it
+
+# --- F13 (weaker than 0.8.0): `$_` is the last word of the command before it: it hands the name on
+Fs | feat/x | shell | silent | ls .env; echo done
+Fs | feat/x | shell | silent | test -f .env && echo "$HOME"
+
+# --- F14 (weaker than 0.8.0): git takes `--no-dry-run` and its prefixes as the dry run taken back (measured,
+#     git 2.55: `git clean -n --no-dry-run` refuses for want of -f, `-n --no-d` too; `--dry-r` is a dry run)
+Fs | feat/x | shell | silent | git clean -n
+Fs | feat/x | shell | silent | git clean -n -fd
+Fs | feat/x | shell | silent | git clean --dry-run -fdx
+Fs | feat/x | shell | silent | git worktree prune -n
+Fs | feat/x | shell | silent | git worktree prune --dry-run
+Fs | feat/x | delete-guard | ask | git clean -fdx
+Fs | feat/x | delete-guard | ask | git clean -fe -n
+
+# --- F15 (weaker than 0.8.0): git takes `--work` and `--wor` for `--worktree` (measured, git 2.55: the work
+#     tree file is restored and the change is gone)
+Fs | feat/x | shell | silent | git restore --staged f.py
+Fs | feat/x | shell | silent | git restore -S f.py
+Fs | feat/x | delete-guard | ask | git restore --staged --worktree f.py
+Fs | feat/x | delete-guard | ask | git restore f.py
+Fs | feat/x | delete-guard | ask | git restore --staged --source=HEAD~3 --worktree f.py
+
+# --- F01: `genv -S '…'` is `env -S '…'` (section 4.3: a Homebrew g name is the plain tool in every table;
+#     GNU coreutils 9.11: `-S, --split-string=S`)
+Fs | feat/x | delete-guard | ask | env -S 'rm -rf build'
+Fs | feat/x | host-install | ask | env -S 'npm install -g x'
+Fs | feat/x | shell | silent | genv -S 'ls -la'
+Fs | feat/x | shell | silent | genv FOO=1 ls
+
+# --- F02: a subshell as the feeder of a shell that reads its script from a pipe (section 4.7; the group form asks)
+Fs | feat/x | delete-guard | ask | { cat run.sh; } | bash
+Fs | feat/x | delete-guard | ask | cat run.sh | bash
+Fs | feat/x | shell | silent | (echo hello) | cat
+Fs | feat/x | shell | silent | (ls; pwd) | wc -l
+Fs | feat/x | shell | silent | (cat run.sh) | tee copy.sh
+Fs | feat/x | shell | silent | echo 'ls -la' | bash
+
+# --- F03: the shell behind the pipe stands inside a subshell, a group or a compound, or is one the pipe table
+#     did not name (`fish`, `ash` read commands from standard input like the others)
+Fs | feat/x | delete-guard | ask | cat run.sh | { bash; }
+Fs | feat/x | shell | silent | cat data.txt | ( cd x && wc -l )
+Fs | feat/x | shell | silent | cat data.txt | { grep x; }
+Fs | feat/x | shell | silent | cat data.txt | if true; then cat; fi
+Fs | feat/x | shell | silent | cat run.sh | bash -c 'wc -l'
+Fs | feat/x | shell | silent | cat data.txt | bash process.sh
+
+# --- F04: for `gh auth`, `-h` is --hostname and no help probe (read in `gh auth token --help`, gh 2.92.0)
+Fs | feat/x | secret-shell | ask | gh auth token --hostname github.com
+Fs | feat/x | secret-shell | ask | gh auth status --show-token
+Fs | feat/x | shell | silent | gh auth token --help
+Fs | feat/x | shell | silent | gh auth status
+Fs | feat/x | shell | silent | gh auth status -h github.com
+
+# --- F05: GraphQL. A query the line does not show asks, as a variable does: a command substitution as the whole
+#     value, a body file (`--input`; measured with gh 2.92.0: the file is sent and a visible query field is not),
+#     a `$'…'` value with an escape, a body on standard input. Every query field is read. The endpoint written
+#     as `/graphql` or with the host reaches the same API (measured). httpie's `:=` gives the field as raw JSON
+Fs | feat/x | tracker-guard | ask | gh api graphql -f query="$Q"
+Fs | feat/x | tracker-guard | ask | gh api graphql -f query="${Q}"
+Fs | feat/x | tracker-guard | ask | gh api graphql --input q.json
+Fs | feat/x | tracker-guard | ask | gh api graphql -F query=@q.graphql
+Fs | feat/x | shell | silent | gh api graphql -f query='query { viewer { login } }'
+Fs | feat/x | shell | silent | gh api /graphql -f query='{ viewer { login } }'
+Fs | feat/x | shell | silent | gh api graphql -f query="query { repository(owner: \"$OWNER\", name: \"r\") { id } }"
+Fs | feat/x | shell | silent | gh api graphql -f owner="$(cat owner.txt)" -f query='query($owner: String!) { repositoryOwner(login: $owner) { id } }'
+Fs | feat/x | shell | silent | gh api /repos/o/r/pulls/3
+Fs | feat/x | shell | silent | gh api https://api.github.com/repos/o/r/pulls/3
+Fs | feat/x | tracker-guard | deny | gh api graphql -f query="mutation { closeIssue(input: {issueId: \"$(cat id.txt)\"}) { clientMutationId } }"
+Fs | feat/x | tracker-guard | deny | gh api graphql -f query='mutation { closeIssue(input: {issueId: "X"}) { clientMutationId } }'
+
+# --- F06: secret stores, other spellings of the calls the table names. `op item get` of an item asks in every
+#     form (the table of docs/HANDOVER-2026-11-17.md). security(1) takes its short options in one word (`-ws`:
+#     `-w` Display only the password). AWS CLI: `aws configure get default.aws_secret_access_key` and
+#     `profile.NAME.…` are the dotted names of the same value. kubectl: resource types are case-insensitive,
+#     `secret.v1` names the version, `--template` prints through a Go template, `--raw` asks the API path, and
+#     `config view --flatten` prints the token like `--raw` (measured, kubectl 1.36). Doppler: the bare
+#     `doppler secrets` prints names and values (Doppler's docs, "Names and values")
+Fs | feat/x | secret-shell | ask | op item get GitHub --fields password
+Fs | feat/x | secret-shell | ask | op item get GitHub --reveal
+Fs | feat/x | secret-shell | ask | op item get GitHub --vault Private --otp
+Fs | feat/x | shell | silent | op item get --help
+Fs | feat/x | shell | silent | op item list
+Fs | feat/x | shell | silent | op vault list
+Fs | feat/x | shell | silent | security find-generic-password -s svc
+Fs | feat/x | secret-shell | ask | security find-generic-password -s svc -w
+Fs | feat/x | shell | silent | aws configure get region
+Fs | feat/x | shell | silent | aws configure get default.region
+Fs | feat/x | shell | silent | aws configure list
+Fs | feat/x | shell | silent | aws secretsmanager list-secrets
+Fs | feat/x | shell | silent | kubectl get secret app
+Fs | feat/x | shell | silent | kubectl get secret app -o name
+Fs | feat/x | shell | silent | kubectl get pods -o yaml
+Fs | feat/x | shell | silent | kubectl get Deployments -o yaml
+Fs | feat/x | shell | silent | kubectl get --raw /healthz
+Fs | feat/x | shell | silent | kubectl config view
+Fs | feat/x | shell | silent | kubectl config view --minify
+Fs | feat/x | secret-shell | ask | kubectl config view --raw
+Fs | feat/x | shell | silent | doppler secrets --only-names
+Fs | feat/x | secret-shell | ask | doppler secrets get API_KEY
+
+# --- F07: inside a client boundary, a search tool written in capitals: its quoted pattern is text too (K11)
+Fs | feat/x@client | egress-guard | ask | GREP -E 'a|openai|b' notes.txt | OPENAI api models.list
+Fs | feat/x@client | egress-guard | ask | GREP -E 'a|openai|b' notes.txt | openai api models.list
+
+# --- F08: inside a client boundary, the tool's name in the last alternative of a quoted pattern with a blank
+#     behind it (K11)
+Fs | feat/x@client | egress-guard | ask | grep -E 'x | ollama run m' notes.txt | ollama run m
+Fs | feat/x@client | egress-guard | ask | grep -E 'a|openai' notes.txt; openai api models.list
+Fs | feat/x@client | egress-guard | ask | grep -E 'x | ollama run m' notes.txt $(ollama list)
+Fs | feat/x@client | egress-guard | ask | grep -E a|openai|b notes.txt
+Fs | feat/x@client | egress-guard | ask | echo 'a|openai|b'
+Fs | feat/x@client | shell | silent | grep -E 'a|openai' notes.txt
+
+# --- F16: `doppler run --command '…'` runs the text in a shell (Doppler's docs), like `doppler run -- …`
+Fs | feat/x | delete-guard | ask | doppler run -- rm -rf x
+Fs | feat/x | shell | silent | doppler run -- ls
+Fs | feat/x | shell | silent | doppler run --command 'ls -la'
+
+# --- F17: a pull request merged through the API in another spelling: curl's `-T` uploads with PUT, httpie
+#     takes the method word in small letters (measured offline: `http put …` sends PUT), a second slash in
+#     the path, a dot behind the host name
+Fs | feat/x | tracker-guard | ask | curl -X PUT https://api.github.com/repos/o/r/pulls/3/merge
+Fs | feat/x | tracker-guard | ask | http PUT https://api.github.com/repos/o/r/pulls/3/merge
+Fs | feat/x | shell | silent | curl https://api.github.com/repos/o/r/pulls/3/merge
+Fs | feat/x | shell | silent | http get https://api.github.com/repos/o/r/pulls/3/merge
+Fs | feat/x | shell | silent | curl -T body.json https://example.org/upload
+Fs | feat/x | shell | silent | curl https://api.github.com.evil.example/repos/o/r/issues/3
+
+# --- F18: on a file system that ignores case the ref of the protected branch is one file under every spelling
+#     (measured, git 2.55 on APFS: `git update-ref refs/heads/Main` and `REFS/HEADS/MAIN` move main)
+Fs | feat/x | protected-branch | deny | git update-ref refs/heads/main abc123
+Fs | feat/x | shell | silent | git update-ref refs/heads/feature abc123
+Fs | feat/x | shell | silent | git update-ref refs/tags/v1 abc123
+
+# --- F19: the hook switch exported in another spelling
+Fs | feat/x | git-guard | deny | eval 'export HUSKY=0'; git commit -m x
+Fs | feat/x | shell | silent | export FOO; FOO=0; git commit -m x
+Fs | feat/x | shell | silent | builtin eval 'echo hi'; git commit -m x
+
+# --- F20: brew and gem take a verb with any capitals in it, not only one written all in capitals (measured:
+#     `brew Uninstall --help` and `gem Uninstall --help` print the help of uninstall)
+Fs | feat/x | delete-guard | ask | brew UNINSTALL jq
+Fs | feat/x | delete-guard | ask | gem uninstall rake
+Fs | feat/x | shell | silent | brew info Uninstall
+
+# --- Fm: conditions of the build that no test pinned (a planted break of each passed the whole suite)
+Fm | feat/x | secret-shell | ask | pass work/github
+Fm | feat/x | shell | silent | pass ls
+Fm | feat/x | shell | silent | pass git log
+Fm | feat/x | secret-shell | ask | aws ecr get-login-password
+Fm | feat/x | secret-shell | ask | aws sts get-session-token
+Fm | feat/x | secret-shell | ask | gcloud auth application-default print-access-token
+Fm | feat/x | shell | silent | vault kv get --help
+Fm | feat/x | shell | silent | op read --help
+Fm | feat/x | shell | silent | kubectl get secret --help
+Fm | feat/x | tracker-guard | deny | gh pr merge 3 && gh issue close 5
+Fm | feat/x | tracker-guard | deny | gh pr merge 3; gh issue close 5
+Fm | feat/x | delete-guard | ask | git clean -fd -- -n
+Fm | feat/x | delete-guard | ask | rm -rf --help
+Fm | feat/x | delete-guard | ask | docker system prune -af --help
+Fm | feat/x | delete-guard | ask | git clean -fdx -h
+Fm | feat/x | delete-guard | ask | rm x --help
+Fm | feat/x | delete-guard | ask | rm --help x
+Fm | feat/x | secret-shell | ask | "ls .env\ncat <<EOF\nhello\nEOF"
+Fm | feat/x | secret-shell | ask | ls .env; ls .env | xargs cat
+Fm | feat/x | secret-shell | ask | echo .env; echo .env | xargs cat
+Fm | feat/x@client | egress-guard | ask | grep 'ollama' f; 'ollama' run m
+Fm | feat/x@client | egress-guard | ask | grep ollama f | 'ollama' run m
+"""  # noqa: E501 (a row holds its command as written)
+# --- fix rows: end ---
 
 _FILE_INPUT = {
     "Read": lambda p: {"file_path": p},
@@ -1053,6 +1297,7 @@ def _rows(text: str) -> list:
 
 
 TABLE = _rows(ROWS_B) + _rows(ROWS_B4) + _rows(ROWS_B4_AZ) + _rows(ROWS_B5) + _rows(ROWS_C)
+FIX_TABLE = _rows(ROWS_FIX)  # the fix pass: F01 to F20 were due, Fs and Fm held at the build's head
 FILE_TABLE = [tuple(p.strip() for p in line.split(" | ", 4)) for line in FILE_ROWS.splitlines() if line.strip()]
 
 
@@ -1069,6 +1314,13 @@ def _answers(guard, monkeypatch, branch: str, boundary: str, rule: str, command:
 @pytest.mark.parametrize("rid, branch, boundary, rule, expected, command", TABLE,
                          ids=[f"{row[0]}-{n}" for n, row in enumerate(TABLE)])
 def test_row(guard, monkeypatch, rid, branch, boundary, rule, expected, command):
+    got = _answers(guard, monkeypatch, branch, boundary, rule, command)
+    assert {k: v for k, v in got.items() if v != expected} == {}, command
+
+
+@pytest.mark.parametrize("rid, branch, boundary, rule, expected, command", FIX_TABLE,
+                         ids=[f"{row[0]}-{n}" for n, row in enumerate(FIX_TABLE)])
+def test_fix_row(guard, monkeypatch, rid, branch, boundary, rule, expected, command):
     got = _answers(guard, monkeypatch, branch, boundary, rule, command)
     assert {k: v for k, v in got.items() if v != expected} == {}, command
 

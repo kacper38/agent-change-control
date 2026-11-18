@@ -1569,9 +1569,25 @@ def _git_env_gate(command: str) -> Optional[Decision]:
         def environment(toks) -> bool:
             """Take an assignment, export or `set -a` line into the state; False for any other command."""
             # F19: `builtin eval …`, `command export …` run the builtin itself (bash(1), "builtin", "command");
-            # `command -v` is a lookup and stays
-            while len(toks) > 1 and toks[0] in ("builtin", "command") and not toks[1].startswith("-"):
-                toks = toks[1:]
+            # `command -v` is a lookup and stays. Second fix round: also behind `command -p`, `--`, a shell word
+            # (`{`, `then`, `do`, `!`) and `time [-p]`: each exports to the commands after it (bash 5.3, zsh 5.9, sh)
+            toks = list(toks)
+            while toks:
+                if toks[0] in _NC_SHELL_WORDS:
+                    toks = toks[1:]
+                elif toks[0] == "time":
+                    toks = toks[2:] if toks[1:2] == ["-p"] else toks[1:]
+                elif toks[0] in ("builtin", "command"):
+                    k = 1
+                    while k < len(toks) and toks[k] in (("-p", "--") if toks[0] == "command" else ("--",)):
+                        k += 1
+                    if k >= len(toks) or toks[k].startswith("-"):
+                        break
+                    toks = toks[k:]
+                else:
+                    break
+            if not toks:
+                return False
             if all(_ASSIGN_RE.match(t) for t in toks):
                 for t in toks:
                     assigned[t.partition("=")[0]] = t

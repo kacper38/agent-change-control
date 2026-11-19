@@ -2047,6 +2047,76 @@ Fm | feat/x | shell | silent | curl --raw -s https://api.github.com/graphql -d '
 Fm | feat/x | shell | silent | curl --raw https://api.github.com/graphql
 """  # noqa: E501 (a row holds its command as written)
 # --- fix rows, review fixes: end ---
+# --- fix rows, fourth fix round: begin (rows-b-fix4.txt, 2026-11-19) ---
+ROWS_FIX4 = r"""
+# Rows for the fourth fix round of guard 0.9.0, groups B and C (item #57). Written by the orchestrating session on
+# 2026-11-19 from the finding of the review fixes' rewriting check, measured with zsh 5.9.1 and bash 5.3.15 against
+# a stand-in file: zsh closes a group at a `}` that is no first word (`{ ls .env; true }`), bash refuses such a line.
+# F41 rows are red at ac9106e (silent, where 0.8.0 asks and zsh prints the file); Fs rows hold there and keep holding.
+# Row: id | branch[@boundary] | rule | expected | command. A command that starts with a double quote is a JSON
+# string (it carries line breaks).
+
+# --- F41 ---
+# two groups opened by one command, the inner one closed by zsh at a `}` the check does not see: its output goes
+# into `xargs cat`, and the `}` at the end of the line closes the outer group, not the inner one
+F41 | feat/x | secret-shell | ask | { { ls .env; true } | xargs cat; }
+F41 | main | secret-shell | ask | { { ls .env; true } | xargs cat; }
+F41 | feat/x@client | secret-shell | ask | { { ls .env; true } | xargs cat; }
+F41 | feat/x | secret-shell | ask | { { echo .env; true } | xargs cat; }
+F41 | feat/x | secret-shell | ask | { { printf '%s\n' .env; true } | xargs cat; }
+F41 | feat/x | secret-shell | ask | { { stat -f %N .env; true } | xargs cat; }
+F41 | feat/x | secret-shell | ask | { { git ls-files .env; true } | xargs cat; }
+F41 | feat/x | secret-shell | ask | { { git status .env; true } | xargs cat; }
+F41 | feat/x | secret-shell | ask | { { test -f .env && echo .env; true } | xargs cat; }
+F41 | feat/x | secret-shell | ask | { { ls .env 2>/dev/null; true } | xargs cat; }
+F41 | feat/x | secret-shell | ask | { { ls .env; : } | xargs cat; }
+F41 | feat/x | secret-shell | ask | { { ls .env; echo ok } | xargs cat; }
+F41 | feat/x | secret-shell | ask | { { ls .env; true } | xargs -n 1 cat; }
+F41 | feat/x | secret-shell | ask | { { ls .env; true } |& xargs cat; }
+F41 | feat/x | secret-shell | ask | { { ls .env; true } | { xargs cat; }; }
+F41 | feat/x | secret-shell | ask | { { ls .env; { true }; } | xargs cat; }
+F41 | feat/x | secret-shell | ask | { { { ls .env; true } | xargs cat; } }
+F41 | feat/x | secret-shell | ask | { { ls .env; true } | xargs cat; { true; }; }
+F41 | feat/x | secret-shell | ask | { { ls .env; true } | xargs cat; } 2>/dev/null
+F41 | feat/x | secret-shell | ask | { { ls .env; true } | xargs cat; }; true
+F41 | feat/x | secret-shell | ask | { { ls .env; true } | xargs cat; } && true
+F41 | feat/x | secret-shell | ask | { { ls .env; true } | xargs cat; }; { true; }
+F41 | feat/x | secret-shell | ask | true; { { ls .env; true } | xargs cat; }
+F41 | feat/x | secret-shell | ask | { ! { ls .env; true } | xargs cat; }
+F41 | feat/x | secret-shell | ask | "{ {\n  ls .env; true } | xargs cat\n}"
+# a group and a compound opened by one command: the compound closes by its own word, the group at the `}` behind
+# `true`, and its output goes into `xargs cat`
+F41 | feat/x | secret-shell | ask | { if true; then ls .env; fi; true } | xargs cat
+F41 | feat/x | secret-shell | ask | { while true; do ls .env; break; done; true } | xargs cat
+F41 | feat/x | secret-shell | ask | { until false; do ls .env; break; done; true } | xargs cat
+F41 | feat/x | secret-shell | ask | { for f in a; do ls .env; done; true } | xargs cat
+
+# --- Fs ---
+# the same hand-on where the check asks already: the constructs are opened by different commands, a closer fits
+# no opener, or the report's own command stands in front of the bar
+Fs | feat/x | secret-shell | ask | { true; { ls .env; true } | xargs cat; }
+Fs | feat/x | secret-shell | ask | { { { true } ; ls .env; } | xargs cat; }
+Fs | feat/x | secret-shell | ask | { ls .env; true } | xargs cat; { true; }
+Fs | feat/x | secret-shell | ask | if true; then { ls .env; true } | xargs cat; fi
+Fs | feat/x | secret-shell | ask | if { ls .env; true } | xargs cat; then true; fi
+Fs | feat/x | secret-shell | ask | while true; do { ls .env; true } | xargs cat; break; done
+Fs | feat/x | secret-shell | ask | { if true; then { ls .env; true } | xargs cat; fi; }
+Fs | feat/x | secret-shell | ask | if true; then { { ls .env; true } | xargs cat; }; fi
+Fs | feat/x | secret-shell | ask | { { ls .env; true }; } | xargs cat
+Fs | feat/x | secret-shell | ask | { { ls .env; ls .env } | xargs cat; }
+Fs | feat/x | secret-shell | ask | { { ls .env; } | xargs cat; }
+Fs | feat/x | secret-shell | ask | { { ls .env; }; } | xargs cat
+Fs | feat/x | secret-shell | ask | { if true; then ls .env; fi; } | xargs cat
+# two constructs opened by one command, each closed by its own word with a plain separator behind it: nothing is
+# handed on and the report stays quiet (bash and zsh run these lines; they print the name at most)
+Fs | feat/x | shell | silent | { { ls -la .env; }; }
+Fs | feat/x | shell | silent | { { ls .env; }; true; }
+Fs | feat/x | shell | silent | { if true; then ls .env; fi; }
+Fs | feat/x | shell | silent | if true; then { ls .env; }; fi
+Fs | feat/x | shell | silent | { { test -f .env; } && echo yes; }
+Fs | feat/x | shell | silent | { { ls .env; }; { true; }; }
+"""  # noqa: E501 (a row holds its command as written)
+# --- fix rows, fourth fix round: end ---
 
 _FILE_INPUT = {
     "Read": lambda p: {"file_path": p},
@@ -2079,6 +2149,7 @@ FIX_ADD5_TABLE = _rows(ROWS_FIX_ADD5)  # addendum 5 of the fix pass: F27 was due
 FIX2_TABLE = _rows(ROWS_FIX2)  # the second fix round: F28 to F36 were due, Fs and Fm held at d1052b1
 FIX2_ADD_TABLE = _rows(ROWS_FIX2_ADD)  # addendum to the second fix round: F37 to F40 were due, Fs held at d2ecce7
 FIX3_TABLE = _rows(ROWS_FIX3)  # review fixes: Fm held at abab75a, each block caught a planted break
+FIX4_TABLE = _rows(ROWS_FIX4)  # fourth fix round: F41 was due at ac9106e, Fs held
 FILE_TABLE = [tuple(p.strip() for p in line.split(" | ", 4)) for line in FILE_ROWS.splitlines() if line.strip()]
 
 
@@ -2158,6 +2229,13 @@ def test_fix2_add_row(guard, monkeypatch, rid, branch, boundary, rule, expected,
 @pytest.mark.parametrize("rid, branch, boundary, rule, expected, command", FIX3_TABLE,
                          ids=[f"{row[0]}-{n}" for n, row in enumerate(FIX3_TABLE)])
 def test_fix3_row(guard, monkeypatch, rid, branch, boundary, rule, expected, command):
+    got = _answers(guard, monkeypatch, branch, boundary, rule, command)
+    assert {k: v for k, v in got.items() if v != expected} == {}, command
+
+
+@pytest.mark.parametrize("rid, branch, boundary, rule, expected, command", FIX4_TABLE,
+                         ids=[f"{row[0]}-{n}" for n, row in enumerate(FIX4_TABLE)])
+def test_fix4_row(guard, monkeypatch, rid, branch, boundary, rule, expected, command):
     got = _answers(guard, monkeypatch, branch, boundary, rule, command)
     assert {k: v for k, v in got.items() if v != expected} == {}, command
 

@@ -1292,27 +1292,30 @@ def _plain_sep(sep: str) -> bool:
 
 
 def _compound_outputs(cmds: list) -> Optional[tuple[list, dict]]:
-    """For each simple command of the lexer's list, the groups and compounds around it (by the index of the
-    command that opens them), and for each of these whether its output is handed on by the separator behind its
-    closer; a construct that never closes counts as handed on. None when a closer is not the word of the
-    construct it would close (the line is not read completely). The caller has turned down every line with a
-    bracket, so neither subshells nor `case` reach this."""
+    """For each simple command of the lexer's list, the groups and compounds around it (each by a number of its
+    own, counted in the order they open), and for each of these whether its output is handed on by the separator
+    behind its closer; a construct that never closes counts as handed on. None when a closer is not the word of
+    the construct it would close (the line is not read completely). The caller has turned down every line with a
+    bracket, so neither subshells nor `case` reach this. Fourth fix round: a key per construct, not per opening
+    command, because zsh closes a group at a `}` that is no first word (`{ { ls .env; true } | xargs cat; }`):
+    the check does not see that closer, and the construct it leaves open must not take the answer of a
+    neighbour opened by the same command."""
     stack: list[tuple[int, str]] = []
     enclosing: list = []
     handed_on: dict = {}
+    opened = 0
     for k, (_sep, toks) in enumerate(cmds):
         if toks[:1] and toks[0] in _COMPOUND_CLOSERS:
             if not stack or stack[-1][1] != toks[0]:
                 return None
-            opener = stack.pop()[0]
-            # `{ { ls .env; } | xargs cat; }`: constructs opened by one command share its index, so one handed on
-            # marks them all
-            handed_on[opener] = handed_on.get(opener, False) or not _plain_sep(
-                cmds[k + 1][0] if k + 1 < len(cmds) else "")
-        # `{ { ls .env; }; }`, `then if true`: the leading words of one command can open more than one construct
+            # one construct, one closing: its own key, so a neighbour's answer never stands for it
+            handed_on[stack.pop()[0]] = not _plain_sep(cmds[k + 1][0] if k + 1 < len(cmds) else "")
+        # `{ { ls .env; }; }`, `then if true`: the leading words of one command can open more than one construct;
+        # each gets a number of its own, so one zsh closes unseen stays open here and counts as handed on
         for t in toks:
             if t in _GROUP_CLOSER:
-                stack.append((k, _GROUP_CLOSER[t]))
+                stack.append((opened, _GROUP_CLOSER[t]))
+                opened += 1
                 if t in ("for", "select"):
                     break
             elif t not in _NC_SHELL_WORDS:

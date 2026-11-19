@@ -1960,6 +1960,93 @@ Fs | feat/x | shell | silent | "ls -la \\\n.env"
 Fs | feat/x | shell | silent | "echo 'a \\\nb' > out.txt"
 """  # noqa: E501 (a row holds its command as written)
 # --- fix rows, addendum to the second fix round: end ---
+# --- fix rows, review fixes: begin (rows-b-fix3.txt, 2026-11-19) ---
+ROWS_FIX3 = r"""
+# Rows for the review fixes of guard 0.9.0, groups B and C (item #57). Written by the orchestrating session on
+# 2026-11-19 from 54 planted breaks in the code of the second fix round and its addendum: each block pins a line
+# of guard.py that could be broken at abab75a without a test failing. Every row holds at abab75a.
+# Row: id | branch[@boundary] | rule | expected | command. A command that starts with a double quote is a JSON
+# string (it carries line breaks). Fm rows hold and keep holding.
+
+# --- block 1 ---
+# _quiet_reports, `if _report_words(toks)[:1] in (("function",), ("coproc",)):` -> `if False:`
+# a function whose body opens on the next line closes like a plain group, so only this rule keeps the report in
+# its body from being quiet (bash and zsh take the line break; the F32 rows have the body on the same line,
+# where the closer without an opener decides already)
+Fm | feat/x | secret-shell | ask | "function f\n{ true; echo .env; }\ncat \"$(f)\""
+Fm | feat/x | secret-shell | ask | "function f\n{ true; ls .env; }\nf | xargs cat"
+Fm | feat/x | secret-shell | ask | "function f\n{\n  ls .env\n}\nf | xargs cat"
+Fm | feat/x | secret-shell | ask | "function f\n{ true; git ls-files .env; }\nf | xargs cat"
+
+# --- block 2 ---
+# _quiet_reports, under `if outputs is None:` the line `return ()` -> `outputs = ([[] for _ in cmds], {})`
+# `time` in front of a compound: the check does not see the opener, so the closer has none and the line is not
+# read completely; no report of it is quiet (the output of the compound goes into xargs cat)
+Fm | feat/x | secret-shell | ask | time if true; then ls .env; fi | xargs cat
+Fm | feat/x | secret-shell | ask | time while true; do ls .env; break; done | xargs cat
+Fm | feat/x | secret-shell | ask | time for f in a; do ls .env; done | xargs cat
+Fm | feat/x | secret-shell | ask | time -p if true; then ls .env; fi | xargs cat
+
+# --- block 3 ---
+# _quiet_reports, `if not _plain_sep(sep) or not _plain_sep(cmds[k + 1][0] if k + 1 < len(cmds) else ""):`
+# -> `if not _plain_sep(cmds[k + 1][0] if k + 1 < len(cmds) else ""):`
+# the separator in front of a report is read too: a report behind a bar is not on a line the check calls plain
+Fm | feat/x | secret-shell | ask | true | ls -la .env
+Fm | feat/x | secret-shell | ask | cat names.txt | ls -la .env
+Fm | feat/x | secret-shell | ask | true | stat .env
+
+# --- block 4 ---
+# _quiet_reports, `if any(handed_on.get(o, True) for o in enclosing[k]):` -> `handed_on.get(o, False)`
+# zsh closes a group without a `;` in front of the `}`: the check sees no closer, the group counts as handed on,
+# and here it is (the output of the group goes into xargs cat)
+Fm | feat/x | secret-shell | ask | { ls .env; true } | xargs cat
+Fm | feat/x | secret-shell | ask | { echo .env; true } | xargs cat
+Fm | feat/x | secret-shell | ask | { stat .env; true } | xargs cat
+
+# --- block 5 ---
+# _GRAPHQL_URL_RE, `api\.github\.com\.?(?::\d+)?/+graphql` -> `api\.github\.com(?::\d+)?/+graphql`
+# a dot behind the host name is the same host (the F17 rows have it for the merge path only)
+Fm | feat/x | tracker-guard | deny | curl -X POST https://api.github.com./graphql -d '{"query":"mutation { closeIssue(input: {issueId: \"I_1\"}) { clientMutationId } }"}'
+Fm | feat/x | tracker-guard | ask | curl -X POST https://api.github.com./graphql -d '{"query":"mutation { addStar(input: {starrableId: \"R_1\"}) { clientMutationId } }"}'
+Fm | feat/x | tracker-guard | deny | gh api https://api.github.com./graphql -f query='mutation { closeIssue(input: {issueId: "I_1"}) { clientMutationId } }'
+Fm | feat/x | tracker-guard | deny | http POST https://api.github.com./graphql query='mutation { closeIssue(input: {issueId: "I_1"}) { clientMutationId } }'
+Fm | feat/x | shell | silent | curl -s https://api.github.com./graphql -d '{"query":"{ viewer { login } }"}'
+
+# --- block 6 ---
+# _gh_graphql_path, `flat = re.sub(r"/+", "/", path)` -> `flat = path`
+# slashes doubled up in the path of `gh api` are taken as one (the F31 rows have the URL form only)
+Fm | feat/x | tracker-guard | deny | gh api //graphql -f query='mutation { closeIssue(input: {issueId: "I_1"}) { clientMutationId } }'
+Fm | feat/x | tracker-guard | ask | gh api //graphql -f query='mutation { addStar(input: {starrableId: "R_1"}) { clientMutationId } }'
+Fm | feat/x | shell | silent | gh api //graphql -f query='{ viewer { login } }'
+
+# --- block 7 ---
+# _nc_read, in the recursion `_nc_read(script, depth + 1, …, unread=unread)` -> hand in a new list, `unread=[]`
+# a shell fed by a pipe the guard cannot read inside a nested script asks like the same pipe on the line itself
+# (every row with such a pipe had it on the line; 0.8.0 is silent for all of these)
+Fm | feat/x | git-guard | ask | bash -c 'cat run.sh | sh'
+Fm | feat/x | delete-guard | ask | bash -c 'cat run.sh | sh'
+Fm | feat/x | deploy-ask | ask | bash -c 'cat run.sh | sh'
+Fm | feat/x | secret-shell | ask | sh -c 'base64 -d payload.txt | bash'
+Fm | feat/x | tracker-guard | ask | eval 'cat run.sh | sh'
+Fm | feat/x | git-guard | ask | echo 'cat run.sh | sh' | bash
+Fm | feat/x | git-guard | ask | "bash <<'EOF'\ncat run.sh | sh\nEOF"
+Fm | feat/x | delete-guard | ask | sudo bash -c 'cat run.sh | sh'
+Fm | feat/x | protected-branch | ask | bash -c 'bash -c "cat run.sh | sh"'
+Fm | feat/x | git-guard | ask | bash -c '(cat run.sh) | bash'
+Fm | feat/x | host-install | ask | bash -c 'cat run.sh | { cd x; bash; }'
+Fm | feat/x | git-guard | ask | echo "$(cat run.sh | sh)"
+Fm | feat/x@client | egress-guard | ask | bash -c 'cat run.sh | sh'
+Fm | feat/x | shell | silent | bash -c 'cat data.txt | bash process.sh'
+Fm | feat/x | shell | silent | bash -c 'cat run.sh | wc -l'
+
+# --- block 8 ---
+# _http_graphql_query, `or (httpie and name == "--raw")):` -> `or name == "--raw"):`
+# curl's --raw is a flag (no transfer decoding, curl(1)) and takes no value; only httpie's --raw is a body
+Fm | feat/x | tracker-guard | deny | curl -s --raw -X POST https://api.github.com/graphql -d '{"query":"mutation { closeIssue(input: {issueId: \"I_1\"}) { clientMutationId } }"}'
+Fm | feat/x | shell | silent | curl --raw -s https://api.github.com/graphql -d '{"query":"{ viewer { login } }"}'
+Fm | feat/x | shell | silent | curl --raw https://api.github.com/graphql
+"""  # noqa: E501 (a row holds its command as written)
+# --- fix rows, review fixes: end ---
 
 _FILE_INPUT = {
     "Read": lambda p: {"file_path": p},
@@ -1991,6 +2078,7 @@ FIX_ADD4_TABLE = _rows(ROWS_FIX_ADD4)  # addendum 4 of the fix pass: F25 and F26
 FIX_ADD5_TABLE = _rows(ROWS_FIX_ADD5)  # addendum 5 of the fix pass: F27 was due, Fs held
 FIX2_TABLE = _rows(ROWS_FIX2)  # the second fix round: F28 to F36 were due, Fs and Fm held at d1052b1
 FIX2_ADD_TABLE = _rows(ROWS_FIX2_ADD)  # addendum to the second fix round: F37 to F40 were due, Fs held at d2ecce7
+FIX3_TABLE = _rows(ROWS_FIX3)  # review fixes: Fm held at abab75a, each block caught a planted break
 FILE_TABLE = [tuple(p.strip() for p in line.split(" | ", 4)) for line in FILE_ROWS.splitlines() if line.strip()]
 
 
@@ -2063,6 +2151,13 @@ def test_fix2_row(guard, monkeypatch, rid, branch, boundary, rule, expected, com
 @pytest.mark.parametrize("rid, branch, boundary, rule, expected, command", FIX2_ADD_TABLE,
                          ids=[f"{row[0]}-{n}" for n, row in enumerate(FIX2_ADD_TABLE)])
 def test_fix2_add_row(guard, monkeypatch, rid, branch, boundary, rule, expected, command):
+    got = _answers(guard, monkeypatch, branch, boundary, rule, command)
+    assert {k: v for k, v in got.items() if v != expected} == {}, command
+
+
+@pytest.mark.parametrize("rid, branch, boundary, rule, expected, command", FIX3_TABLE,
+                         ids=[f"{row[0]}-{n}" for n, row in enumerate(FIX3_TABLE)])
+def test_fix3_row(guard, monkeypatch, rid, branch, boundary, rule, expected, command):
     got = _answers(guard, monkeypatch, branch, boundary, rule, command)
     assert {k: v for k, v in got.items() if v != expected} == {}, command
 

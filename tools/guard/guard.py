@@ -1491,7 +1491,9 @@ def _quiet_reports(command: str) -> tuple:
     the shell) has none; a report's name with a path in front counts only in a system folder (_REPORT_DIRS:
     `./ls` is another program). Seventh fix round: a git report is quiet only when it hands its output to no pager
     for certain (_git_report_plain: between `git` and the subcommand only `-C <dir>`, `--no-pager` and `-P`, and
-    no assignment in front of `git`)."""
+    no assignment in front of `git`). Eighth fix round: and only when nothing else on the line can set the
+    environment or the configuration git takes a pager from: no word that runs a command while it is expanded
+    (_WORD_RUNS_RE), and beside it only other quiet reports and the commands of _sets_nothing."""
     if "<<" in command or _LAST_ARG_RE.search(command):  # F13: `$_` hands the last word of a report on
         return ()
     if _QUIET_UNREAD_RE.search(command):
@@ -1522,6 +1524,8 @@ def _quiet_reports(command: str) -> tuple:
         return ()
     enclosing, handed_on = outputs
     out = []
+    git_at: dict = {}  # eighth round: the git reports by their place on the line
+    beside: set = set()  # eighth round: the places of the other reports that are their words alone
     for k, (sep, toks) in enumerate(cmds):
         if not _plain_sep(sep) or not _plain_sep(cmds[k + 1][0] if k + 1 < len(cmds) else ""):
             continue
@@ -1543,12 +1547,51 @@ def _quiet_reports(command: str) -> tuple:
             continue
         if head in _REPORT_HEADS:
             out.append(words)
+            if _words_alone(toks):
+                beside.add(k)
         elif head == "git":
             sub, rest = _git_subcommand(list(words))
             if (sub in _REPORT_GIT_SUBS and not (sub == "status" and _git_status_verbose(rest))
                     and _git_report_plain(toks, words, rest)):
-                out.append(words)
+                git_at[k] = words
+    # eighth round: a git report is quiet only when nothing else on the line can set what git reads: no word that
+    # runs a command while it is expanded, and no other command but those of _sets_nothing
+    if (git_at and not _WORD_RUNS_RE.search(command)
+            and all(k in git_at or k in beside or _sets_nothing(toks) for k, (_sep, toks) in enumerate(cmds))):
+        out.extend(git_at.values())
     return tuple(out)
+
+
+# eighth fix round: the commands that may stand beside a quiet git report, apart from other quiet reports: they
+# set no variable and write no file (a closer has only redirections behind it: _compound_outputs)
+_BESIDE_GIT_REPORT = frozenset({"cd", "true", "false"}) | _COMPOUND_CLOSERS
+# eighth fix round: a word that can run a command while the shell expands it, quoted or not: `$( )`, a backtick,
+# and `${`, which opens `${ cmd; }` in bash 5.3 and the flags of zsh; read from the text of the line, so a
+# literal one in single quotes counts too
+_WORD_RUNS_RE = re.compile(r"\$[({]|`")
+
+
+def _words_alone(toks) -> bool:
+    """Eighth fix round: behind its leading shell words the command is its words alone: no redirection and no
+    assignment."""
+    k = 0
+    while k < len(toks) and toks[k] in _NC_SHELL_WORDS:
+        k += 1
+    return tuple(toks[k:]) == _report_words(toks)
+
+
+def _sets_nothing(toks) -> bool:
+    """Eighth fix round: a command beside a git report that sets nothing git reads. git takes a pager and other
+    programs from its environment and its configuration, and any other command of the line can set either, in a
+    loop one behind the report too (`export GIT_CONFIG_COUNT=1 …; git ls-files .env`,
+    `git config pager.ls-files 'xargs cat'`, `echo … >> .git/config`). So beside a quiet git report stand only
+    other quiet reports that are their words alone, shell words, a closer, and `cd`, `true` and `false`, each
+    without a redirection and without an assignment. (What an earlier call left in the configuration or the
+    environment is not seen.)"""
+    if not _words_alone(toks):
+        return False
+    words = _report_words(toks)
+    return not words or words[0] in _BESIDE_GIT_REPORT
 
 
 # seventh fix round: the options of git itself a quiet report may carry in front of its subcommand, beside

@@ -2426,6 +2426,86 @@ Fs | feat/x | secret-shell | silent | ls -la .env; echo "$HOME"_backup
 Fs | feat/x | secret-shell | silent | ls -la .env; echo '$'_x
 """  # noqa: E501 (a row holds its command as written)
 # --- fix rows, sixth fix round: end ---
+# --- fix rows, seventh fix round: begin (rows-b-fix7.txt, 2026-11-19) ---
+ROWS_FIX7 = r"""
+# guard 0.9.0, groups B and C: rows of the seventh fix round. A git report (`check-ignore`, `ls-files`, `status`)
+# is quiet in secret-shell only when it hands its output to no pager for certain: between `git` and the
+# subcommand stand only `-C <dir>`, `--no-pager` and `-P`, and no assignment stands in front of `git`.
+# On every line of F71 and F72 zsh and bash print the file the line names once git's output is a terminal
+# (measured under a pseudo-terminal with git 2.55.0, zsh 5.9.1 and bash 5.3.15 against a stand-in file; the
+# `status` lines with `-s`, which prints the name without colour codes around it); 0.8.0 asks on each of them.
+# id | branch[@client] | rule | expected | command
+# --- F71 --- the pager named in an option of git itself
+F71 | feat/x | secret-shell | ask | git -c core.pager='xargs cat' -p ls-files .env
+F71 | main | secret-shell | ask | git -c core.pager='xargs cat' -p ls-files .env
+F71 | feat/x@client | secret-shell | ask | git -c core.pager='xargs cat' -p ls-files .env
+F71 | feat/x | secret-shell | ask | git -c core.pager='xargs cat' --paginate status -s .env
+F71 | feat/x | secret-shell | ask | git -c pager.ls-files='xargs cat' ls-files .env
+F71 | feat/x | secret-shell | ask | git -c pager.status='xargs cat' status -s .env
+F71 | feat/x | secret-shell | ask | git -c pager.status=true -c core.pager='xargs cat' status -s .env
+F71 | feat/x | secret-shell | ask | git -c pager.check-ignore='xargs cat' check-ignore --no-index .env
+F71 | feat/x | secret-shell | ask | git -C . -c core.pager='xargs cat' -p ls-files .env
+F71 | feat/x | secret-shell | ask | git --no-pager -c core.pager='xargs cat' -p ls-files .env
+F71 | feat/x | secret-shell | ask | export X='xargs cat'; git --config-env=pager.ls-files=X ls-files .env
+F71 | feat/x | secret-shell | ask | export X='xargs cat'; git --config-env pager.ls-files=X ls-files .env
+F71 | feat/x | secret-shell | ask | export GIT_PAGER='xargs cat'; git -p ls-files .env
+F71 | feat/x | secret-shell | ask | export GIT_PAGER='xargs cat'; git --paginate ls-files .env
+F71 | feat/x | secret-shell | ask | { git -c pager.ls-files='xargs cat' ls-files .env; }
+F71 | feat/x | secret-shell | ask | if git -c pager.ls-files='xargs cat' ls-files .env; then true; fi
+F71 | feat/x | secret-shell | ask | true && git -c core.pager='xargs cat' -p ls-files .env
+# --- F72 --- the pager named in a variable set for the command
+F72 | feat/x | secret-shell | ask | GIT_PAGER='xargs cat' git -p ls-files .env
+F72 | main | secret-shell | ask | GIT_PAGER='xargs cat' git -p ls-files .env
+F72 | feat/x@client | secret-shell | ask | GIT_PAGER='xargs cat' git -p ls-files .env
+F72 | feat/x | secret-shell | ask | PAGER='xargs cat' git --paginate ls-files .env
+F72 | feat/x | secret-shell | ask | GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=pager.ls-files GIT_CONFIG_VALUE_0='xargs cat' git ls-files .env
+F72 | feat/x | secret-shell | ask | GIT_CONFIG_PARAMETERS="'pager.ls-files=xargs cat'" git ls-files .env
+F72 | feat/x | secret-shell | ask | GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=pager.status GIT_CONFIG_VALUE_0='xargs cat' git status -s .env
+F72 | feat/x | secret-shell | ask | if GIT_PAGER='xargs cat' git -p ls-files .env; then true; fi
+F72 | feat/x | secret-shell | ask | GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=pager.ls-files GIT_CONFIG_VALUE_0='xargs cat' git -C . ls-files .env
+F72 | feat/x | secret-shell | ask | X=1 2>/dev/null GIT_CONFIG_PARAMETERS="'pager.ls-files=xargs cat'" git ls-files .env
+# the assignment behind a shell word
+F72 | feat/x | secret-shell | ask | if true; then GIT_CONFIG_PARAMETERS="'pager.ls-files=xargs cat'" git ls-files .env; fi
+F72 | feat/x | secret-shell | ask | ! GIT_CONFIG_PARAMETERS="'pager.ls-files=xargs cat'" git ls-files .env
+# the report with the pager beside a plain twin of the same words: the line asks, in either order
+F72 | feat/x | secret-shell | ask | git ls-files .env; GIT_CONFIG_PARAMETERS="'pager.ls-files=xargs cat'" git ls-files .env
+F72 | feat/x | secret-shell | ask | GIT_CONFIG_PARAMETERS="'pager.ls-files=xargs cat'" git ls-files .env; git ls-files .env
+# --- Fs --- lines of the same kind that hand nothing on
+# the price: an option of git or an assignment that names no pager (silent before this round, asked at 0.8.0)
+Fs | feat/x | secret-shell | ask | git -c color.ui=always status .env
+Fs | feat/x | secret-shell | ask | git -c core.quotepath=off ls-files .env
+Fs | feat/x | secret-shell | ask | git --no-optional-locks status .env
+Fs | feat/x | secret-shell | ask | git --literal-pathspecs ls-files .env
+Fs | feat/x | secret-shell | ask | git --git-dir=.git --work-tree=. status .env
+Fs | feat/x | secret-shell | ask | git -p status .env
+Fs | feat/x | secret-shell | ask | git -C. status .env
+Fs | feat/x | secret-shell | ask | git --no-pager=1 status .env
+Fs | feat/x | secret-shell | ask | LC_ALL=C git status .env
+Fs | feat/x | secret-shell | ask | GIT_OPTIONAL_LOCKS=0 git status --short .env
+Fs | feat/x | secret-shell | ask | X=1 >/dev/null git ls-files .env
+Fs | feat/x | secret-shell | ask | git --exec-path=/usr/bin ls-files .env
+# a plain git report stays quiet
+Fs | feat/x | secret-shell | silent | git status .env
+Fs | main | secret-shell | silent | git status --short .env
+Fs | feat/x@client | secret-shell | silent | git ls-files .env
+Fs | feat/x | secret-shell | silent | git check-ignore -v .env
+Fs | feat/x | secret-shell | silent | git --no-pager status .env
+Fs | feat/x | secret-shell | silent | git -P ls-files .env
+Fs | feat/x | secret-shell | silent | git -C . status .env
+Fs | feat/x | secret-shell | silent | git -C sub --no-pager ls-files .env
+Fs | feat/x | secret-shell | silent | git --no-pager -C sub -P check-ignore .env
+Fs | feat/x | secret-shell | silent | git status .env >/dev/null 2>&1
+Fs | feat/x | secret-shell | silent | if git ls-files .env; then true; fi
+Fs | feat/x | secret-shell | silent | ! git --no-pager check-ignore -q .env
+# the word behind `-C` is its folder, whatever it looks like (git reads it so and starts no pager)
+Fs | feat/x | secret-shell | silent | git -C -p ls-files .env
+# the target of a redirection is no assignment
+Fs | feat/x | secret-shell | silent | > log=1.txt git ls-files .env
+# the rule is for git reports only: an assignment in front of another report changes nothing
+Fs | feat/x | secret-shell | silent | LC_ALL=C ls -la .env
+Fs | feat/x | secret-shell | silent | TZ=UTC stat .env
+"""  # noqa: E501 (a row holds its command as written)
+# --- fix rows, seventh fix round: end ---
 
 _FILE_INPUT = {
     "Read": lambda p: {"file_path": p},
@@ -2461,6 +2541,7 @@ FIX3_TABLE = _rows(ROWS_FIX3)  # review fixes: Fm held at abab75a, each block ca
 FIX4_TABLE = _rows(ROWS_FIX4)  # fourth fix round: F41 was due at ac9106e, Fs held
 FIX5_TABLE = _rows(ROWS_FIX5)  # fifth fix round: F51 to F57 were due at 45dd3fd, Fs held there
 FIX6_TABLE = _rows(ROWS_FIX6)  # sixth fix round: F61 to F65 were due at 3bcab45
+FIX7_TABLE = _rows(ROWS_FIX7)  # seventh fix round: F71 and F72 were due at a246385, the price rows of Fs too
 FILE_TABLE = [tuple(p.strip() for p in line.split(" | ", 4)) for line in FILE_ROWS.splitlines() if line.strip()]
 
 
@@ -2561,6 +2642,13 @@ def test_fix5_row(guard, monkeypatch, rid, branch, boundary, rule, expected, com
 @pytest.mark.parametrize("rid, branch, boundary, rule, expected, command", FIX6_TABLE,
                          ids=[f"{row[0]}-{n}" for n, row in enumerate(FIX6_TABLE)])
 def test_fix6_row(guard, monkeypatch, rid, branch, boundary, rule, expected, command):
+    got = _answers(guard, monkeypatch, branch, boundary, rule, command)
+    assert {k: v for k, v in got.items() if v != expected} == {}, command
+
+
+@pytest.mark.parametrize("rid, branch, boundary, rule, expected, command", FIX7_TABLE,
+                         ids=[f"{row[0]}-{n}" for n, row in enumerate(FIX7_TABLE)])
+def test_fix7_row(guard, monkeypatch, rid, branch, boundary, rule, expected, command):
     got = _answers(guard, monkeypatch, branch, boundary, rule, command)
     assert {k: v for k, v in got.items() if v != expected} == {}, command
 

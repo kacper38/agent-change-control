@@ -1489,7 +1489,9 @@ def _quiet_reports(command: str) -> tuple:
     option, nothing a shell expands, so no `-v` can come out of it); `$_` is looked for in every word as the
     shell reads it too (`eval 'cat $'_`); a line with a carriage return (a blank for the lexer, a character for
     the shell) has none; a report's name with a path in front counts only in a system folder (_REPORT_DIRS:
-    `./ls` is another program)."""
+    `./ls` is another program). Seventh fix round: a git report is quiet only when it hands its output to no pager
+    for certain (_git_report_plain: between `git` and the subcommand only `-C <dir>`, `--no-pager` and `-P`, and
+    no assignment in front of `git`)."""
     if "<<" in command or _LAST_ARG_RE.search(command):  # F13: `$_` hands the last word of a report on
         return ()
     if _QUIET_UNREAD_RE.search(command):
@@ -1543,9 +1545,37 @@ def _quiet_reports(command: str) -> tuple:
             out.append(words)
         elif head == "git":
             sub, rest = _git_subcommand(list(words))
-            if sub in _REPORT_GIT_SUBS and not (sub == "status" and _git_status_verbose(rest)):
+            if (sub in _REPORT_GIT_SUBS and not (sub == "status" and _git_status_verbose(rest))
+                    and _git_report_plain(toks, words, rest)):
                 out.append(words)
     return tuple(out)
+
+
+# seventh fix round: the options of git itself a quiet report may carry in front of its subcommand, beside
+# `-C <dir>`. Any other is not known to hand nothing on.
+_REPORT_GIT_OPTIONS = frozenset({"--no-pager", "-P"})
+
+
+def _git_report_plain(toks, words: tuple, rest: list) -> bool:
+    """Seventh fix round: a git report hands its output to no pager for certain. On a terminal git pipes a
+    report into the program that an option in front of the subcommand or a variable set for the command names
+    (`-c core.pager='xargs cat' -p`, `-c pager.ls-files=…`, `--config-env`, `GIT_PAGER=… git -p`, `GIT_CONFIG_…`),
+    and `-c core.fsmonitor=…` runs a program outright. So between `git` and the subcommand stand only `-C <dir>`,
+    `--no-pager` and `-P`, and no assignment stands in front of `git`. `toks` are the command's words as the
+    lexer gave them, `words` the same without redirections and leading words, `rest` the words behind the
+    subcommand. (A pager the configuration or the environment names without a word of this command is not seen.)"""
+    lead = drop_redirections(list(toks))
+    if any(_ASSIGN_RE.match(t) for t in lead[: len(lead) - len(words)]):
+        return False
+    front = list(words[1 : len(words) - len(rest) - 1])
+    while front:
+        if front[0] == "-C":
+            del front[:2]
+        elif front[0] in _REPORT_GIT_OPTIONS:
+            del front[:1]
+        else:
+            return False
+    return True
 
 
 def _git_status_verbose(rest: list[str]) -> bool:

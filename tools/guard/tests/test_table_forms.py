@@ -2301,6 +2301,131 @@ Fs | feat/x | shell | silent | ls -la "a\\b/.env"
 Fs | feat/x | shell | silent | for if in a b; do ls -la .env; done
 """  # noqa: E501 (a row holds its command as written)
 # --- fix rows, fifth fix round: end ---
+# --- fix rows, sixth fix round: begin (rows-b-fix6.txt, 2026-11-19) ---
+ROWS_FIX6 = r"""
+# guard 0.9.0, groups B and C: rows of the sixth fix round. A quiet report of secret-shell is a command the check
+# is certain about: its words go to standard output and nowhere else, and the program is the one its name says.
+# On every line of F61 to F64 zsh or bash prints the file the line names (measured with zsh 5.9.1 and bash 5.3.15
+# against a stand-in file); 0.8.0 asks on each of them.
+# id | branch[@client] | rule | expected | command
+# --- F61 --- `printf -v` whose option the shell makes: a parameter, a substitution, braces, a pattern that
+# matches nothing
+F61 | feat/x | secret-shell | ask | X=-v; printf $X x %s .env; cat $x
+F61 | main | secret-shell | ask | X=-v; printf $X x %s .env; cat $x
+F61 | feat/x@client | secret-shell | ask | X=-v; printf $X x %s .env; cat $x
+F61 | feat/x | secret-shell | ask | printf ${X:--v} x %s .env; cat $x
+F61 | feat/x | secret-shell | ask | printf "${X:--v}" x %s .env; cat $x
+F61 | feat/x | secret-shell | ask | printf "$(echo -v)" x %s .env; cat $x
+F61 | feat/x | secret-shell | ask | printf "`echo -v`" x %s .env; cat $x
+F61 | feat/x | secret-shell | ask | printf {-v,x} %s .env; cat $x
+F61 | feat/x | secret-shell | ask | printf {-v,x} %s .env && cat "$x"
+F61 | feat/x | secret-shell | ask | { printf {-v,x} %s .env; }; cat $x
+F61 | feat/x | secret-shell | ask | X=-v; if printf $X x %s .env; then cat $x; fi
+F61 | feat/x | secret-shell | ask | printf -${E}v x %s .env; cat $x
+F61 | feat/x | secret-shell | ask | printf $E -v x %s .env; cat $x
+F61 | feat/x | secret-shell | ask | printf "-"v x %s .env; cat $x
+F61 | feat/x | secret-shell | ask | printf \-v x %s .env; cat $x
+F61 | feat/x | secret-shell | ask | shopt -s nullglob; printf nomatch* -v x %s .env; cat $x
+F61 | feat/x | secret-shell | ask | setopt nullglob; printf nomatch* -v x %s .env; cat $x
+F61 | feat/x | secret-shell | ask | setopt nullglob; printf nomatc? -v x %s .env; cat $x
+F61 | feat/x | secret-shell | ask | setopt nullglob; printf [n]omatch -v x %s .env; cat $x
+F61 | feat/x | secret-shell | ask | setopt extendedglob nullglob; printf nomatch# -v x %s .env; cat $x
+F61 | feat/x | secret-shell | ask | setopt extendedglob nullglob; printf ^?* -v x %s .env; cat $x
+# --- F62 --- `$_` that quotes split in the text and `eval` puts together
+F62 | feat/x | secret-shell | ask | ls .env; eval 'cat $'_
+F62 | main | secret-shell | ask | ls .env; eval 'cat $'_
+F62 | feat/x@client | secret-shell | ask | ls .env; eval 'cat $'_
+F62 | feat/x | secret-shell | ask | ls .env; eval cat '$'_
+F62 | feat/x | secret-shell | ask | ls .env; eval "cat \$"_
+F62 | feat/x | secret-shell | ask | ls .env; eval cat \$''_
+F62 | feat/x | secret-shell | ask | echo .env; eval 'cat "$'_'"'
+F62 | feat/x | secret-shell | ask | test -f .env && eval 'cat $'_
+F62 | feat/x | secret-shell | ask | { ls .env; }; eval 'cat $'_
+# --- F63 --- a carriage return: a blank for the lexer, a plain character for the shell, so `}` and `{` with one
+# glued on are a closer and an opener for the check only
+F63 | feat/x | secret-shell | ask | "{ ls .env; }\r; {\r true; } | xargs cat"
+F63 | main | secret-shell | ask | "{ ls .env; }\r; {\r true; } | xargs cat"
+F63 | feat/x@client | secret-shell | ask | "{ ls .env; }\r; {\r true; } | xargs cat"
+F63 | feat/x | secret-shell | ask | "{ ls .env; \r}; {\r true; } | xargs cat"
+F63 | feat/x | secret-shell | ask | "{ ls .env; }\r; \r{ true; } | xargs cat"
+F63 | feat/x | secret-shell | ask | "{ ls .env; \r}; \r{ true; } | xargs cat"
+F63 | feat/x | secret-shell | ask | "{ echo .env; }\r; {\r true; } | xargs cat"
+# --- F64 --- a report's name with a path in front is another program (here a link to `cat`, made on the line)
+F64 | feat/x | secret-shell | ask | ln -s /bin/cat ./ls; ./ls .env
+F64 | main | secret-shell | ask | ln -s /bin/cat ./ls; ./ls .env
+F64 | feat/x@client | secret-shell | ask | ln -s /bin/cat ./ls; ./ls .env
+F64 | feat/x | secret-shell | ask | mkdir -p script; ln -s /bin/cat script/test; script/test .env
+F64 | feat/x | secret-shell | ask | ln -s /bin/cat ./echo; ./echo .env
+F64 | feat/x | secret-shell | ask | ln -s /bin/cat ./stat; ./stat .env
+F64 | feat/x | secret-shell | ask | ln -s /bin/cat ./printf; ./printf %s .env
+F64 | feat/x | secret-shell | ask | ln -s /bin/cat ./git; ./git status .env
+F64 | feat/x | secret-shell | ask | ln -s /bin/cat ./gls; ./gls .env
+F64 | feat/x | secret-shell | ask | mkdir -p tools/bin; ln -s /bin/cat tools/bin/ls; tools/bin/ls -- .env
+# --- F65 --- `case` inside a substitution of a double-quoted string, with no blank in front: the `)` of its
+# pattern is not the substitution's end, so the quotes behind it show the check a group the shell does not have
+F65 | feat/x | secret-shell | ask | { ls .env; : "$(true;case x in x) : " ; } ; { : " ;; esac)" ; } | xargs cat
+F65 | main | secret-shell | ask | { ls .env; : "$(true;case x in x) : " ; } ; { : " ;; esac)" ; } | xargs cat
+F65 | feat/x@client | secret-shell | ask | { ls .env; : "$(true;case x in x) : " ; } ; { : " ;; esac)" ; } | xargs cat
+F65 | feat/x | secret-shell | ask | { ls .env; : "$(true&&case x in x) : " ; } ; { : " ;; esac)" ; } | xargs cat
+F65 | feat/x | secret-shell | ask | { ls .env; : "$(true|case x in x) : " ; } ; { : " ;; esac)" ; } | xargs cat
+F65 | feat/x | secret-shell | ask | { echo .env; : "$(:;case x in x) : " ; } ; { : " ;; esac)" ; } | xargs cat
+# --- Fs --- lines of the same kinds that hand nothing on
+# they asked before this round and still ask
+Fs | feat/x | secret-shell | ask | ls .env; eval 'cat $_'
+Fs | feat/x | secret-shell | ask | printf -v x %s .env
+Fs | feat/x | secret-shell | ask | { ls .env; : "$(true; case x in x) : " ; } ; { : " ;; esac)" ; } | xargs cat
+# the price of F65: a word in a quoted substitution that holds `case` between other signs (silent before)
+Fs | feat/x | secret-shell | ask | ls -la .env; echo "$(grep --ignore-case x README.md)"
+# `case` inside a longer word is none
+Fs | feat/x | secret-shell | silent | ls -la .env; echo "$(basename showcase)"
+Fs | feat/x | secret-shell | silent | ls -la .env; echo "$(echo lowercase)"
+# a path in front of a report's name outside the system folders: the program is not known (silent before this round)
+Fs | feat/x | secret-shell | ask | script/test .env
+Fs | feat/x | secret-shell | ask | ./test -f .env
+Fs | feat/x | secret-shell | ask | bin/stat .env
+Fs | feat/x | secret-shell | ask | ~/bin/ls -la .env
+Fs | feat/x | secret-shell | ask | ../tools/echo .env
+Fs | feat/x | secret-shell | ask | ./git status --short .env
+Fs | feat/x | secret-shell | ask | /tmp/tools/ls -la .env
+Fs | feat/x | secret-shell | ask | /srv/app/bin/stat .env
+# the price of F61 and F63: a first argument of printf that a shell expands, and a carriage return on the line
+# (silent before this round)
+Fs | feat/x | secret-shell | ask | printf "$FMT" .env
+Fs | feat/x | secret-shell | ask | printf - %s .env
+Fs | feat/x | secret-shell | ask | printf '$%s\n' .env
+Fs | feat/x | secret-shell | ask | printf %s{a,b}\\n .env
+Fs | feat/x | secret-shell | ask | printf ^%s .env
+Fs | feat/x | secret-shell | ask | printf ~/%s .env
+Fs | feat/x | secret-shell | ask | "ls -la .env\r"
+Fs | feat/x | secret-shell | ask | "ls -la .env\r\necho ok"
+# a format that is one for certain: quiet stays quiet
+Fs | feat/x | secret-shell | silent | printf '%s\n' .env >> .gitignore
+Fs | main | secret-shell | silent | printf '%s\n' .env >> .gitignore
+Fs | feat/x@client | secret-shell | silent | printf '%s\n' .env >> .gitignore
+Fs | feat/x | secret-shell | silent | printf "%s\n" .env.example .env >> .gitignore
+Fs | feat/x | secret-shell | silent | printf "%s\n" "$HOME" .env
+Fs | feat/x | secret-shell | silent | printf '%s %s\n' {a,b} .env
+Fs | feat/x | secret-shell | silent | printf '[%s]\n' .env
+Fs | feat/x | secret-shell | silent | printf %s\\n .env
+Fs | feat/x | secret-shell | silent | printf %s .env
+Fs | feat/x | secret-shell | silent | printf -- '%s\n' .env
+Fs | feat/x | secret-shell | silent | ls -la .env; printf
+# `-v` is the option only as the first argument (these asked before this round)
+Fs | feat/x | secret-shell | silent | printf '%s\n' -v .env
+Fs | feat/x | secret-shell | silent | printf -- -v x %s .env; cat $x
+# a path in a system folder
+Fs | feat/x | secret-shell | silent | /bin/ls -la .env
+Fs | feat/x | secret-shell | silent | /usr/bin/stat .env
+Fs | feat/x | secret-shell | silent | /bin/echo .env >> .gitignore
+Fs | feat/x | secret-shell | silent | /usr/bin/git status --short .env
+Fs | feat/x | secret-shell | silent | /opt/homebrew/bin/git ls-files .env
+Fs | feat/x | secret-shell | silent | /usr/local/bin/git check-ignore -v .env
+# `eval` and a dollar sign beside an underscore that is no `$_`
+Fs | feat/x | secret-shell | silent | ls -la .env; eval 'echo checked'
+Fs | feat/x | secret-shell | silent | ls -la .env; echo "$HOME"_backup
+Fs | feat/x | secret-shell | silent | ls -la .env; echo '$'_x
+"""  # noqa: E501 (a row holds its command as written)
+# --- fix rows, sixth fix round: end ---
 
 _FILE_INPUT = {
     "Read": lambda p: {"file_path": p},
@@ -2335,6 +2460,7 @@ FIX2_ADD_TABLE = _rows(ROWS_FIX2_ADD)  # addendum to the second fix round: F37 t
 FIX3_TABLE = _rows(ROWS_FIX3)  # review fixes: Fm held at abab75a, each block caught a planted break
 FIX4_TABLE = _rows(ROWS_FIX4)  # fourth fix round: F41 was due at ac9106e, Fs held
 FIX5_TABLE = _rows(ROWS_FIX5)  # fifth fix round: F51 to F57 were due at 45dd3fd, Fs held there
+FIX6_TABLE = _rows(ROWS_FIX6)  # sixth fix round: F61 to F65 were due at 3bcab45
 FILE_TABLE = [tuple(p.strip() for p in line.split(" | ", 4)) for line in FILE_ROWS.splitlines() if line.strip()]
 
 
@@ -2428,6 +2554,13 @@ def test_fix4_row(guard, monkeypatch, rid, branch, boundary, rule, expected, com
 @pytest.mark.parametrize("rid, branch, boundary, rule, expected, command", FIX5_TABLE,
                          ids=[f"{row[0]}-{n}" for n, row in enumerate(FIX5_TABLE)])
 def test_fix5_row(guard, monkeypatch, rid, branch, boundary, rule, expected, command):
+    got = _answers(guard, monkeypatch, branch, boundary, rule, command)
+    assert {k: v for k, v in got.items() if v != expected} == {}, command
+
+
+@pytest.mark.parametrize("rid, branch, boundary, rule, expected, command", FIX6_TABLE,
+                         ids=[f"{row[0]}-{n}" for n, row in enumerate(FIX6_TABLE)])
+def test_fix6_row(guard, monkeypatch, rid, branch, boundary, rule, expected, command):
     got = _answers(guard, monkeypatch, branch, boundary, rule, command)
     assert {k: v for k, v in got.items() if v != expected} == {}, command
 

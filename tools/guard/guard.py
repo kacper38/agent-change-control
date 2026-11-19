@@ -1288,7 +1288,16 @@ _GROUP_CLOSER = {"{": "}", "if": "fi", "while": "done", "until": "done", "for": 
 # fifth fix round: the quiet reading is strict; a line it cannot read with certainty has no quiet report.
 # In `$[…]` a quote is no quote for the shell, and a character of the private plane would pass for a quoted one.
 # (`$'…'`, whose escapes the lexer does not know, and `$((…))` are turned down where the quotes are read.)
-_QUIET_UNREAD_RE = re.compile("\\$\\[|[\U000f0000-\U000ffffd]")
+# sixth fix round: a carriage return is a blank for the lexer and a plain character for the shell (`}\r` closes
+# nothing there)
+_QUIET_UNREAD_RE = re.compile("\\$\\[|\r|[\U000f0000-\U000ffffd]")
+# sixth fix round: a report's name written with a path is the report only in a system folder (`./ls`, `script/test`
+# are other programs)
+_REPORT_DIRS = frozenset({"/bin", "/usr/bin", "/usr/local/bin", "/opt/homebrew/bin"})
+# sixth fix round: what the first argument of a quiet `printf` may hold outside quotes; anything else a shell could
+# expand to the option `-v` (a parameter, braces, a pattern, a tilde). A backslash is left in a masked word only
+# inside double quotes.
+_PRINTF_PLAIN_RE = re.compile("[A-Za-z0-9%_./:,+@=\\\\\U000f0000-\U000ffffd-]*")
 _QUOTED_OFFSET = 0xF0000
 _QUOTE_MARK = "\U000ffffd"  # behind every opening quote: a word with an empty quoted part (`{''`) is no bare word
 _BRACKET_WORDS = frozenset({"{", "}", "[", "]", "[[", "]]"})
@@ -1303,12 +1312,18 @@ def _quoted_char(c: str) -> str:
     return chr(ord(c) + _QUOTED_OFFSET) if c and ord(c) < 0xFFFD else c
 
 
+# sixth fix round: `case` is a word by its neighbours, not by blanks (`$(true;case x in x) …)`): the `)` of its
+# pattern does not end the substitution
+_CASE_WORD_RE = re.compile(r"(?<![A-Za-z0-9_])case(?![A-Za-z0-9_])")
+
+
 def _quiet_sub_end(text: str, i: int) -> Optional[int]:
     """Index of the character that closes the substitution opened at text[i] inside a double-quoted string, or
     None when the check cannot tell where the shell ends it. A backtick ends at the next backtick that is not
-    escaped. `$(` ends at the first `)` when the body up to it holds no bracket, backtick, `${`, `$'` or `case`,
-    no `#` outside quotes, and quotes that pair up: then that `)` is quoted for no shell. (A here-document, which
-    could hide it too, is turned down for the whole line.)"""
+    escaped. `$(` ends at the first `)` when the body up to it holds no bracket, backtick, `${`, `$'` or `case`
+    (a word by its neighbours, not by blanks: `$(true;case x in x) …)`, sixth fix round), no `#` outside
+    quotes, and quotes that pair up: then that `)` is quoted for no shell. (A here-document, which could hide it
+    too, is turned down for the whole line.)"""
     if text[i] == "`":
         j = i + 1
         while j < len(text):
@@ -1318,7 +1333,7 @@ def _quiet_sub_end(text: str, i: int) -> Optional[int]:
         return None
     end = text.find(")", i + 2)
     body = text[i + 2 : max(end, 0)]
-    if end < 0 or any(x in body for x in ("(", "`", "${", "$'")) or "case" in body.split():
+    if end < 0 or any(x in body for x in ("(", "`", "${", "$'")) or _CASE_WORD_RE.search(body):
         return None
     quote = ""
     k = 0
@@ -1397,6 +1412,17 @@ def _quiet_unmask(word: str) -> str:
                    for c in word if c != _QUOTE_MARK)
 
 
+def _printf_format(first: str) -> bool:
+    """The first argument of a `printf` (masked, as the lexer gave it) is its format for certain: it is no
+    option, and it holds nothing a shell expands, so no `-v` can come out of it (`printf $X x`, `printf {-v,x}`,
+    `printf "$(echo -v)" x` store their words in a variable). After `--` no word is an option."""
+    plain = _quiet_unmask(first)
+    if plain == "--":
+        return True
+    return (not plain.startswith("-") and "$" not in plain and "`" not in plain
+            and _PRINTF_PLAIN_RE.fullmatch(first) is not None)
+
+
 def _compound_outputs(cmds: list) -> Optional[tuple[list, dict]]:
     """For each simple command of the lexer's list, the groups and compounds around it (each by a number of its
     own, counted in the order they open), and for each of these whether its output is handed on by the separator
@@ -1458,7 +1484,12 @@ def _quiet_reports(command: str) -> tuple:
     plane, `$_` in any spelling, quoting the lexer reads otherwise than the shell (_quiet_mask gives up), more
     `[[` than `]]` or a word with unbalanced braces or brackets in one command (the lexer split inside `[[ ]]`,
     `${ }` or a subscript), or a structure _compound_outputs turns down. `printf -v` and `[[ … =~ … ]]` hand
-    their words on in a variable and are never quiet."""
+    their words on in a variable and are never quiet. Sixth fix round: a quiet report is a command the check is
+    certain about. A `printf` is one only when its first argument is a format for certain (_printf_format: no
+    option, nothing a shell expands, so no `-v` can come out of it); `$_` is looked for in every word as the
+    shell reads it too (`eval 'cat $'_`); a line with a carriage return (a blank for the lexer, a character for
+    the shell) has none; a report's name with a path in front counts only in a system folder (_REPORT_DIRS:
+    `./ls` is another program)."""
     if "<<" in command or _LAST_ARG_RE.search(command):  # F13: `$_` hands the last word of a report on
         return ()
     if _QUIET_UNREAD_RE.search(command):
@@ -1481,6 +1512,9 @@ def _quiet_reports(command: str) -> tuple:
         if any(t not in _BRACKET_WORDS and (t.count("{") != t.count("}") or t.count("[") != t.count("]"))
                for t in toks):
             return ()
+        # sixth round: `$_` in a word as the shell reads it, whatever quotes split it in the text (`eval 'cat $'_`)
+        if any(_LAST_ARG_RE.search(_quiet_unmask(t)) for t in toks):
+            return ()
     outputs = _compound_outputs(cmds)
     if outputs is None:
         return ()
@@ -1491,12 +1525,19 @@ def _quiet_reports(command: str) -> tuple:
             continue
         if any(handed_on.get(o, True) for o in enclosing[k]):  # F11: `{ ls .env; } | xargs cat`
             continue
-        words = tuple(_quiet_unmask(w) for w in _report_words(toks))
+        masked_words = _report_words(toks)
+        words = tuple(_quiet_unmask(w) for w in masked_words)
         if not words:
             continue
         head = tool_name(words[0])
-        # fifth round: `printf -v x` and `[[ … =~ … ]]` hand their words on in a variable
-        if (head == "printf" and any(w.startswith("-v") for w in words[1:])) or (head == "[[" and "=~" in words):
+        # sixth round: a name with a path in front is the report only in a system folder
+        if "/" in words[0] and os.path.dirname(words[0]) not in _REPORT_DIRS:
+            continue
+        # fifth round: `printf -v x` and `[[ … =~ … ]]` hand their words on in a variable; sixth round: the option
+        # can only be the first argument, and that argument must be a format for certain (_printf_format)
+        if head == "printf" and len(words) > 1 and not _printf_format(masked_words[1]):
+            continue
+        if head == "[[" and "=~" in words:
             continue
         if head in _REPORT_HEADS:
             out.append(words)

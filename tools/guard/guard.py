@@ -644,13 +644,15 @@ def _delete_judge(ev: Event) -> Optional[str]:
 def rule_delete_guard(ev: Event, cfg: dict) -> Optional[Decision]:
     if ev.event != "PreToolUse" or ev.kind != "shell" or not ev.command:
         return None
+    pipe = None
     try:
         what = _delete_judge(ev)
+        pipe = _PIPE_NOT_READ if _unread_pipe(ev.command) else None  # read past it, asked for with the rest
     except CommandNotRead as exc:  # too deep or too many tools: ask rather than pass it unread
         what = str(exc)
     except Exception as exc:  # main() turns a crash into exit 1, which both harnesses let run silently: ask instead
         what = f"the command could not be read ({type(exc).__name__})"
-    return ("ask", DELETE_MSG.format(what=what)) if what else None
+    return combine([("ask", DELETE_MSG.format(what=w)) for w in (what, pipe) if w])
 
 
 
@@ -1418,7 +1420,8 @@ def rule_secret_shell(ev: Event, cfg: dict) -> Optional[Decision]:
             stored.append(("ask", SECRET_STORE_MSG.format(what=what)))
 
     failed = reader_pass(ev.command, judge, "secret-shell")
-    if failed is None:  # the read went through, so its input redirections are known (`cat <.env`)
+    # the read went through, so its input redirections are known (`cat <.env`); an unread pipe does not stop it
+    if failed is None or failed == _pipe_ask("secret-shell"):
         reads.extend(p for p in nested_inputs(ev.command) if secret_class(_expand(p, ev.cwd)) == "secret")
     return combine([d for d in (_secret_verdict(writes, reads), failed, *stored) if d])
 
@@ -2067,17 +2070,19 @@ def deploy_what(command: str) -> Optional[str]:
 def rule_deploy_ask(ev: Event, cfg: dict) -> Optional[Decision]:
     if ev.event != "PreToolUse" or ev.kind != "shell" or not ev.command:
         return None
+    pipe = None
     try:
         if _single_preview(ev.command):  # 0.9.0 (K5): `kubectl delete --help` as the whole line changes nothing
             return None
         text = strip_heredocs(ev.command)
         # the 0.6.0 verdict OR the token verdict; the reader takes the here-document bodies out itself (0.8.0)
         what = _deploy_text(text) or deploy_what(ev.command)
+        pipe = _PIPE_NOT_READ if _unread_pipe(ev.command) else None  # read past it, asked for with the rest
     except CommandNotRead as exc:  # too deep or too many tools: ask rather than pass it unread
         what = str(exc)
     except Exception as exc:  # main() turns a crash into exit 1, which both harnesses let run silently: ask instead
         what = f"the command could not be read ({type(exc).__name__})"
-    return ("ask", DEPLOY_MSG.format(what=what)) if what else None
+    return combine([("ask", DEPLOY_MSG.format(what=w)) for w in (what, pipe) if w])
 
 
 # ----------------------------------------------------------------------------
@@ -3565,15 +3570,41 @@ def nested_inputs(command: str, local: bool = False) -> tuple[str, ...]:
 
 @functools.lru_cache(maxsize=16)
 def _nc_cached(command: str, local: bool = False):
-    """nested_commands' memo: the token tuples and the input files, or the CommandNotRead that stopped the read."""
+    """nested_commands' memo: the token tuples, the input files, the environments and whether a shell reads its
+    script from a pipe the guard cannot read, or the CommandNotRead that stopped the read."""
     out: list[tuple[str, ...]] = []
     inputs: list[str] = []
     envs: list[tuple[str, ...]] = []
+    unread: list[bool] = []
     try:
-        _nc_read(command, 0, out, set(), local, inputs, [], envs)
+        _nc_read(command, 0, out, set(), local, inputs, [], envs, unread=unread)
     except CommandNotRead as exc:  # kept as a value so the second rule does not read the line again
         return exc
-    return tuple(out), tuple(inputs), tuple(envs)
+    return tuple(out), tuple(inputs), tuple(envs), bool(unread)
+
+
+def nested_unread_pipe(command: str, local: bool = False) -> bool:
+    """Addendum to the second fix round: a shell of the line or of what it nests reads its script from a pipe
+    whose content the guard cannot read (decision ad). The reader reads on past it; the rules ask for it. From
+    the same memoised read; raises as nested_commands."""
+    got = _nc_cached(command, local)
+    if isinstance(got, CommandNotRead):
+        raise CommandNotRead(str(got))
+    return got[3]
+
+
+def _pipe_ask(rule: str) -> Decision:
+    """The ask for an unread pipe, in the words the reader pass used when the pipe ended the read."""
+    return "ask", READER_MSG.format(rule=rule, what=_PIPE_NOT_READ)
+
+
+def _unread_pipe(command: str) -> bool:
+    """nested_unread_pipe for the rules that read nested_commands themselves; a line the reader stopped on is
+    asked for by their own handler, so it is no unread pipe here."""
+    try:
+        return nested_unread_pipe(command)
+    except CommandNotRead:
+        return False
 
 
 def nested_envs(command: str) -> tuple[tuple[str, ...], ...]:
@@ -3601,10 +3632,11 @@ def _nc_inputs(raw: list[str]) -> list[str]:
 
 def _nc_read(text: str, depth: int, out: list, seen: set, local: bool = False,
              inputs: Optional[list] = None, bodies: Optional[list] = None, envs: Optional[list] = None,
-             env: tuple = ()) -> None:
+             env: tuple = (), unread: Optional[list] = None) -> None:
     """Append the simple commands of one line to out, then read what each nests one level deeper. `bodies`
     holds the here-document bodies of the whole read, so a mark in a nested script still finds its body; `envs`
-    gets, for each tuple of out, `env`: the hook-gate assignments the script inherits (0.8.0)."""
+    gets, for each tuple of out, `env`: the hook-gate assignments the script inherits (0.8.0). `unread` gets a
+    mark for each pipe a shell reads its script from that the guard cannot read; the read goes on past it."""
     if depth > _HI_MAX_DEPTH:
         if text.strip():
             raise CommandNotRead(_HI_NOT_READ)
@@ -3629,11 +3661,10 @@ def _nc_read(text: str, depth: int, out: list, seen: set, local: bool = False,
                 raw = raw[: kept[cut]]
                 toks = toks[:cut]
         rows.append((raw, toks))
-    if cmds is not None and _nc_compound_pipe(rows, seps):
-        raise CommandNotRead(_PIPE_NOT_READ)
     # (script, the environment it inherits); substitutions outside quotes are simple commands of their own in the
     # lexer already, and a substitution runs in the environment of this text
     nested = [(s, env) for s in subs]
+    fed_bars = set()  # the bars through which _nc_fed read a script: no unread pipe
     for k, (raw, toks) in enumerate(rows):
         own = env + _nc_hook_env(toks)
         # taken from the words before the redirections go: `<<<` is one
@@ -3641,7 +3672,9 @@ def _nc_read(text: str, depth: int, out: list, seen: set, local: bool = False,
         if inputs is not None:
             inputs.extend(_nc_inputs(raw))
         piped = rows[k + 1][1] if k + 1 < len(rows) and seps[k + 1].strip(" \n") in ("|", "|&") else None
-        fed, runner = _nc_fed(raw, toks, piped, bodies)
+        fed, runner = _nc_fed(raw, toks, piped, bodies, unread)
+        if piped is not None and runner is piped:
+            fed_bars.add(k + 1)
         if not fed and toks in ([], ["}"]):
             fed, runner = _nc_group_fed(rows, seps, k, bodies)
         fed_env = own if runner is toks else env + _nc_hook_env(runner or [])
@@ -3652,10 +3685,12 @@ def _nc_read(text: str, depth: int, out: list, seen: set, local: bool = False,
         if envs is not None:
             envs.append(env)
         nested.extend((s, own) for s in _nc_scripts(toks))
+    if cmds is not None and unread is not None and _nc_compound_pipe(rows, seps, fed_bars):
+        unread.append(True)
     for script, script_env in nested:
         if (script, script_env) not in seen:  # one read per distinct script: a repeated nest costs nothing twice
             seen.add((script, script_env))
-            _nc_read(script, depth + 1, out, seen, local, inputs, bodies, envs, script_env)
+            _nc_read(script, depth + 1, out, seen, local, inputs, bodies, envs, script_env, unread)
 
 
 def _nc_remote_word(toks: list[str]) -> Optional[int]:
@@ -3726,6 +3761,8 @@ def reader_pass(text: str, judge: Callable[[list[str]], Optional[Decision]], rul
                 if d:
                     asks.append(("ask", NET_MSG.format(rule=rule, tool=os.path.basename(toks[i]),
                                                        name=os.path.basename(toks[j]), verdict=d[0])))
+        if nested_unread_pipe(text, local):  # read past it; with no deny found, it asks with the others
+            asks.append(_pipe_ask(rule))
         return combine(asks)
     except CommandNotRead as exc:  # too deep or too many words: ask rather than pass it unread
         what = str(exc)
@@ -3847,11 +3884,13 @@ def _quote_state(text: str, start: int, end: int, stack: list) -> int:
     return max(i, end)
 
 
-def _nc_fed(raw: list[str], toks: list[str], piped: Optional[list], bodies: list) -> tuple[list[str], Optional[list]]:
+def _nc_fed(raw: list[str], toks: list[str], piped: Optional[list], bodies: list,
+            unread: Optional[list] = None) -> tuple[list[str], Optional[list]]:
     """The scripts one simple command feeds to a shell (0.8.0), and the simple command that runs them: its
     here-document bodies when it runs a shell that reads standard input or an ssh without a command; and, when
     its output goes through one pipe into such a command (`piped`), the bodies of a `cat` without a file operand
-    and the words of an `echo` or `printf`."""
+    and the words of an `echo` or `printf`. A shell behind the pipe whose script is not on the line gets a mark
+    in `unread` and nothing is fed."""
     marks = [_NC_HEREDOC_MARK_RE.match(t) for t in raw]
     own = [bodies[int(m.group(1))] for m in marks if m and int(m.group(1)) < len(bodies)]
     if own and _nc_runs_stdin(toks):
@@ -3871,8 +3910,8 @@ def _nc_fed(raw: list[str], toks: list[str], piped: Optional[list], bodies: list
             return [" ".join(args[k:]).replace("\\n", "\n")], piped
         if name == "printf":  # -v sets a variable
             return ([] if args[:1] == ["-v"] else [" ".join(args).replace("\\n", "\n")]), piped
-    if _nc_pipe_shell(piped):
-        raise CommandNotRead(_PIPE_NOT_READ)
+    if unread is not None and _nc_pipe_shell(piped):
+        unread.append(True)
     return [], None
 
 
@@ -3910,14 +3949,17 @@ _PIPE_SHELLS = frozenset("sh bash zsh dash ksh fish ash".split())
 _PIPE_NOT_READ = "a shell reads its script from a pipe whose content the guard cannot read"
 
 
-def _nc_compound_pipe(rows: list, seps: list) -> bool:
+def _nc_compound_pipe(rows: list, seps: list, fed_bars: frozenset = frozenset()) -> bool:
     """F02, F03: a pipe with a subshell, group or compound on one side, and a shell that reads its program from
     the pipe on the other: `(cat run.sh) | bash`, `cat run.sh | (bash)`, `cat run.sh | { cd x; bash; }`, `… | if
     true; then bash; fi`. _nc_fed reads a pipe between two simple commands only; here what goes through the pipe
     is not read, so the line asks. Second fix round: a separator is read by its characters (`|⏎(`), and a row of
-    redirections only behind a closer (`(cat run.sh) 2>/dev/null | bash`) stands for the subshell it closes."""
+    redirections only behind a closer (`(cat run.sh) 2>/dev/null | bash`) stands for the subshell it closes.
+    Addendum: a bar of `fed_bars` (_nc_fed read the script through it, `echo '…' | { sh; }`) is left out."""
     compact = [s.replace(" ", "").replace("\n", "") for s in seps]
     for r in range(1, len(rows)):
+        if r in fed_bars:
+            continue
         sep = compact[r]
         bar = sep.find("|")
         if bar < 0 or sep.replace("(", "").replace(")", "") not in ("|", "|&"):

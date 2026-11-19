@@ -1858,6 +1858,84 @@ Fs | feat/x | git-guard | deny | git push --force origin feat; cat run.sh | sh
 Fs | feat/x | tracker-guard | deny | gh issue close 3; cat run.sh | sh
 Fs | feat/x | git-guard | deny | bash -c 'git push --force origin feat'
 
+# --- topic 2 ---
+# F38: a GraphQL body for GitHub through httpie and wget (criterion 5) in the spellings the tools have beside the
+# ones read so far. HTTPie 3.2.4, measured with --offline: `--raw DATA` is the request body, `@file` names a file
+# with it, and a call that shows no body sends its standard input with POST whenever that is no terminal (a
+# redirection, a pipe, and every shell an agent runs). xh is read as httpie (its help; not installed here).
+# wget 1.25: `--body-data` and `--body-file` with `--method`
+F38 | feat/x | tracker-guard | deny | http POST https://api.github.com/graphql --raw '{"query":"mutation { closeIssue(input: {issueId: \"I_1\"}) { clientMutationId } }"}'
+F38 | feat/x | tracker-guard | deny | http --raw='{"query":"mutation { addLabelsToLabelable(input: {labelableId: \"I_1\", labelIds: [\"L_1\"]}) { clientMutationId } }"}' POST https://api.github.com/graphql
+F38 | feat/x | tracker-guard | ask | http POST https://api.github.com/graphql --raw '{"query":"mutation { mergePullRequest(input: {pullRequestId: \"PR_1\"}) { clientMutationId } }"}'
+F38 | feat/x | tracker-guard | ask | http POST https://api.github.com/graphql --raw "$BODY"
+F38 | feat/x | tracker-guard | ask | http POST https://api.github.com/graphql @q.json
+F38 | feat/x | tracker-guard | ask | https api.github.com/graphql @q.json
+F38 | feat/x | tracker-guard | ask | http https://api.github.com/graphql
+F38 | feat/x | tracker-guard | ask | http POST https://api.github.com/graphql Authorization:"bearer $GH_TOKEN"
+F38 | feat/x | tracker-guard | ask | cat q.json | http https://api.github.com/graphql
+F38 | feat/x | tracker-guard | ask | cat q.json | http POST https://api.github.com/graphql
+F38 | feat/x | tracker-guard | ask | jq -c . q.json | https api.github.com/graphql
+F38 | feat/x | tracker-guard | ask | cat q.json | xh POST https://api.github.com/graphql
+F38 | feat/x | tracker-guard | ask | echo '{"query":"mutation { closeIssue(input: {issueId: \"I_1\"}) { clientMutationId } }"}' | http POST https://api.github.com/graphql
+F38 | feat/x | tracker-guard | ask | cat q.json | { http POST https://api.github.com/graphql; }
+F38 | feat/x | tracker-guard | ask | { http POST https://api.github.com/graphql; } < q.json
+F38 | feat/x | tracker-guard | ask | bash -c 'cat q.json | http POST https://api.github.com/graphql'
+F38 | feat/x | tracker-guard | deny | wget --method=POST --body-data='{"query":"mutation { closeIssue(input: {issueId: \"I_1\"}) { clientMutationId } }"}' https://api.github.com/graphql
+F38 | feat/x | tracker-guard | deny | wget --method POST --body-data '{"query":"mutation { closeIssue(input: {issueId: \"I_1\"}) { clientMutationId } }"}' https://api.github.com/graphql
+F38 | feat/x | tracker-guard | ask | wget --method=POST --body-data='{"query":"mutation { mergePullRequest(input: {pullRequestId: \"PR_1\"}) { clientMutationId } }"}' https://api.github.com/graphql
+F38 | feat/x | tracker-guard | ask | wget --method=POST --body-file=q.json https://api.github.com/graphql
+F38 | feat/x | tracker-guard | ask | wget --method=POST --body-file q.json https://api.github.com/graphql
+F38 | feat/x | tracker-guard | ask | wget --body-file=q.json --method=POST https://api.github.com/graphql
+# the redirection that is read on a plain line, in a nested or fed script, a substitution, a function body, behind
+# a tool that runs the command inside a group, and with a line the shell joins
+F38 | feat/x | tracker-guard | ask | bash -c 'http https://api.github.com/graphql < q.json'
+F38 | feat/x | tracker-guard | ask | sh -c "http POST https://api.github.com/graphql < q.json"
+F38 | feat/x | tracker-guard | ask | eval 'http https://api.github.com/graphql < q.json'
+F38 | feat/x | tracker-guard | ask | echo 'http https://api.github.com/graphql < q.json' | sh
+F38 | feat/x | tracker-guard | ask | "sh <<'EOF'\nhttp https://api.github.com/graphql < q.json\nEOF"
+F38 | feat/x | tracker-guard | ask | x=`http https://api.github.com/graphql < q.json`
+F38 | feat/x | tracker-guard | ask | x=$(http https://api.github.com/graphql < q.json)
+F38 | feat/x | tracker-guard | ask | echo "$(http https://api.github.com/graphql < q.json)"
+F38 | feat/x | tracker-guard | ask | "http \\\nhttps://api.github.com/graphql < q.json"
+F38 | feat/x | tracker-guard | ask | "http https://api.github.com/graphql \\\n< q.json"
+F38 | feat/x | tracker-guard | ask | f() { http https://api.github.com/graphql < q.json; }; f
+F38 | feat/x | tracker-guard | ask | { sudo http https://api.github.com/graphql < q.json; }
+F38 | feat/x | tracker-guard | ask | { time http https://api.github.com/graphql < q.json; }
+F38 | feat/x | tracker-guard | ask | { env FOO=1 http https://api.github.com/graphql < q.json; }
+F38 | feat/x | tracker-guard | ask | ! sudo http https://api.github.com/graphql < q.json
+F38 | feat/x | tracker-guard | ask | (http https://api.github.com/graphql < q.json) | jq .
+# a document on the line decides, with or without a redirection: httpie refuses a request item beside a body on
+# standard input (usage error, nothing sent), so the ask the second round gave this line goes
+F38 | feat/x | shell | silent | http POST https://api.github.com/graphql query='query { viewer { login } }' < q.json
+# these hold and keep holding: a document on the line decides, another host and another path are not this rule's,
+Fs | feat/x | shell | silent | bash -c 'http POST https://api.github.com/graphql query="query { viewer { login } }" < q.json'
+# curl and wget send no standard input, a text tool sends nothing
+Fs | feat/x | tracker-guard | ask | http https://api.github.com/graphql < q.json
+Fs | feat/x | tracker-guard | ask | ! http https://api.github.com/graphql < q.json
+Fs | feat/x | tracker-guard | ask | for i in 1; do http https://api.github.com/graphql < q.json; done
+Fs | feat/x | tracker-guard | ask | sudo http https://api.github.com/graphql < q.json
+Fs | feat/x | tracker-guard | ask | http POST https://api.github.com/graphql query=@q.graphql
+Fs | feat/x | tracker-guard | deny | http POST https://api.github.com/graphql query='mutation { closeIssue(input: {issueId: "I_1"}) { clientMutationId } }'
+Fs | feat/x | tracker-guard | deny | wget --post-data='{"query":"mutation { closeIssue(input: {issueId: \"I_1\"}) { clientMutationId } }"}' https://api.github.com/graphql
+Fs | feat/x | tracker-guard | ask | wget --post-file=q.json https://api.github.com/graphql
+Fs | feat/x | tracker-guard | deny | wget --method=POST --body-data='{"title":"x"}' https://api.github.com/repos/o/r/issues
+Fs | feat/x | shell | silent | wget --post-data='{"query":"query { viewer { login } }"}' https://api.github.com/graphql
+Fs | feat/x | shell | silent | wget --method=POST --body-data='{"query":"query { viewer { login } }"}' https://api.github.com/graphql
+Fs | feat/x | shell | silent | wget https://api.github.com/graphql
+Fs | feat/x | shell | silent | wget --method=POST --body-file=q.json https://example.com/graphql
+Fs | feat/x | shell | silent | wget --method=POST --body-file=q.json https://api.github.com/repos/o/r/pulls
+Fs | feat/x | shell | silent | http POST https://api.github.com/graphql query='query { viewer { login } }'
+Fs | feat/x | shell | silent | http POST https://api.github.com/graphql --raw '{"query":"query { viewer { login } }"}'
+Fs | feat/x | shell | silent | http POST https://example.com/graphql --raw '{"query":"mutation { closeIssue(input: {issueId: \"I_1\"}) { clientMutationId } }"}'
+Fs | feat/x | shell | silent | http POST https://example.com/graphql @q.json
+Fs | feat/x | shell | silent | cat q.json | http https://api.github.com/user
+Fs | feat/x | shell | silent | echo ok | http GET https://example.com/graphql
+Fs | feat/x | shell | silent | http https://api.github.com/user < q.json
+Fs | feat/x | shell | silent | curl https://api.github.com/graphql
+Fs | feat/x | shell | silent | curl https://api.github.com/graphql < q.json
+Fs | feat/x | shell | silent | echo http https://api.github.com/graphql
+Fs | feat/x | shell | silent | cat q.json | jq .
+
 """  # noqa: E501 (a row holds its command as written)
 # --- fix rows, addendum to the second fix round: end ---
 

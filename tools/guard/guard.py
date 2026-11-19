@@ -2670,12 +2670,7 @@ def rule_tracker_guard(ev: Event, cfg: dict) -> Optional[Decision]:
                                           use="the tracker verbs; process rules are never bypassed")
     asks = []  # 0.9.0: the first pass can ask (a GraphQL mutation); a later deny of the line still wins
     for seg in segments(command):
-        # second fix round: a group, subshell or compound in front (`{`, `(`, `then`) hid the head here, and the
-        # reader has the head without the redirections, so httpie's `< q.json` was read nowhere
-        k = 0
-        while k < len(seg) - 1 and (seg[k] in _NC_SHELL_WORDS or seg[k] == "("):
-            k += 1
-        d = _tracker_seg(seg[k:])
+        d = _tracker_seg(seg)
         if d and d[0] == "deny":
             return d
         if d:
@@ -2805,17 +2800,19 @@ def _gh_graphql_query(seg: list[str], start: int) -> tuple:
 
 def _http_graphql_query(seg: list[str], head: str) -> tuple:
     """(found, document) of a curl, wget or httpie call: the `query` of the JSON body, or of httpie's `query=`
-    item; a body from a file or one that is no JSON with a query is read as no document."""
+    item; a body from a file or one that is no JSON with a query is read as no document. Addendum: httpie's
+    `--raw` is a body, and an httpie call that shows no document sends its standard input (never a terminal in
+    an agent's shell), so it is found with no document; wget's `--body-data` and `--body-file` are its
+    `--post-data` and `--post-file`."""
     bodies = []
     values: list = []
     httpie = head not in ("curl", "wget")
     for k, t in enumerate(seg[1:], 1):
         name, eq, value = t.partition("=")
-        if name in ("-T", "--upload-file", "--post-file"):
+        if name in ("-T", "--upload-file", "--post-file", "--body-file"):
             return True, None  # the body is a file
-        if httpie and t.lstrip("0123456789").startswith("<"):
-            return True, None  # F05: httpie sends its standard input as the body (`http …/graphql < q.json`)
-        if name in _CURL_MUTATING_FLAGS or t.startswith("--data"):
+        if (name in _CURL_MUTATING_FLAGS or name == "--body-data" or t.startswith("--data")
+                or (httpie and name == "--raw")):
             bodies.append(value if eq else (seg[k + 1] if k + 1 < len(seg) else ""))
         elif t[:2] == "-d" and len(t) > 2:
             bodies.append(t[2:])
@@ -2839,7 +2836,7 @@ def _http_graphql_query(seg: list[str], head: str) -> tuple:
             return True, None
         query = doc.get("query") if isinstance(doc, dict) else None
         return True, query if isinstance(query, str) else None
-    return False, None
+    return httpie, None  # httpie sends its standard input or a file (`@q.json`); curl and wget send nothing
 
 
 def _tracker_seg(seg: list[str]) -> Optional[Decision]:

@@ -1,0 +1,11 @@
+breaks 172 | applied 166 in 16 chunks | old not exactly once 6
+NOT ONCE fix2:g04 | F33: a closer that is not the word of the construct it would close is taken as its closer
+NOT ONCE fix2:g05 | F11: of the constructs one command opens, the last closer decides alone
+NOT ONCE fix2:g41 | F40: a shell behind a plain pipe whose script is not on the line gets no mark
+NOT ONCE fix2:g42 | F40: a pipe with a subshell, group or compound on one side gets no mark
+NOT ONCE fix2:g45 | F40: an unread pipe inside a nested script gets no mark
+NOT ONCE fix2:g46 | F40: an unread pipe stops secret-shell from reading the input redirections
+KILLED 164 | SURVIVED 2 | NOT APPLIED 0
+SURVIVED    fix7:g10 --config-env takes a value and is plain, as -C | 7031 passed in 33.07s
+SURVIVED    fix7:g08 --paginate is plain | 7031 passed in 35.17s
+finished 19:43:36

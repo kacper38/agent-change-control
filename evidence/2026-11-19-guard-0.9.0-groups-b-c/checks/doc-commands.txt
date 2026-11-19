@@ -1,0 +1,60 @@
+# the result first, then the rows the check read
+# row: list | branch | rule | expected verdict | command (data; the guard judged the string, nothing was run)
+DOC: rows 53 | hold 53 | red 0
+guard 0.9.0 <WT>/tools/guard/guard.py
+total rows 53 | hold 53 | red 0
+# Every command the docs of guard 0.9.0 name with a verdict (README, docs/USING-AT-WORK.md, the PR text), as rows
+# for expect.py, so that no doc line promises a verdict the guard does not give. Commands are data, never run.
+DOC | feat/x | deploy-ask | ask | aws ssm send-command --instance-ids i-0abc --document-name AWS-RunShellScript --parameters commands=uptime
+DOC | feat/x | deploy-ask | ask | az vm run-command invoke -g rg -n vm --command-id RunShellScript --scripts uptime
+DOC | feat/x | deploy-ask | ask | az group delete -n rg
+DOC | feat/x | shell | silent | az group list
+DOC | feat/x | delete-guard | ask | uv remove requests
+DOC | feat/x | delete-guard | ask | gem uninstall rake
+DOC | feat/x | delete-guard | ask | uv cache clean
+DOC | feat/x | delete-guard | ask | brew cleanup
+DOC | feat/x | delete-guard | ask | unshare -n rm -rf build
+DOC | feat/x | git-guard | deny | noglob git push --force origin feat
+DOC | feat/x | tracker-guard | deny | op run -- gh issue close 3
+DOC | feat/x | deploy-ask | ask | hyperfine 'terraform apply -auto-approve'
+DOC | feat/x | delete-guard | ask | grm -rf build
+DOC | feat/x | secret-shell | deny | gcp x .env
+DOC | feat/x | git-guard | deny | genv FOO=1 git push --force origin feat
+DOC | feat/x | git-guard | ask | mytool git push --force origin feat
+DOC | feat/x | tracker-guard | deny | gh api graphql -f query='mutation { closeIssue(input: {issueId: "I_1"}) { clientMutationId } }'
+DOC | feat/x | shell | silent | gh api graphql -f query='query { viewer { login } }'
+DOC | feat/x | tracker-guard | ask | gh pr merge 3
+DOC | feat/x | tracker-guard | ask | gh api -X PUT repos/o/r/pulls/3/merge
+DOC | feat/x | tracker-guard | deny | gh pr merge 3 --admin
+DOC | feat/x | shell | silent | gh pr view 3
+DOC | feat/x | protected-branch | deny | git update-ref refs/heads/main abc123
+DOC | feat/x | delete-guard | ask | cat run.sh | bash
+DOC | feat/x | git-guard | ask | cat run.sh | bash
+DOC | feat/x | git-guard | deny | bash -c 'git push --force origin feat'; cat run.sh | sh
+DOC | feat/x | shell | silent | bash run.sh
+DOC | feat/x | secret-shell | ask | vault kv get secret/app
+DOC | feat/x | secret-shell | ask | op read op://vault/item/field
+DOC | feat/x | secret-shell | ask | kubectl get secret app -o yaml
+DOC | feat/x | secret-shell | ask | gh auth token
+DOC | feat/x | shell | silent | kubectl get secret app
+DOC | feat/x | delete-guard | ask | brew UNINSTALL jq
+DOC | feat/x | shell | silent | ls -la .env
+DOC | feat/x | shell | silent | test -f .env
+DOC | feat/x | shell | silent | echo .env >> .gitignore
+DOC | feat/x | shell | silent | grep -rn .env docs
+DOC | feat/x | shell | silent | git status .env
+DOC | feat/x | shell | silent | tar --exclude .env -czf out.tgz .
+DOC | feat/x | shell | silent | git clean -n
+DOC | feat/x | shell | silent | kubectl delete pod x --dry-run=client
+DOC | feat/x | shell | silent | rm --help
+DOC | feat/x | shell | silent | git restore --staged f
+DOC | feat/x | shell | silent | find . -name yarn
+DOC | feat/x@client | shell | silent | command -v codex
+DOC | feat/x@client | shell | silent | grep -n -E 'gemini|openai|ollama' README.md
+DOC | feat/x | secret-shell | ask | ls .env | xargs cat
+DOC | feat/x | secret-shell | ask | cat $(echo .env)
+DOC | feat/x | secret-shell | ask | git -c core.pager='xargs cat' -p ls-files .env
+DOC | feat/x | secret-shell | ask | git add -A && git status .env
+DOC | feat/x | shell | silent | cd . && git status .env
+DOC | feat/x | secret-shell | ask | cat ca.pem
+DOC | feat/x | delete-guard | ask | git clean -fd

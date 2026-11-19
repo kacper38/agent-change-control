@@ -1,0 +1,50 @@
+{
+  "base": "8879cd5",
+  "base_sha": "8879cd5ea4caa9fbadab95bfaadfe1a81a1c924c",
+  "cost_usd": 0.6913852,
+  "diff_sha256": "0469d2e92f15156ae9f1defbde36f4e186095ef02c90c9913ace8df78f5987e6",
+  "duration_ms": 125079,
+  "findings": [
+    {
+      "file": "tools/guard/guard.py",
+      "line": 1291,
+      "severity": "MAJOR",
+      "summary": "`closes = (toks[:1] and toks[0] in _COMPOUND_CLOSERS) or s == \")\"` treats every `)` separator as the close of the innermost open construct. The lexer seems to emit `)` as a separator (this branch relies on that). If so, the `)` of a case item pops the `case` opener early, and a later report in the same item gets an empty `enclosing` list. Example: `case x in a) true; ls .env;; esac | xargs cat` would count `ls .env` as a quiet report, although the output of the whole case goes into `xargs cat`. `_nc_compound_pipe` (around guard.py:3889) counts parens the same way. No fix row uses `case`. Add rows for case with a piped output, or treat any `case` on the line as not quiet."
+    },
+    {
+      "file": "tools/guard/guard.py",
+      "line": 1557,
+      "severity": "MINOR",
+      "summary": "The F19 unwrapping stops at an option: `toks[0] in (\"builtin\", \"command\") and not toks[1].startswith(\"-\")`. So `command -p eval 'export HUSKY=0'; git commit -m x` and `command -p export HUSKY=0` still slip past the env gate. `-p` only changes the PATH lookup, and the builtin still runs. Skip `-p` (and `--`) as well, and add a row."
+    },
+    {
+      "file": "tools/guard/guard.py",
+      "line": 2535,
+      "severity": "MINOR",
+      "summary": "`_GITHUB_API_RE` (`api\\.github\\.com\\.?(/[^\\s?#]*)`) needs the path to start right after the host or its trailing dot. An explicit port, `curl -X PUT https://api.github.com:443/repos/o/r/pulls/3/merge`, reaches the same API and does not match. That merge stays silent. 0.8.0 missed this spelling too, but F17 is meant to cover the other spellings, and this one is not listed as a known limit."
+    },
+    {
+      "file": "tools/guard/tests/test_table_forms.py",
+      "line": 1675,
+      "severity": "MINOR",
+      "summary": "`assert took < 2` is a wall-clock assertion, so a slow or busy CI runner can fail it with no change to the code. That makes a red gate that means nothing. Consider counting calls instead, for example the number of `_pattern_places` or `_segments_cached` invocations per line, or a much wider margin."
+    },
+    {
+      "file": "tools/guard/guard.py",
+      "line": 1171,
+      "severity": "MINOR",
+      "summary": "Policy widenings have no DECISIONS.md line in this diff. Every `op item get` now asks (guard.py:1171). `update-ref` matches protected names without case on every file system, including case-sensitive Linux CI where `refs/heads/Main` is a different branch (guard.py:2328). Any compound or subshell pipe into a shell raises CommandNotRead for the whole line (guard.py:3587). Each of these trades extra asks or denies for coverage and should be recorded."
+    }
+  ],
+  "model_requested": "opus",
+  "models": [
+    "claude-opus-5-5"
+  ],
+  "prompt_file": "tools/review/prompt.md",
+  "prompt_sha256": "f8ea8b4f3f2b94d5d40c3655f5efa28983a5e4984d03d752f90cd14a7ba5044b",
+  "sha": "d1052b1bdd91f76b23a7903c187536ef3fb3c2c0",
+  "summary": "The fix pass adds option tables, compound and pipe tracking, and new spellings for secret stores, GraphQL, merges and refs. Every F-group comes with fix rows. The one loosened row (P2 at tools/guard/tests/test_review_fixes.py:154, ask\u2192silent) is explained by the new _SEARCH_OPTIONS table and covered by the F22/F25 rows, so it is not counted as weakened verification. No secrets found. One MAJOR finding: a likely gap where the `)` of a case item is read as the end of a subshell. Four MINOR findings: spelling gaps, a timing-based test, and policy widenings with no DECISIONS.md line.",
+  "ts": "2026-11-18T21:35:05Z",
+  "verdict": "COMMENT",
+  "verdict_as_answered": "COMMENT"
+}

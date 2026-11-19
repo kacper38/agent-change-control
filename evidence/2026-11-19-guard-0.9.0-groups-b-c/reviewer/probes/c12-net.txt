@@ -1,0 +1,63 @@
+# line 5: the net
+./run.sh git push --force
+mytool --flag x git push --force
+a b git push --force
+mytool gh issue close 3
+mytool az repos pr update --id 1 --status completed
+mytool /usr/bin/git push --force
+mytool -- git push --force
+mytool git -C x push --force
+mytool git commit --no-verify -m x
+mytool gh pr merge 3
+mytool GIT push --force
+mytool "git push --force"
+mytool 'git' push --force
+mytool git\ push --force
+mytool G\IT push --force
+# reverse: everyday commands
+make git-status
+brew install git
+brew upgrade gh az
+code --wait git.md
+grep -rn git docs
+ls git
+cd az && ls
+docker run alpine/git status
+docker run alpine/git push --force
+npx some-tool git
+pre-commit run git
+mytool git status
+mytool gh issue list
+mytool az vm list
+echo git commit --no-verify -m x
+which git gh az
+man git push
+tldr git
+open -a git
+cp -r git /tmp
+mkdir git
+rm -rf git
+vim git
+less git
+du -sh git
+tar -czf git.tgz git
+cat git
+ln -s git x
+claude -p "git push --force"
+python3 x.py git push --force
+node x.js gh pr merge 3
+uv run pytest git
+poetry run mytool git push
+mytool az
+mytool az login
+mytool git
+mytool gh
+bat git
+nano gh
+mv az az.old
+chmod +x git
+code git
+open git
+du git
+wc -l git
+diff git gh

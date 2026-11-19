@@ -1,0 +1,5 @@
+== guard.py at 8f0a893 beside guard.py at b2f4e2a
+text lines that differ: 7 | syntax trees without docstrings: the same
+== sha256 of guard.py at 8f0a893 and at 6b83c85
+9083b950ae9fb27531863cb886d293bb9ea5d250aae827e4a279c1471d86cf2f  guard.py at 8f0a893
+9083b950ae9fb27531863cb886d293bb9ea5d250aae827e4a279c1471d86cf2f  guard.py at 6b83c85

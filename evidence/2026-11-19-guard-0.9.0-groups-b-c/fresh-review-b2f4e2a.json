@@ -1,0 +1,38 @@
+{
+  "base": "bb28137",
+  "base_sha": "bb28137eb41ef54b0eae4ff8a5dd7be85713c5c9",
+  "cost_usd": 1.009964,
+  "diff_sha256": "140f414708ba403d8052c51134d5ce4e404c085c3c4b7b9ed7bc793350ffcc9b",
+  "duration_ms": 41797,
+  "findings": [
+    {
+      "file": "tools/guard/guard.py",
+      "line": 1571,
+      "severity": "MAJOR",
+      "summary": "`_WORD_RUNS_RE = re.compile(r\"\\$[({]|`\")` matches only `$(`, `${` and the backtick. Other shell forms also run a command during expansion: `<(\u2026)` and `>(\u2026)` in bash and zsh, `=(\u2026)` in zsh (the shell on this Mac), and zsh glob qualifiers such as `ls *(e:'git config pager.ls-files \"xargs cat\"':)`. Suppose such a word sits in a report that `_words_alone` accepts. Then a line like `ls <(git config pager.ls-files 'xargs cat'); git ls-files .env` or `ls *(e:'git config \u2026':); git ls-files .env` may count as quiet. That is the F83 bypass the round is meant to close. Whether the tokenizer already turns these lines into an ask is not visible in the diff. Add F83 rows for `<(`, `>(`, `=(` and a zsh glob qualifier. If any of them comes out silent, widen the regex."
+    },
+    {
+      "file": "tools/guard/guard.py",
+      "line": 1567,
+      "severity": "MINOR",
+      "summary": "`_BESIDE_GIT_REPORT` allows `cd` with any argument. A `cd` into another worktree or repository can put a git report under a configuration with a pager. The docstring names only state left by an earlier call (\"What an earlier call left \u2026 is not seen\"); this same-line effect of `cd` is not named as a residual. Name it there, or point to the place where the residual is recorded."
+    },
+    {
+      "file": "tools/guard/tests/test_table_forms.py",
+      "line": 2509,
+      "severity": "MINOR",
+      "summary": "The round makes formerly silent lines ask (the Fs `ask` rows: `mkdir -p tmp; git status .env`, `X=1; git ls-files .env`, `cd \"${REPO}\" && git status .env`, `echo 'a literal $(x)'; \u2026`). The row comment calls them the price of the rule. This diff adds no DECISIONS.md or changelog line that records the trade-off and what would change it, although the working agreement asks for one."
+    }
+  ],
+  "model_requested": "opus",
+  "models": [
+    "claude-opus-5-5"
+  ],
+  "prompt_file": "tools/review/prompt.md",
+  "prompt_sha256": "d58fc7865067df804d96b2a66a75291ccaedfafdc777a740277911d9d344e57d",
+  "sha": "b2f4e2a306626df8d69f4a2144c215482c277ed2",
+  "summary": "The change narrows when a git report counts as quiet in secret-shell, so it is stricter than 0.8.0. It removes or loosens no check, and it adds rows for the new asks (F81 to F83) and for the earlier mutation gaps (Fm). Open points: `_WORD_RUNS_RE` lists only `$(`, `${` and the backtick. Other shell forms also run a command while a word is expanded: process substitution `<(` and `>(`, zsh `=(`, and zsh glob qualifiers such as `*(e:\u2026:)` or `*(+cmd)`. No row shows that these lines ask when they sit beside a report next to a git report. The diff also adds new false asks (the price rows) but records them in no decision or doc line.",
+  "ts": "2026-11-19T19:14:57Z",
+  "verdict": "COMMENT",
+  "verdict_as_answered": "COMMENT"
+}

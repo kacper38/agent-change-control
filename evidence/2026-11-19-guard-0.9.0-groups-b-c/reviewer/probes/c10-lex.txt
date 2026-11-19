@@ -1,0 +1,11 @@
+ls .env | xargs cat # it's
+ls .env | xargs cat; echo it\'s
+ls .env | xargs cat; echo $'it\'s'
+ls .env | xargs cat; echo "$(echo ')')"
+ls .env | xargs cat; x=$((1+2))
+ls .env | xargs cat; echo ${x:-'a'}
+ls .env | xargs cat; echo "${x#\'}"
+ls .env | xargs cat; echo `echo '`
+ls .env | xargs cat; case a in a) echo;; esac
+ls .env | xargs cat; echo {a,b}
+ls .env | xargs cat; [[ a =~ ' ]]

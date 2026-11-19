@@ -1,0 +1,103 @@
+20:01:16
+== guards: old = base 769b9d2, new = build head 6b83c85
+guard-0.7.1.py:35:VERSION = "0.7.1"
+guard-0.8.0.py:36:VERSION = "0.8.0"
+guard-6b83c85.py:38:VERSION = "0.9.0"
+worktree status: 
+
+== self-test of the replay tool (0.7.1 against 0.8.0). Expected: stronger 5 occurrences in 3 distinct cells, weaker 0
+tool calls: 7 | distinct: 5 | Bash 5, Read 2
+weaker: 0 occurrences in 0 distinct cells
+stronger: 5 occurrences in 3 distinct cells (0.0 a day over 36500 days, of 7 calls)
+
+== time span of the replayed transcripts
+transcripts 594 in 72 project folders
+wired tool calls 22167 dated, 0 undated
+first day 2026-10-14 | last day 2026-11-19 | days with calls 15
+calls per month: 2026-10 12038, 2026-11 10129
+
+== replay over the recorded calls of 45 days, 0.8.0 against 6b83c85, boundary own
+replay exit 1 (0: nothing weaker, 1: something weaker) | stderr lines 10
+transcripts: 594 changed in the last 45 days
+tool calls: 22167 | distinct: 21659 | Bash 15804, Write 1485, Edit 2251, Read 2553, Agent 74
+guards: 0.8.0 | 0.9.0 | boundary own | branch as recorded per call (6327 calls without one judged as feat/x)
+weaker: 2 occurrences in 2 distinct cells
+stronger: 27 occurrences in 26 distinct cells (0.6 a day over 45 days, of 22167 calls)
+=== stronger per rule: rule | change | occurrences | distinct
+tracker-guard | silent->ask | 27 | 26
+=== stronger, by occurrences: occurrences | rule | change | tool
+
+== replay over the recorded calls of 45 days, 0.8.0 against 6b83c85, boundary client
+replay exit 1 (0: nothing weaker, 1: something weaker) | stderr lines 10
+transcripts: 594 changed in the last 45 days
+tool calls: 22169 | distinct: 21661 | Bash 15805, Write 1486, Edit 2251, Read 2553, Agent 74
+guards: 0.8.0 | 0.9.0 | boundary client | branch as recorded per call (6327 calls without one judged as feat/x)
+weaker: 18 occurrences in 18 distinct cells
+stronger: 27 occurrences in 26 distinct cells (0.6 a day over 45 days, of 22169 calls)
+=== stronger per rule: rule | change | occurrences | distinct
+tracker-guard | silent->ask | 27 | 26
+=== stronger, by occurrences: occurrences | rule | change | tool
+
+== detail of every changed cell (local file, holds command text)
+detail exit 0 | stderr lines 0
+transcripts 594 | calls 22169 | distinct 21661 | rules 12
+== boundary own: 259932 verdict cells compared, 28 changed
+rule | verdict | occurrences at old | occurrences at new
+delete-guard | ask | 211 | 211
+deploy-ask | ask | 4 | 4
+git-guard | ask | 2 | 2
+git-guard | deny | 12 | 12
+guard-config | ask | 604 | 604
+host-install | ask | 1276 | 1276
+protected-branch | deny | 149 | 149
+secret-shell | ask | 22 | 20
+secret-shell | deny | 3 | 3
+tracker-guard | ask | 0 | 27
+tracker-guard | deny | 3 | 3
+non-silent occurrences: old 2286 | new 2311
+== boundary client: 259932 verdict cells compared, 44 changed
+rule | verdict | occurrences at old | occurrences at new
+delete-guard | ask | 211 | 211
+deploy-ask | ask | 4 | 4
+egress-guard | ask | 30 | 14
+git-guard | ask | 2 | 2
+git-guard | deny | 12 | 12
+guard-config | ask | 604 | 604
+host-install | ask | 1276 | 1276
+protected-branch | deny | 149 | 149
+secret-shell | ask | 22 | 20
+secret-shell | deny | 3 | 3
+tracker-guard | ask | 0 | 27
+tracker-guard | deny | 3 | 3
+non-silent occurrences: old 2316 | new 2325
+
+== hook timing through the real entry point, median of five runs, 0.8.0 and 6b83c85
+hooktime exit 0
+guard-0.8.0.py
+  plain                 18 B  median    34.0 ms  verdict silent
+  longest row          165 B  median    33.8 ms  verdict silent
+  100 kB            100000 B  median   317.4 ms  verdict silent
+  100 kB capitals   100000 B  median   632.5 ms  verdict silent
+guard-6b83c85.py
+  plain                 18 B  median    40.3 ms  verdict silent
+  longest row          165 B  median    41.2 ms  verdict deny
+  100 kB            100000 B  median   325.1 ms  verdict silent
+  100 kB capitals   100000 B  median   696.2 ms  verdict silent
+exit 0 at 20:04:20
+
+== replay over the same recorded calls, the head of the seventh round (2a28378) against 8f0a893 (the guard file of the head), both boundaries
+== ran at 19:36 UTC, before the run above, when the transcripts held 22085 calls; the eighth round and the rows after it change no verdict on a recorded call
+boundary own: exit 0 | stderr lines 10
+transcripts: 594 changed in the last 45 days
+tool calls: 22085 | distinct: 21577 | Bash 15774, Write 1475, Edit 2211, Read 2551, Agent 74
+weaker: 0 occurrences in 0 distinct cells
+stronger: 0 occurrences in 0 distinct cells (0.0 a day over 45 days, of 22085 calls)
+=== stronger per rule: rule | change | occurrences | distinct
+=== stronger, by occurrences: occurrences | rule | change | tool
+boundary client: exit 0 | stderr lines 10
+transcripts: 594 changed in the last 45 days
+tool calls: 22085 | distinct: 21577 | Bash 15774, Write 1475, Edit 2211, Read 2551, Agent 74
+weaker: 0 occurrences in 0 distinct cells
+stronger: 0 occurrences in 0 distinct cells (0.0 a day over 45 days, of 22085 calls)
+=== stronger per rule: rule | change | occurrences | distinct
+=== stronger, by occurrences: occurrences | rule | change | tool

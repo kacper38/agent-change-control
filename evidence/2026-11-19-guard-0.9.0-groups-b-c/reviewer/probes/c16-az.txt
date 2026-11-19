@@ -1,0 +1,83 @@
+# line 10: az reads that must stay silent
+az vm list -o table
+az group show -n rg
+az account show
+az account list
+az account get-access-token --query expiresOn
+az ad signed-in-user show
+az monitor metrics list --resource x
+az monitor activity-log list
+az resource list
+az webapp log tail -n app -g rg
+az acr repository list -n r
+az acr repository show-tags -n r --repository x
+az aks get-credentials -n c -g rg
+az aks show -n c -g rg
+az graph query -q "Resources"
+az storage blob list -c x --account-name a
+az storage blob download -c x -n f -f out
+az keyvault secret list --vault-name v
+az role assignment list --assignee x
+az version
+az --version
+az vm list --help
+az vm -h
+az find "vm create"
+az extension list
+az extension add -n devops
+az extension update -n devops
+az config set core.output=table
+az cloud show
+az devops project list
+az pipelines list
+az pipelines runs list
+az pipelines runs show --id 3
+az repos list
+az repos pr list
+az repos pr show --id 1
+az boards work-item show --id 1
+az sql db list -g rg -s s
+az cosmosdb list
+az network vnet list
+az vm list-sizes -l westeurope
+az vm list-skus -l westeurope
+az provider list
+az provider show -n Microsoft.Web
+az feature list
+az deployment group list -g rg
+az deployment group show -g rg -n d
+az deployment group what-if -g rg -f main.bicep
+az deployment group validate -g rg -f main.bicep
+az bicep build -f main.bicep
+az policy state summarize
+az consumption usage list
+az costmanagement query --type Usage
+az security alert list
+az advisor recommendation list
+az webapp config appsettings list -n a -g rg
+az webapp show -n a -g rg -o json
+az containerapp logs show -n a -g rg
+az containerapp revision list -n a -g rg
+az monitor log-analytics query -w x --analytics-query "x"
+az rest --uri /subscriptions
+az rest -u /subscriptions --method GET
+az rest --method=get --uri x
+# writes that must ask
+az vm restart -n v -g rg
+az keyvault secret set --vault-name v -n x --value y
+az rest --method put --uri x
+az rest -m POST -u x
+az rest --method=patch --uri x
+az acr import -n r --source x
+az vm start -n v
+az storage blob upload -c x -f f
+az webapp config appsettings set -n a --settings X=1
+az group delete -n rg --yes
+az -o json vm restart -n v
+az --subscription s vm restart -n v
+az account set -s x && az vm restart -n v
+AZ vm restart -n v
+az VM RESTART -n v
+az vm Restart -n v
+az vm run-command invoke -n v --command-id RunShellScript --scripts 'rm -rf /'
+az devops invoke --area x

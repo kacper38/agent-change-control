@@ -1,0 +1,32 @@
+[
+  {
+    "bytes": 8433,
+    "captured_at": "2026-11-19T20:09:42Z",
+    "command": "uv run --offline --no-project --with pytest --python 3.13 python -m pytest -q -p no:cacheprovider -o addopts= tools",
+    "exit_code": 0,
+    "file": "pytest-py313.txt",
+    "name": "pytest-py313",
+    "sha256": "9de1211cce62c0e3ae127fa5eb0e26e5f9a7caaa458bcc9ee4f0aba7c77d0d89",
+    "tool_version": "uv 0.11.26 (Homebrew 2026-06-30 aarch64-apple-darwin)"
+  },
+  {
+    "bytes": 8443,
+    "captured_at": "2026-11-19T20:10:56Z",
+    "command": "uv run --offline --no-project --with pytest --python 3.9 python -m pytest -q -p no:cacheprovider -o addopts= tools",
+    "exit_code": 0,
+    "file": "pytest-py39.txt",
+    "name": "pytest-py39",
+    "sha256": "f91f8758a1bd11dfdb0f8683b300114fe6e8d660b99a1c89a12758d7f7de3ac0",
+    "tool_version": "uv 0.11.26 (Homebrew 2026-06-30 aarch64-apple-darwin)"
+  },
+  {
+    "bytes": 19,
+    "captured_at": "2026-11-19T20:08:52Z",
+    "command": "ruff check tools",
+    "exit_code": 0,
+    "file": "ruff.txt",
+    "name": "ruff",
+    "sha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18",
+    "tool_version": "ruff 0.15.13"
+  }
+]

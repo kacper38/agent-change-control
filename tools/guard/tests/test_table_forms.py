@@ -2666,6 +2666,29 @@ Fs | feat/x | secret-shell | ask | git -P status -s .env; ls <(git config pager.
 Fs | feat/x | secret-shell | ask | ls <(export GIT_PAGER='xargs cat'); git ls-files .env
 """  # noqa: E501 (a row holds its command as written)
 # --- fix rows, addendum to the eighth fix round: end ---
+# --- fix rows, addendum to the seventh fix round: begin (rows-b-fix7-add.txt, 2026-11-19) ---
+ROWS_FIX7_ADD = r"""
+# guard 0.9.0, groups B and C: rows added to the seventh fix round after the eighth. The seventh round lets a git
+# report be quiet only with `-C <dir>`, `--no-pager` or `-P` between `git` and the subcommand. Its rows for
+# `--paginate` and for `--config-env` with its value as a word of its own each have a second command or an
+# assignment on the line, and since the eighth round that alone makes the line ask. Two planted breaks showed it:
+# with `--paginate` put on the list of plain options, or `--config-env` taken like `-C`, every test passed.
+# On these lines nothing but the seventh round's rule decides. Every row holds before this commit, and at 0.8.0.
+# id | branch[@client] | rule | expected | command
+# --- Fm --- `--paginate` is no plain option: it sends the report into the pager, and which program that is the
+# line does not say (no shell printed the file in a fresh scratch repository; the guard does not try to tell)
+Fm | feat/x | secret-shell | ask | git --paginate ls-files .env
+Fm | main | secret-shell | ask | git --paginate ls-files .env
+Fm | feat/x@client | secret-shell | ask | git --paginate ls-files .env
+Fm | feat/x | secret-shell | ask | git --paginate status -s .env
+Fm | feat/x | secret-shell | ask | true; git --paginate ls-files .env
+# --- Fm --- `--config-env` with its value as the next word names a configuration key and a variable: the pager
+# is whatever that variable holds (no shell printed the file here: a fresh shell has no such variable)
+Fm | feat/x | secret-shell | ask | git --config-env pager.ls-files=X ls-files .env
+Fm | feat/x | secret-shell | ask | cd . && git --config-env pager.status=X status -s .env
+Fm | feat/x | secret-shell | ask | git -C . --config-env pager.ls-files=X ls-files .env
+"""  # noqa: E501 (a row holds its command as written)
+# --- fix rows, addendum to the seventh fix round: end ---
 
 _FILE_INPUT = {
     "Read": lambda p: {"file_path": p},
@@ -2704,6 +2727,7 @@ FIX6_TABLE = _rows(ROWS_FIX6)  # sixth fix round: F61 to F65 were due at 3bcab45
 FIX7_TABLE = _rows(ROWS_FIX7)  # seventh fix round: F71 and F72 were due at a246385, the price rows of Fs too
 FIX8_TABLE = _rows(ROWS_FIX8)  # eighth fix round: F81 to F83 were due at 010b75d, the price rows of Fs too
 FIX8_ADD_TABLE = _rows(ROWS_FIX8_ADD)  # addendum to the eighth fix round: F84 and Fs held at b2f4e2a, they pin
+FIX7_ADD_TABLE = _rows(ROWS_FIX7_ADD)  # addendum to the seventh fix round: Fm held at 8f0a893, they pin
 FILE_TABLE = [tuple(p.strip() for p in line.split(" | ", 4)) for line in FILE_ROWS.splitlines() if line.strip()]
 
 
@@ -2825,6 +2849,13 @@ def test_fix8_row(guard, monkeypatch, rid, branch, boundary, rule, expected, com
 @pytest.mark.parametrize("rid, branch, boundary, rule, expected, command", FIX8_ADD_TABLE,
                          ids=[f"{row[0]}-{n}" for n, row in enumerate(FIX8_ADD_TABLE)])
 def test_fix8_add_row(guard, monkeypatch, rid, branch, boundary, rule, expected, command):
+    got = _answers(guard, monkeypatch, branch, boundary, rule, command)
+    assert {k: v for k, v in got.items() if v != expected} == {}, command
+
+
+@pytest.mark.parametrize("rid, branch, boundary, rule, expected, command", FIX7_ADD_TABLE,
+                         ids=[f"{row[0]}-{n}" for n, row in enumerate(FIX7_ADD_TABLE)])
+def test_fix7_add_row(guard, monkeypatch, rid, branch, boundary, rule, expected, command):
     got = _answers(guard, monkeypatch, branch, boundary, rule, command)
     assert {k: v for k, v in got.items() if v != expected} == {}, command
 

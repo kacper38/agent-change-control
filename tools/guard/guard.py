@@ -1392,7 +1392,8 @@ def rule_secret_shell(ev: Event, cfg: dict) -> Optional[Decision]:
     writes: list[str] = []
     reads: list[str] = []
     command = strip_heredocs(ev.command)
-    for target in _REDIRECT_RE.findall(command):
+    # addendum: the targets on the line as the shell joins it (`echo x > \⏎.env` writes .env); only here
+    for target in _REDIRECT_RE.findall(command.replace("\\\n", "")):
         target = target.strip("\"'`,;)")
         if secret_class(_expand(target, ev.cwd)) == "secret":
             writes.append(target)

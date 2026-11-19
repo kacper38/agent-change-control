@@ -1936,6 +1936,26 @@ Fs | feat/x | shell | silent | curl https://api.github.com/graphql < q.json
 Fs | feat/x | shell | silent | echo http https://api.github.com/graphql
 Fs | feat/x | shell | silent | cat q.json | jq .
 
+# --- topic 3 ---
+# F39: a redirection into a secret file whose name stands behind a backslash and a line break. The shell joins the
+# two lines; the first pass of secret-shell looks for the target on the line as written and found none. Guard
+# 0.8.0 asked for the two lines that also name the file in a report (`test -f .env`, `ls -la .env`); since the
+# build these reports are quiet, so nothing was left of them
+F39 | feat/x | secret-shell | deny | "echo x > \\\n.env"
+F39 | feat/x | secret-shell | deny | "echo x >> \\\n.env"
+F39 | feat/x | secret-shell | deny | "echo x >\\\n.env"
+F39 | feat/x | secret-shell | deny | "printenv > \\\n  .env"
+F39 | feat/x | secret-shell | deny | "test -f .env || cat .env.example > \\\n.env"
+F39 | feat/x | secret-shell | deny | "ls -la .env && echo x > \\\n.env"
+F39 | feat/x | secret-shell | deny | "cat > \\\n.env <<'EOF'\nA=1\nEOF"
+# these hold and keep holding
+Fs | feat/x | secret-shell | deny | echo x > .env
+Fs | feat/x | secret-shell | deny | "echo x \\\n> .env"
+Fs | feat/x | secret-shell | deny | "echo x | tee \\\n.env"
+Fs | feat/x | shell | silent | "echo x > \\\nout.txt"
+Fs | feat/x | shell | silent | "echo x > \\\n.env.example"
+Fs | feat/x | shell | silent | "ls -la \\\n.env"
+Fs | feat/x | shell | silent | "echo 'a \\\nb' > out.txt"
 """  # noqa: E501 (a row holds its command as written)
 # --- fix rows, addendum to the second fix round: end ---
 

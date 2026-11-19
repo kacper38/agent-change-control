@@ -3,6 +3,7 @@ read, and eleven kinds of ask that fired on harmless commands. Each row is one c
 answers for it; the commands are data, nothing runs. Rows whose id ends in `s` or `t` held at 0.8.0 and must keep
 holding; the others were red at 0.8.0."""
 import json
+import shlex
 
 import pytest
 
@@ -2124,6 +2125,37 @@ def test_the_mark_for_an_unread_pipe_cannot_be_left_out(guard):
     unread: list = []
     guard._nc_read("cat run.sh | sh", 0, [], set(), unread=unread)
     assert unread == [True]
+
+
+def _secret_shell(guard, command: str):
+    guard._nc_cached.cache_clear()
+    ev = guard.Event({"hook_event_name": "PreToolUse", "tool_name": "Bash", "tool_input": {"command": command},
+                      "cwd": "/nonexistent-scratch"})
+    return guard.rule_secret_shell(ev, dict(guard.DEFAULTS))
+
+
+@pytest.mark.parametrize("command", ["cat<.env", "cat run.sh | sh; cat<.env"])
+def test_secret_shell_names_the_input_file_when_its_judge_crashes(guard, monkeypatch, command):
+    """Review fixes: whether the read went through is told by reader_pass, not by the words of its answer, so a
+    judge that crashes after the read still leaves the file behind `<` named in the ask."""
+    def crash(seg):
+        raise RuntimeError("planted")
+
+    monkeypatch.setattr(guard, "secret_store_what", crash)
+    got = _secret_shell(guard, command)
+    assert got[0] == "ask" and ".env" in got[1], got
+
+
+def test_secret_shell_names_the_input_file_and_the_unread_pipe(guard):
+    got = _secret_shell(guard, "cat run.sh | sh; cat<.env")
+    assert got[0] == "ask" and ".env" in got[1] and guard._PIPE_NOT_READ in got[1], got
+
+
+def test_secret_shell_asks_for_a_line_too_deep_to_read(guard):
+    command = "true"
+    for _ in range(guard._HI_MAX_DEPTH + 1):
+        command = "bash -c " + shlex.quote(command)
+    assert _secret_shell(guard, command + "; cat<.env")[0] == "ask"
 
 
 def test_pinned_rows_are_all_there():

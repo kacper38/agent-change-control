@@ -1420,9 +1420,11 @@ def rule_secret_shell(ev: Event, cfg: dict) -> Optional[Decision]:
         if what:
             stored.append(("ask", SECRET_STORE_MSG.format(what=what)))
 
-    failed = reader_pass(ev.command, judge, "secret-shell")
-    # the read went through, so its input redirections are known (`cat <.env`); an unread pipe does not stop it
-    if failed is None or failed == _pipe_ask("secret-shell"):
+    read: list[bool] = []
+    failed = reader_pass(ev.command, judge, "secret-shell", read=read)
+    # the read went through, so its input redirections are known (`cat <.env`), whatever the pass answers (an
+    # unread pipe, a crash of the judge); a line the reader could not read leaves `read` empty
+    if read:
         reads.extend(p for p in nested_inputs(ev.command) if secret_class(_expand(p, ev.cwd)) == "secret")
     return combine([d for d in (_secret_verdict(writes, reads), failed, *stored) if d])
 
@@ -3739,16 +3741,21 @@ def _net_cached(toks: tuple):
 
 
 def reader_pass(text: str, judge: Callable[[list[str]], Optional[Decision]], rule: str,
-                local: bool = False, net: Optional[Callable[[list[str]], Optional[Decision]]] = None
-                ) -> Optional[Decision]:
+                local: bool = False, net: Optional[Callable[[list[str]], Optional[Decision]]] = None,
+                read: Optional[list] = None) -> Optional[Decision]:
     """The token pass of a rule that first reads segments(): judge the words from every command word of every
     simple command the line runs. The first deny wins; asks are combined. Never raises: a line the reader could
     not read, or a crash, asks with the reason (a rule's own deny from its first pass is returned before this).
     With `net` (0.9.0), the words from a `git`, `gh` or `az` behind an unknown command word are judged by it too,
-    and whatever it answers, ask or deny, asks: the guard does not know what the word in front does."""
+    and whatever it answers, ask or deny, asks: the guard does not know what the word in front does. `read`, when
+    handed in, gets a mark once the reader has read the line, before the first command is judged: a caller learns
+    that the read went through from it, whatever the answer says."""
     try:
         asks = []
-        for toks in nested_commands(text, local):
+        commands = nested_commands(text, local)
+        if read is not None:
+            read.append(True)
+        for toks in commands:
             for i in sorted(command_word_indexes(toks)):
                 d = judge(list(toks[i:]))
                 if d and d[0] == "deny":

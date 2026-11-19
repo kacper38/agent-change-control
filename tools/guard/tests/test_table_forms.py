@@ -2114,6 +2114,18 @@ def test_a_report_in_a_group_handed_on_inside_another_is_read(guard, monkeypatch
     assert _answers(guard, monkeypatch, "feat/x", "own", "secret-shell", command) == {"secret-shell": "ask"}
 
 
+def test_the_mark_for_an_unread_pipe_cannot_be_left_out(guard):
+    """Review fixes: the list for the marks of an unread pipe is required, so a caller that forgets it fails at once
+    instead of reading `cat run.sh | sh` as if nothing were unread."""
+    with pytest.raises(TypeError):
+        guard._nc_read("cat run.sh | sh", 0, [], set())
+    with pytest.raises(TypeError):
+        guard._nc_fed(["cat", "run.sh"], ["cat", "run.sh"], ["sh"], [])
+    unread: list = []
+    guard._nc_read("cat run.sh | sh", 0, [], set(), unread=unread)
+    assert unread == [True]
+
+
 def test_pinned_rows_are_all_there():
     pinned = [row[0] for row in TABLE if row[0].endswith(("s", "t"))]
     assert len(pinned) == 459

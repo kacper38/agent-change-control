@@ -3630,11 +3630,12 @@ def _nc_inputs(raw: list[str]) -> list[str]:
 
 def _nc_read(text: str, depth: int, out: list, seen: set, local: bool = False,
              inputs: Optional[list] = None, bodies: Optional[list] = None, envs: Optional[list] = None,
-             env: tuple = (), unread: Optional[list] = None) -> None:
+             env: tuple = (), *, unread: list) -> None:
     """Append the simple commands of one line to out, then read what each nests one level deeper. `bodies`
     holds the here-document bodies of the whole read, so a mark in a nested script still finds its body; `envs`
     gets, for each tuple of out, `env`: the hook-gate assignments the script inherits (0.8.0). `unread` gets a
-    mark for each pipe a shell reads its script from that the guard cannot read; the read goes on past it."""
+    mark for each pipe a shell reads its script from that the guard cannot read; the read goes on past it. It is
+    required and keyword-only: a call without it would read such a pipe as if nothing were unread."""
     if depth > _HI_MAX_DEPTH:
         if text.strip():
             raise CommandNotRead(_HI_NOT_READ)
@@ -3683,12 +3684,12 @@ def _nc_read(text: str, depth: int, out: list, seen: set, local: bool = False,
         if envs is not None:
             envs.append(env)
         nested.extend((s, own) for s in _nc_scripts(toks))
-    if cmds is not None and unread is not None and _nc_compound_pipe(rows, seps, fed_bars):
+    if cmds is not None and _nc_compound_pipe(rows, seps, fed_bars):
         unread.append(True)
     for script, script_env in nested:
         if (script, script_env) not in seen:  # one read per distinct script: a repeated nest costs nothing twice
             seen.add((script, script_env))
-            _nc_read(script, depth + 1, out, seen, local, inputs, bodies, envs, script_env, unread)
+            _nc_read(script, depth + 1, out, seen, local, inputs, bodies, envs, script_env, unread=unread)
 
 
 def _nc_remote_word(toks: list[str]) -> Optional[int]:
@@ -3883,12 +3884,12 @@ def _quote_state(text: str, start: int, end: int, stack: list) -> int:
 
 
 def _nc_fed(raw: list[str], toks: list[str], piped: Optional[list], bodies: list,
-            unread: Optional[list] = None) -> tuple[list[str], Optional[list]]:
+            unread: list) -> tuple[list[str], Optional[list]]:
     """The scripts one simple command feeds to a shell (0.8.0), and the simple command that runs them: its
     here-document bodies when it runs a shell that reads standard input or an ssh without a command; and, when
     its output goes through one pipe into such a command (`piped`), the bodies of a `cat` without a file operand
     and the words of an `echo` or `printf`. A shell behind the pipe whose script is not on the line gets a mark
-    in `unread` and nothing is fed."""
+    in `unread` (required, so no caller can leave the mark out) and nothing is fed."""
     marks = [_NC_HEREDOC_MARK_RE.match(t) for t in raw]
     own = [bodies[int(m.group(1))] for m in marks if m and int(m.group(1)) < len(bodies)]
     if own and _nc_runs_stdin(toks):
@@ -3908,7 +3909,7 @@ def _nc_fed(raw: list[str], toks: list[str], piped: Optional[list], bodies: list
             return [" ".join(args[k:]).replace("\\n", "\n")], piped
         if name == "printf":  # -v sets a variable
             return ([] if args[:1] == ["-v"] else [" ".join(args).replace("\\n", "\n")]), piped
-    if unread is not None and _nc_pipe_shell(piped):
+    if _nc_pipe_shell(piped):
         unread.append(True)
     return [], None
 

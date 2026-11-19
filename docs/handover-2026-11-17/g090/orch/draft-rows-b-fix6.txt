@@ -1,0 +1,49 @@
+# DRAFT candidates behind the fifth round (measure first, then decide). Data for expect.py, probe.py and
+# rows_measure.py. Never typed.
+# id | branch[@client] | rule | expected | command
+# --- F61 --- printf whose option `-v` an expansion makes
+F61 | feat/x | secret-shell | ask | X=-v; printf $X x %s .env; cat $x
+F61 | feat/x | secret-shell | ask | printf ${X:--v} x %s .env; cat $x
+F61 | feat/x | secret-shell | ask | printf "${X:--v}" x %s .env; cat $x
+F61 | feat/x | secret-shell | ask | printf "$(echo -v)" x %s .env; cat $x
+F61 | feat/x | secret-shell | ask | printf {-v,x} %s .env; cat $x
+F61 | feat/x | secret-shell | ask | printf $E -v x %s .env; cat $x
+F61 | feat/x | secret-shell | ask | shopt -s nullglob; printf nomatch* -v x %s .env; cat $x
+F61 | feat/x | secret-shell | ask | setopt nullglob; printf nomatch* -v x %s .env; cat $x
+F61 | feat/x | secret-shell | ask | printf "-"v x %s .env; cat $x
+F61 | feat/x | secret-shell | ask | printf -${E}v x %s .env; cat $x
+F61 | feat/x | secret-shell | ask | printf ~+/../-v x %s .env; cat $x
+# --- Fx --- an expansion that assigns while a report is read
+Fx | feat/x | secret-shell | ask | ls ${x:=.env}; cat $x
+Fx | feat/x | secret-shell | ask | test -f ${x:=.env}; cat $x
+Fx | feat/x | secret-shell | ask | [[ -f ${x:=.env} ]]; cat $x
+Fx | feat/x | secret-shell | ask | echo ${x:=.env} >> ignore.txt; cat $x
+Fx | feat/x | secret-shell | ask | ls ${x::=.env}; cat $x
+Fx | feat/x | secret-shell | ask | echo "${x:=.env}"; cat $x
+Fx | feat/x | secret-shell | ask | : ${x:=.env}; cat $x
+Fx | feat/x | secret-shell | ask | x=.env; cat $x
+Fx | feat/x | secret-shell | ask | x=.env; ls $x; cat $x
+# --- Fr --- the line changes what a report's name runs
+Fr | feat/x | secret-shell | ask | zmodload zsh/stat; stat -n -A a .env; cat $a
+Fr | feat/x | secret-shell | ask | zmodload zsh/stat; stat -n -H h .env; cat $h[name]
+Fr | feat/x | secret-shell | ask | "alias ls=cat\nls .env"
+Fr | feat/x | secret-shell | ask | "alias -g X='| xargs cat'\nls .env X"
+Fr | feat/x | secret-shell | ask | hash -p /bin/cat ls; ls .env
+Fr | feat/x | secret-shell | ask | hash ls=/bin/cat; ls .env
+Fr | feat/x | secret-shell | ask | ln -s /bin/cat ./ls; ./ls .env
+Fr | feat/x | secret-shell | ask | ls() { cat "$@"; }; ls .env
+# --- Ft --- the line reads its own text
+Ft | feat/x | secret-shell | ask | trap 'cat ${BASH_COMMAND##* }' DEBUG; ls .env
+Ft | feat/x | secret-shell | ask | trap 'cat ${ZSH_DEBUG_CMD##* }' DEBUG; ls .env
+Ft | feat/x | secret-shell | ask | ls .env; x=${BASH_EXECUTION_STRING%%;*}; cat ${x#ls }
+Ft | feat/x | secret-shell | ask | ls .env; x=${ZSH_EXECUTION_STRING%%;*}; cat ${x#ls }
+# --- Fs --- lines that hand nothing on
+Fs | feat/x | secret-shell | silent | printf -- -v x %s .env; cat $x
+Fs | feat/x | secret-shell | silent | printf '%s\n' -v .env
+Fs | feat/x | secret-shell | silent | printf '%s\n' .env >> .gitignore
+Fs | feat/x | secret-shell | silent | printf "%s\n" "$HOME" .env
+Fs | feat/x | secret-shell | silent | printf '[%s]\n' .env
+Fs | feat/x | secret-shell | silent | printf %s\\n .env
+Fs | feat/x | secret-shell | silent | printf "\n# secrets\n.env\n" >> .gitignore
+Fs | feat/x | secret-shell | ask | printf "$FMT" .env
+Fs | feat/x | secret-shell | ask | printf - %s .env

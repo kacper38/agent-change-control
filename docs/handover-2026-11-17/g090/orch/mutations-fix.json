@@ -1,0 +1,314 @@
+[
+ {
+  "id": "f01",
+  "what": "F09: the word after --include and --glob is left out of the secret check again",
+  "old": "_EXCLUDE_VALUE_OPTIONS = frozenset({\"--exclude\", \"--exclude-dir\"})",
+  "new": "_EXCLUDE_VALUE_OPTIONS = frozenset({\"--exclude\", \"--exclude-dir\", \"--include\", \"--glob\", \"--exclude-from\"})"
+ },
+ {
+  "id": "f02",
+  "what": "F22: a long option in neither list takes the next word",
+  "old": "        return \"flag\" if name in table.flag_longs else \"unknown\"",
+  "new": "        return \"flag\" if name in table.flag_longs else \"next\""
+ },
+ {
+  "id": "f03",
+  "what": "F22: a short letter in neither list takes the next word",
+  "old": "            return \"next\" if n == len(t) - 1 else \"flag\"\n        return \"unknown\"",
+  "new": "            return \"next\" if n == len(t) - 1 else \"flag\"\n        return \"next\" if n == len(t) - 1 else \"flag\""
+ },
+ {
+  "id": "f04",
+  "what": "F09/F22: an unknown option is passed over like a flag",
+  "old": "        if reading == \"unknown\":  # F22",
+  "new": "        if False:  # F22"
+ },
+ {
+  "id": "f05",
+  "what": "F10: a search tool behind ssh gives a protected pattern",
+  "old": "                if any(tool_name(toks[j].lower()) == \"ssh\" for j in words if j < k):",
+  "new": "                if False:"
+ },
+ {
+  "id": "f06",
+  "what": "F11: a report inside a piped group or compound is quiet",
+  "old": "        if any(piped_on.get(o, True) for o in enclosing[k]):  # F11",
+  "new": "        if False:  # F11"
+ },
+ {
+  "id": "f07",
+  "what": "F12: a line the lexer cannot split falls back to the separator-less split",
+  "old": "    if cmds is None:  # F12: a line the lexer cannot split shows no pipe; no report of it is quiet\n        return ()",
+  "new": "    if cmds is None:  # F12: a line the lexer cannot split shows no pipe; no report of it is quiet\n        cmds = simple_commands(command)"
+ },
+ {
+  "id": "f08",
+  "what": "F13: a line with $_ keeps its quiet reports",
+  "old": "    if \"<<\" in command or _LAST_ARG_RE.search(command):",
+  "new": "    if \"<<\" in command:"
+ },
+ {
+  "id": "f09",
+  "what": "F23: the line is lexed as written, so the & of 2>&1 ends the report",
+  "old": "    cmds = _hi_lex(_hi_prepare(command)[0])",
+  "new": "    cmds = _hi_lex(command)"
+ },
+ {
+  "id": "f10",
+  "what": "F23: a process substitution behind a closer is no pipe",
+  "old": "piped_on[opener] = piped_on.get(opener, False) or nxt in (\"|\", \"|&\", \"(\")",
+  "new": "piped_on[opener] = piped_on.get(opener, False) or nxt in (\"|\", \"|&\")"
+ },
+ {
+  "id": "f11",
+  "what": "F14: any word of the dry-run family makes a preview",
+  "old": "            dry = state == \"dry\"",
+  "new": "            dry = True"
+ },
+ {
+  "id": "f12",
+  "what": "F14: a word of the family that cannot be placed is passed over",
+  "old": "        if state == \"unplaced\":\n            return False",
+  "new": "        if state == \"unplaced\":\n            continue"
+ },
+ {
+  "id": "f13",
+  "what": "F24: a long option outside the lists is passed over",
+  "old": "            elif name not in flag_longs or glued:\n                return False",
+  "new": "            elif False:\n                return False"
+ },
+ {
+  "id": "f14",
+  "what": "F24: a short letter outside the lists is passed over",
+  "old": "                if c not in flag_shorts:\n                    return False",
+  "new": "                if False:\n                    return False"
+ },
+ {
+  "id": "f15",
+  "what": "F15: only --worktree written out means the work tree",
+  "old": "            if len(name) >= 3 and (\"--worktree\".startswith(name) or \"--no-staged\".startswith(name)):",
+  "new": "            if name == \"--worktree\":"
+ },
+ {
+  "id": "f16",
+  "what": "F07: the search tool's name is read as written",
+  "old": "                name = tool_name(toks[k].lower())",
+  "new": "                name = tool_name(toks[k])"
+ },
+ {
+  "id": "f17",
+  "what": "F08: the hit is placed by its whole part again",
+  "old": "                at = part.find(segs[0][0]) if segs[0] else -1",
+  "new": "                at = -1"
+ },
+ {
+  "id": "f18",
+  "what": "F01: only env written plain splits a string",
+  "old": "        elif tool_name(name.lower()) == \"env\" and not env:  # F01",
+  "new": "        elif name == \"env\" and not env:  # F01"
+ },
+ {
+  "id": "f19",
+  "what": "F04: -h under gh auth is a help probe again",
+  "old": "    if _help_probe([t for t in args if t != \"-h\"] if head == \"gh\" and _leading(args, (\"auth\",)) else args):",
+  "new": "    if _help_probe(args):"
+ },
+ {
+  "id": "f20",
+  "what": "F05: a value that starts with $ or a backtick is a visible document",
+  "old": "    if value.lstrip().startswith((\"@\", \"$\", \"`\")):",
+  "new": "    if value.lstrip().startswith(\"@\"):"
+ },
+ {
+  "id": "f21",
+  "what": "F05: one hidden query field no longer hides the document",
+  "old": "    if any(v is None for v in values):\n        return True, None",
+  "new": "    values = [v for v in values if v is not None]\n    if not values:\n        return True, None"
+ },
+ {
+  "id": "f22",
+  "what": "F05: only the bare word graphql is the GraphQL path",
+  "old": "in (\"graphql\", \"/graphql\")",
+  "new": "in (\"graphql\",)"
+ },
+ {
+  "id": "f23",
+  "what": "F05: a body on httpie's standard input is not seen",
+  "old": "        if httpie and t.lstrip(\"0123456789\").startswith(\"<\"):",
+  "new": "        if False:"
+ },
+ {
+  "id": "f24",
+  "what": "F05: httpie's raw JSON field is not read",
+  "old": "        elif httpie and name == \"query:\" and eq:",
+  "new": "        elif False:"
+ },
+ {
+  "id": "f25",
+  "what": "F06: op item get asks only with --fields, --reveal or --otp",
+  "old": "((\"item\", \"get\"), None)]",
+  "new": "((\"item\", \"get\"), _has(\"--fields\", \"--reveal\", \"--otp\"))]"
+ },
+ {
+  "id": "f26",
+  "what": "F06: security find-generic-password needs -w or -g as a word of its own",
+  "old": "((\"find-generic-password\",), _short_has(\"wg\"))",
+  "new": "((\"find-generic-password\",), _has(\"-w\", \"-g\"))"
+ },
+ {
+  "id": "f27",
+  "what": "F06: aws configure get reads only the bare key name",
+  "old": "w.lower().rsplit(\".\", 1)[-1] in (",
+  "new": "w.lower() in ("
+ },
+ {
+  "id": "f28",
+  "what": "F06: aws secretsmanager batch-get-secret-value is no read of values",
+  "old": "((\"secretsmanager\", \"get-secret-value\"), None), ((\"secretsmanager\", \"batch-get-secret-value\"), None),",
+  "new": "((\"secretsmanager\", \"get-secret-value\"), None),"
+ },
+ {
+  "id": "f29",
+  "what": "F06: a kubectl resource word is compared as written",
+  "old": "r.split(\"/\", 1)[0].lower().split(\".\", 1)[0] in (\"secret\", \"secrets\")",
+  "new": "r.split(\"/\", 1)[0] in (\"secret\", \"secrets\")"
+ },
+ {
+  "id": "f30",
+  "what": "F06: kubectl --template prints no data",
+  "old": "    if _has(\"--template\")(args):\n        return True",
+  "new": "    if False:\n        return True"
+ },
+ {
+  "id": "f31",
+  "what": "F06: kubectl get --raw of a secrets path is not seen",
+  "old": "((\"get\", _names_secret), _kubectl_output), ((\"get\",), _kubectl_raw_secrets),",
+  "new": "((\"get\", _names_secret), _kubectl_output),"
+ },
+ {
+  "id": "f32",
+  "what": "F06: kubectl config view --flatten is not seen",
+  "old": "_has(\"--raw\", \"--flatten\")",
+  "new": "_has(\"--raw\")"
+ },
+ {
+  "id": "f33",
+  "what": "F06: the bare doppler secrets is not seen",
+  "old": ", ((\"secrets\",), _doppler_secrets_bare)]",
+  "new": "]"
+ },
+ {
+  "id": "f34",
+  "what": "F16: doppler run --command is no script",
+  "old": "    \"doppler\": (\"run\", frozenset({\"--command\"})),",
+  "new": "    \"doppler\": (\"run\", frozenset()),"
+ },
+ {
+  "id": "f35",
+  "what": "F17: curl -T is no PUT",
+  "old": "            t == \"-T\" or t == \"--upload-file\" or t.startswith(\"--upload-file=\") or (t.startswith(\"-T\") and len(t) > 2)",
+  "new": "            False"
+ },
+ {
+  "id": "f36",
+  "what": "F17: httpie's method word counts only in capitals",
+  "old": "        method = next((t.upper() for t in seg[1:] if t.upper() in _HTTP_VERBS), \"\")",
+  "new": "        method = next((t for t in seg[1:] if t in _HTTP_VERBS), \"\")"
+ },
+ {
+  "id": "f37",
+  "what": "F17: a doubled slash in the API path is kept",
+  "old": "    return re.sub(r\"/+\", \"/\", m.group(1)) if m else None",
+  "new": "    return m.group(1) if m else None"
+ },
+ {
+  "id": "f38",
+  "what": "F17: the dot behind the host name is not read",
+  "old": "_GITHUB_API_RE = re.compile(r\"api\\.github\\.com\\.?(/[^\\s?#]*)\", re.IGNORECASE)",
+  "new": "_GITHUB_API_RE = re.compile(r\"api\\.github\\.com(/[^\\s?#]*)\", re.IGNORECASE)"
+ },
+ {
+  "id": "f39",
+  "what": "F03: fish and ash are no shells that read a pipe",
+  "old": "_PIPE_SHELLS = frozenset(\"sh bash zsh dash ksh fish ash\".split())",
+  "new": "_PIPE_SHELLS = frozenset(\"sh bash zsh dash ksh\".split())"
+ },
+ {
+  "id": "f40",
+  "what": "F02/F03: a pipe around a compound into a shell is silent",
+  "old": "        if (compound or len(receivers) > 1 or \"(\" in sep[bar:]) and any(_nc_pipe_shell(t) for t in receivers if t):\n            return True",
+  "new": "        if (compound or len(receivers) > 1 or \"(\" in sep[bar:]) and any(_nc_pipe_shell(t) for t in receivers if t):\n            return False"
+ },
+ {
+  "id": "f41",
+  "what": "F21: K11's places are worked out again at every hit (cost only; the timing test decides)",
+  "old": "        if places is None:\n            places = _pattern_places(text, ev.command)",
+  "new": "        if True:\n            places = _pattern_places(text, ev.command)"
+ },
+ {
+  "id": "f42",
+  "what": "F18: the refs/heads/ prefix counts only in lower case",
+  "old": "    name = ref[len(\"refs/heads/\"):] if ref.lower().startswith(\"refs/heads/\") else None",
+  "new": "    name = ref[len(\"refs/heads/\"):] if ref.startswith(\"refs/heads/\") else None"
+ },
+ {
+  "id": "f43",
+  "what": "F18: the branch name is compared as written",
+  "old": "p.lower() == name.lower()",
+  "new": "p == name"
+ },
+ {
+  "id": "f44",
+  "what": "F19: builtin and command in front of eval or export hide it",
+  "old": "while len(toks) > 1 and toks[0] in (\"builtin\", \"command\") and not toks[1].startswith(\"-\"):",
+  "new": "while False:"
+ },
+ {
+  "id": "f45",
+  "what": "F19: a name exported before it is assigned is not followed",
+  "old": "exported.extend(t for t in toks if t.partition(\"=\")[0] in export_names)",
+  "new": "exported.extend(())"
+ },
+ {
+  "id": "f46",
+  "what": "F20: a verb of brew or gem counts only all in capitals",
+  "old": "return [t.lower() if t != t.lower() and not t.startswith(\"-\") else t for t in args]",
+  "new": "return [t.lower() if t.isupper() and not t.startswith(\"-\") else t for t in args]"
+ },
+ {
+  "id": "f47",
+  "what": "F25: a bare --context takes the next word again",
+  "old": "        if name in table.glued_longs:\n            return \"flag\" if glued else \"unknown\"",
+  "new": "        if name in table.glued_longs:\n            return \"flag\" if glued else \"next\""
+ },
+ {
+  "id": "f48",
+  "what": "F26: git status -v is a quiet report again",
+  "old": "            if sub in _REPORT_GIT_SUBS and not (sub == \"status\" and _git_status_verbose(rest)):",
+  "new": "            if sub in _REPORT_GIT_SUBS:"
+ },
+ {
+  "id": "f49",
+  "what": "F26: only -v as a word of its own is the verbose option",
+  "old": "        elif t.startswith(\"-\") and \"v\" in t[1:]:\n            return True",
+  "new": "        elif t == \"-v\":\n            return True"
+ },
+ {
+  "id": "f50",
+  "what": "F26: only --verbose written out is the verbose option",
+  "old": "            if len(name) >= 3 and \"--verbose\".startswith(name):",
+  "new": "            if name == \"--verbose\":"
+ },
+ {
+  "id": "f51",
+  "what": "F27: go clean -modcache with a value is no delete",
+  "old": "        if t in flags or (eq and flag in flags and value not in _GO_BOOL_FALSE):",
+  "new": "        if t in flags:"
+ },
+ {
+  "id": "f52",
+  "what": "F27: -modcache=false is read as given",
+  "old": "(eq and flag in flags and value not in _GO_BOOL_FALSE)",
+  "new": "(eq and flag in flags)"
+ }
+]

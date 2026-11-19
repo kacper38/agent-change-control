@@ -1,0 +1,45 @@
+# DRAFT candidates, second list (measure first, then decide). Data for rows_verdicts.py. Never typed.
+# id | branch[@client] | rule | expected | command
+# --- Fc --- a carriage return: blank for the lexer, a plain character for the shell
+Fc | feat/x | secret-shell | ask | "{ ls .env; }\r; {\r true; } | xargs cat"
+Fc | feat/x | secret-shell | ask | "{ ls .env; \r}; {\r true; } | xargs cat"
+Fc | feat/x | secret-shell | ask | "{ echo .env; }\r; {\r true; } | xargs cat"
+Fc | feat/x | secret-shell | silent | "ls -la .env\r"
+# --- Fh --- a hash sign the shell reads as a word
+Fh | feat/x | secret-shell | ask | ls .env y\ # | xargs cat
+Fh | feat/x | secret-shell | ask | ls .env \# | xargs cat
+Fh | feat/x | secret-shell | ask | ls .env '#' | xargs cat
+Fh | feat/x | secret-shell | ask | ls .env a#b | xargs cat
+Fh | feat/x | secret-shell | ask | ls .env $# | xargs cat
+Fh | feat/x | secret-shell | ask | ls .env ${#X} | xargs cat
+Fh | feat/x | secret-shell | ask | { ls .env; \# ; } | xargs cat
+Fh | feat/x | secret-shell | ask | { ls .env; true y\ # x; } | xargs cat
+Fh | feat/x | secret-shell | silent | ls -la .env # | xargs cat
+Fh | feat/x | secret-shell | silent | ls -la .env # } {
+# --- Fu --- `$_` that quoting splits, or that the line builds
+Fu | feat/x | secret-shell | ask | ls .env; eval 'cat $'_
+Fu | feat/x | secret-shell | ask | ls .env; eval cat '$'_
+Fu | feat/x | secret-shell | ask | ls .env; eval "cat \$"_
+Fu | feat/x | secret-shell | ask | ls .env; eval cat \$''_
+Fu | feat/x | secret-shell | ask | ls .env; eval 'cat $_'
+Fu | feat/x | secret-shell | ask | x=_; ls .env; cat ${!x}
+Fu | feat/x | secret-shell | ask | ls .env; a='$'; eval "cat ${a}_"
+Fu | feat/x | secret-shell | ask | declare -n r=_; ls .env; cat $r
+# --- Fm --- a test that keeps what it matched
+Fm | feat/x | secret-shell | ask | [[ .env -regex-match .* ]]; cat $MATCH
+Fm | feat/x | secret-shell | ask | [[ .env -pcre-match .* ]]; cat $MATCH
+Fm | feat/x | secret-shell | ask | [ .env -regex-match '.*' ]; cat $MATCH
+Fm | feat/x | secret-shell | ask | test .env -regex-match '.*'; cat $MATCH
+Fm | feat/x | secret-shell | ask | [ .env =~ '.*' ]; cat $MATCH $BASH_REMATCH
+Fm | feat/x | secret-shell | ask | test .env =~ '.*'; cat $MATCH $BASH_REMATCH
+Fm | feat/x | secret-shell | ask | O='=~'; [[ .env $O .* ]]; cat $BASH_REMATCH $MATCH
+# --- Fp --- a report's name with a path in front
+Fp | feat/x | secret-shell | ask | cp /bin/cat ./echo; ./echo .env
+Fp | feat/x | secret-shell | ask | script/test .env
+Fp | feat/x | secret-shell | ask | ./test -f .env
+Fp | feat/x | secret-shell | ask | bin/stat .env
+Fp | feat/x | secret-shell | silent | /bin/ls -la .env
+Fp | feat/x | secret-shell | silent | /usr/bin/stat .env
+Fp | feat/x | secret-shell | silent | /bin/echo .env >> .gitignore
+Fp | feat/x | secret-shell | silent | /usr/bin/git status --short .env
+Fp | feat/x | secret-shell | silent | /opt/homebrew/bin/git ls-files .env

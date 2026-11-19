@@ -1,0 +1,7 @@
+# a quoted script handed to a tool the reader does not know, without a bar inside the quotes
+mytool 'ollama run m'
+osascript -e 'ollama run m'
+make SHELL='ollama run m'
+mytool 'x; ollama run m'
+mytool 'x && ollama run m'
+mytool 'x|ollama run m'

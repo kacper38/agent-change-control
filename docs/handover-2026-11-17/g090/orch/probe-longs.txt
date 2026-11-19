@@ -1,0 +1,18 @@
+# a secret file name written with U+017F (long s): the file system of a Mac opens the plain file
+cat ~/.ssh/id_rsa
+cat ~/.ſſh/id_rſa
+cat ~/.ſsh/id_ed25519
+cat secrets.yaml
+cat ſecretſ.yaml
+cat ~/.aws/credentials
+cat ~/.aws/credentialſ
+cat ~/.SSH/id_rsa
+# the glued spellings of the include options (silent since 0.8.0)
+grep -r --include=.env TOKEN .
+rg --glob=.env TOKEN
+rg -g.env TOKEN
+rsync -a --include=.env --exclude='*' src/ host:dst/
+tar --exclude-from=.env -czf out.tgz .
+tar --exclude=.env -czf out.tgz .
+bash -c 'rg -g .env TOKEN'
+bash -c 'grep -r --include .env TOKEN .'

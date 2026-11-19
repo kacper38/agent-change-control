@@ -1,0 +1,17 @@
+# probe rows: an assignment that is not the word right in front of `git` (planted break g04), and candidates for
+# the rows that pin g03 and g05. Data only: read by pty_probe.py, never typed on a command line.
+# id | branch[@client] | rule | expected | command
+g03 | feat/x | secret-shell | ask | if true; then GIT_CONFIG_PARAMETERS="'pager.ls-files=xargs cat'" git ls-files .env; fi
+g03 | feat/x | secret-shell | ask | ! GIT_CONFIG_PARAMETERS="'pager.ls-files=xargs cat'" git ls-files .env
+g03 | feat/x | secret-shell | ask | true && { GIT_CONFIG_PARAMETERS="'pager.ls-files=xargs cat'" git ls-files .env; }
+g04 | feat/x | secret-shell | ask | GIT_CONFIG_PARAMETERS="'pager.ls-files=xargs cat'" ! git ls-files .env
+g04 | feat/x | secret-shell | ask | GIT_CONFIG_PARAMETERS="'pager.ls-files=xargs cat'" { git ls-files .env; }
+g04 | feat/x | secret-shell | ask | GIT_CONFIG_PARAMETERS="'pager.ls-files=xargs cat'" if git ls-files .env; then true; fi
+g04 | feat/x | secret-shell | ask | GIT_CONFIG_PARAMETERS="'pager.ls-files=xargs cat'" then git ls-files .env
+g04 | feat/x | secret-shell | ask | GIT_CONFIG_PARAMETERS="'pager.ls-files=xargs cat'" do git ls-files .env
+g04 | feat/x | secret-shell | ask | GIT_CONFIG_PARAMETERS="'pager.ls-files=xargs cat'" else git ls-files .env
+g04 | feat/x | secret-shell | ask | if GIT_CONFIG_PARAMETERS="'pager.ls-files=xargs cat'" ! git ls-files .env; then true; fi
+g05 | feat/x | secret-shell | silent | > log=1.txt git ls-files .env
+g05 | feat/x | secret-shell | silent | >log=1.txt git ls-files .env
+g05 | feat/x | secret-shell | silent | git ls-files .env > log=1.txt
+g05 | feat/x | secret-shell | silent | 2>err=1.txt git -C . status .env

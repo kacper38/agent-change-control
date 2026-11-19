@@ -1,0 +1,123 @@
+# guard 0.9.0, groups B and C: rows of the fifth fix round. The quiet-report check of secret-shell reads a line
+# strictly: a report is quiet only on a line the check reads the way zsh and bash do. Every line below hands the
+# name a report prints to a command that prints the file (measured with zsh 5.9.1 and bash 5.3.15 against a
+# stand-in file; 0.8.0 asks on each). id | branch[@client] | rule | expected | command
+# --- F51 --- a brace among the words of a command: zsh closes a group there, and a `{` behind a word the check
+# does not pass over (`time`, `repeat 1`, `always`) opens one
+F51 | feat/x | secret-shell | ask | time { true; { ls .env; true } | xargs cat; }
+F51 | main | secret-shell | ask | time { true; { ls .env; true } | xargs cat; }
+F51 | feat/x@client | secret-shell | ask | time { true; { ls .env; true } | xargs cat; }
+F51 | feat/x | secret-shell | ask | time { true; ls .env; { true }; } | xargs cat
+F51 | feat/x | secret-shell | ask | time { true; ls .env; true } | xargs cat
+F51 | feat/x | secret-shell | ask | time { true; echo .env; true } | xargs cat
+F51 | feat/x | secret-shell | ask | time { true; test -f .env && echo .env; true } | xargs cat
+F51 | feat/x | secret-shell | ask | repeat 1 { true; { ls .env; true } | xargs cat; }
+F51 | feat/x | secret-shell | ask | repeat 1 { true; ls .env; true } | xargs cat
+F51 | feat/x | secret-shell | ask | { true; } always { true; { ls .env; true } | xargs cat; }
+F51 | feat/x | secret-shell | ask | nocorrect { true; { ls .env; true } | xargs cat; }
+F51 | feat/x | secret-shell | ask | noglob { true; { ls .env; true } | xargs cat; }
+F51 | feat/x | secret-shell | ask | { time { true; { ls .env; true } | xargs cat; }; }
+F51 | feat/x | secret-shell | ask | if true; then time { true; { ls .env; true } | xargs cat; }; fi
+F51 | feat/x | secret-shell | ask | "time {\n  true; { ls .env; true } | xargs cat\n}"
+# a brace that is a plain word: the check does not read on
+F51 | feat/x | secret-shell | ask | ls .env; echo }
+F51 | feat/x | secret-shell | ask | { ls .env; echo } ; }
+F51 | feat/x | secret-shell | ask | ls .env { cat .env }
+F51 | feat/x | secret-shell | ask | [[ -f .env ]] { cat .env }
+# --- F52 --- a closer behind a shell word (zsh takes an empty branch) or behind a closer, with an opener the
+# check does not see to make up the count
+F52 | feat/x | secret-shell | ask | if true; then ls .env; else fi | xargs cat; time if true; then true; fi
+F52 | main | secret-shell | ask | if true; then ls .env; else fi | xargs cat; time if true; then true; fi
+F52 | feat/x@client | secret-shell | ask | if true; then ls .env; else fi | xargs cat; time if true; then true; fi
+F52 | feat/x | secret-shell | ask | if true; then ls .env; else fi | xargs cat; repeat 1 if true; then true; fi
+F52 | feat/x | secret-shell | ask | if true; then echo .env; else fi | xargs cat; time if true; then true; fi
+F52 | feat/x | secret-shell | ask | { if true; then ls .env; else fi | xargs cat; time if true; then true; fi; }
+F52 | feat/x | secret-shell | ask | while true; do ls .env; break; do done | xargs cat; time while false; do true; done
+# --- F53 --- a brace or a reserved word spelled with a quote or a backslash is none for the shell
+F53 | feat/x | secret-shell | ask | { ls .env; '{'; } | xargs cat; '}'
+F53 | main | secret-shell | ask | { ls .env; '{'; } | xargs cat; '}'
+F53 | feat/x@client | secret-shell | ask | { ls .env; '{'; } | xargs cat; '}'
+F53 | feat/x | secret-shell | ask | { ls .env; "{"; } | xargs cat; "}"
+F53 | feat/x | secret-shell | ask | { ls .env; \{; } | xargs cat; \}
+F53 | feat/x | secret-shell | ask | { echo .env; '{'; } | xargs cat; '}'
+F53 | feat/x | secret-shell | ask | { ls .env; {''; } | xargs cat; ''}
+F53 | feat/x | secret-shell | ask | if true; then ls .env; 'if'; fi | xargs cat; 'fi'
+F53 | feat/x | secret-shell | ask | if true; then ls .env; "if"; fi | xargs cat; f\i
+F53 | feat/x | secret-shell | ask | while true; do ls .env; 'while'; break; done | xargs cat; 'done'
+F53 | feat/x | secret-shell | ask | for x in a; do ls .env; 'for'; done | xargs cat; 'done'
+# a quoted or escaped separator is a word for the shell
+F53 | feat/x | secret-shell | ask | { ls .env; echo ';' '{'; } | xargs cat; echo ';' '}'
+F53 | feat/x | secret-shell | ask | { ls .env; echo \; \{; } | xargs cat; echo \; \}
+F53 | feat/x | secret-shell | ask | { ls .env; echo ";" {; } | xargs cat; echo ";" }
+# --- F54 --- the lexer splits where the shell does not: inside `[[ ]]`, `${ }`, `$[ ]` and a subscript
+F54 | feat/x | secret-shell | ask | { ls .env; [[ a && { ]]; } | xargs cat; [[ a && } ]]
+F54 | main | secret-shell | ask | { ls .env; [[ a && { ]]; } | xargs cat; [[ a && } ]]
+F54 | feat/x@client | secret-shell | ask | { ls .env; [[ a && { ]]; } | xargs cat; [[ a && } ]]
+F54 | feat/x | secret-shell | ask | { ls .env; [[ a || { ]]; } | xargs cat; [[ a || } ]]
+F54 | feat/x | secret-shell | ask | if true; then ls .env; [[ a && if ]]; fi | xargs cat; [[ a && fi ]]
+F54 | feat/x | secret-shell | ask | while true; do ls .env; [[ a && while ]]; break; done | xargs cat; [[ a && done ]]
+F54 | feat/x | secret-shell | ask | { ls .env; echo ${X:-a; { b}; } | xargs cat; echo ${X:-a; }
+F54 | feat/x | secret-shell | ask | if true; then ls .env; echo $[ 1 | if ]; fi | xargs cat; echo $[ 1 | fi ]
+F54 | feat/x | secret-shell | ask | declare -A a; { ls .env; a[x ; { ]=1; } | xargs cat; a[x ; } ]=1
+# --- F55 --- quoting the lexer reads otherwise than the shell: `$'…'`, a quote inside `${…}`, arithmetic
+F55 | feat/x | secret-shell | ask | { ls .env; : $'\'' ; } | xargs cat; { : \' ; }
+F55 | main | secret-shell | ask | { ls .env; : $'\'' ; } | xargs cat; { : \' ; }
+F55 | feat/x@client | secret-shell | ask | { ls .env; : $'\'' ; } | xargs cat; { : \' ; }
+F55 | feat/x | secret-shell | ask | : $'\''; { true; : \'; ls .env; : $'\''; } | xargs cat; : \'
+F55 | feat/x | secret-shell | ask | { ls .env; : "${X:-" ; { true ; : "}"; } | xargs cat; : "${X:-" ; } ; : "}"
+F55 | feat/x | secret-shell | ask | { ls .env; : "$[ 1 " ; { true ; : " ]"; } | xargs cat; : "$[ 1 " ; } ; : " ]"
+F55 | feat/x | secret-shell | ask | { ls .env; : "$(( 1 " ; { true ; : " ))"; } | xargs cat; : "$(( 1 " ; } ; : " ))"
+# --- F56 --- a report that hands its words on by itself: `printf -v`, `[[ … =~ … ]]`, `$_` in a longer spelling
+F56 | feat/x | secret-shell | ask | printf -v x %s .env; cat "$x"
+F56 | main | secret-shell | ask | printf -v x %s .env; cat "$x"
+F56 | feat/x@client | secret-shell | ask | printf -v x %s .env; cat "$x"
+F56 | feat/x | secret-shell | ask | printf -vx %s .env; cat "$x"
+F56 | feat/x | secret-shell | ask | printf -v x '%s' .env && cat $x
+F56 | feat/x | secret-shell | ask | { printf -v x %s .env; }; cat "$x"
+F56 | feat/x | secret-shell | ask | if printf -v x %s .env; then cat "$x"; fi
+F56 | feat/x | secret-shell | ask | [[ .env =~ .* ]]; cat $BASH_REMATCH $MATCH
+F56 | feat/x | secret-shell | ask | [[ .env =~ .* ]] && cat $BASH_REMATCH $MATCH
+F56 | feat/x | secret-shell | ask | if [[ .env =~ .* ]]; then cat $BASH_REMATCH $MATCH; fi
+F56 | feat/x | secret-shell | ask | ls .env; cat "${_:-x}"
+F56 | feat/x | secret-shell | ask | echo .env; cat ${_%y}
+F56 | feat/x | secret-shell | ask | echo .env; cat ${_#y}
+F56 | feat/x | secret-shell | ask | test -f .env && cat "${_:-x}"
+F56 | feat/x | secret-shell | ask | { ls .env; }; cat "${_:-x}"
+# --- Fs --- the same where the check asks already
+Fs | feat/x | secret-shell | ask | time { true; ls .env; } | xargs cat
+Fs | feat/x | secret-shell | ask | time if true; then true; ls .env; fi | xargs cat
+Fs | feat/x | secret-shell | ask | repeat 1 { true; ls .env; } | xargs cat
+Fs | feat/x | secret-shell | ask | if true; then ls .env; else fi | xargs cat
+Fs | feat/x | secret-shell | ask | if true; then ls .env; else fi | xargs cat; if true; then true; fi
+Fs | feat/x | secret-shell | ask | { ls .env; } always { true; } | xargs cat
+Fs | feat/x | secret-shell | ask | { { ls .env; } } | xargs cat
+Fs | feat/x | secret-shell | ask | { ls .env; { } | xargs cat; }
+Fs | feat/x | secret-shell | ask | "{ ls .env; true # ; {\n} | xargs cat\ntrue # ; }"
+Fs | feat/x | secret-shell | ask | ls .env; cat $_
+Fs | feat/x | secret-shell | ask | ls .env; cat "${_}"
+Fs | feat/x | secret-shell | ask | ls .env '|' xargs cat
+# a report on a line with quotes, braces and brackets that hand nothing on: quiet stays quiet
+Fs | feat/x | shell | silent | ls -la .env; echo "done"
+Fs | feat/x | shell | silent | test -f .env && echo "1) found"
+Fs | feat/x | shell | silent | test -f .env && echo "found (ok)"
+Fs | feat/x | shell | silent | ls -la "${HOME}/.env"
+Fs | feat/x | shell | silent | ls -la .env && echo "${USER:-nobody}"
+Fs | feat/x | shell | silent | if [ -f .env ]; then echo "yes"; else echo "no"; fi
+Fs | feat/x | shell | silent | if [[ -f .env ]]; then echo yes; fi
+Fs | feat/x | shell | silent | echo ".env" >> .gitignore
+Fs | feat/x | shell | silent | ls .env; echo ":)"
+Fs | feat/x | shell | silent | ls .env; echo '{}'
+Fs | feat/x | shell | silent | ls .env; echo "{ }"
+Fs | feat/x | shell | silent | ls .env; echo "}"
+Fs | feat/x | shell | silent | test -f .env && echo "it's there"
+Fs | feat/x | shell | silent | ls .env; echo "say \"hi\""
+Fs | feat/x | shell | silent | { ls -la .env; echo "done"; }
+Fs | feat/x | shell | silent | test -f .env && echo "found $(date +%s)"
+Fs | feat/x | shell | silent | test -f .env && echo "found `date`"
+Fs | feat/x | shell | silent | ls -la .env; echo "host: $(hostname -s | tr a-z A-Z)"
+Fs | feat/x | shell | silent | printf "%s count=%s\n" A "$(grep -c "^#\? \?A" notes.txt)"; ls -la .env
+Fs | feat/x | shell | silent | printf '%s\n' .env
+Fs | feat/x | shell | silent | printf '%s\n' -- .env
+Fs | feat/x | shell | silent | [[ .env == .e* ]] && echo dotfile
+Fs | feat/x | shell | silent | ls -la .env; echo "${#PATH}"
+Fs | feat/x | shell | silent | ls -la .env.example {a,b}.txt

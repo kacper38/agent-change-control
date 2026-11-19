@@ -1,0 +1,58 @@
+echo "$(<.env)"
+printf '%s' "$(< .env)"
+ls $(cat .env)
+test -n "$(cat .env)"
+[ -n "$(cat .env)" ]
+[[ $(cat .env) == x ]]
+echo ${TOKEN:-$(cat .env)}
+ls -la .env; cat .env
+echo <(cat .env)
+ls <(cat .env)
+echo x | tee .env
+stat .env && source .env
+[[ -f .env ]] && source .env
+test -f .env && . .env
+ls .env | cat
+echo .env | xargs cat
+echo .env | while read f; do cat "$f"; done
+git status .env
+git ls-files .env
+git check-ignore -v .env
+git status; cat .env
+git ls-files .env | xargs cat
+git status --porcelain .env && git diff .env
+git ls-files -z .env | xargs -0 cat
+ls .env
+ls -la ~/.ssh
+stat -f %z .env
+test -f .env
+[ -f .env ] && echo yes
+[[ -r ~/.ssh/id_ed25519 ]] && echo readable
+echo .env
+printf '%s\n' .env
+echo "see .env for the values"
+echo .env > list.txt
+ls .env > list.txt
+ls .env 2>&1
+echo "$(ls .env)"
+x=$(ls .env)
+echo .env &
+ls .env &
+(ls .env)
+sudo ls .env
+time ls .env
+env ls .env
+echo $(printf '%s' .env | xargs cat)
+printf "$(cat .env)"
+echo "`cat .env`"
+echo "${X:-`cat .env`}"
+test -s .env || echo empty; cat .env
+ls .env; ls .env | xargs cat
+echo .env; echo .env | xargs cat
+ls ~/.aws/credentials
+echo ~/.aws/credentials
+stat ~/.ssh/id_rsa ~/.ssh/id_ed25519
+[ -e .env ] || cp .env.example .env
+test -f .env || cat .env.example > .env
+ls .env && head -1 .env
+echo checking .env && grep -c = .env

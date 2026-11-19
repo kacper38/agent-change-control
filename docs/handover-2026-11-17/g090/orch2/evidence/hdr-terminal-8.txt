@@ -1,0 +1,2 @@
+# guards, one letter each, in this order: 0.8.0 | 2a28378 (head of the seventh round) | 8f0a893 (the guard file of the head) | 2a28378 without the `coproc` rule | 2a28378 with a construct that never closes taken as not handed on
+# row: id, expectation, letters (s silent, a ask), pipe: and pty: with Z when zsh showed the marker and B when bash did, the command (`.env` is run as `secret.txt`)

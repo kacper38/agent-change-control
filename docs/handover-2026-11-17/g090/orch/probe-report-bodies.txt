@@ -1,0 +1,42 @@
+# a report inside a function body, a process substitution or a substitution: its output goes where the body is used
+f() { ls .env; }; f | xargs cat
+f() { ls .env; }; cat $(f)
+f() { echo .env; }; cat "$(f)"
+function f { ls .env; }; f | xargs cat
+function f() { printf '%s' .env; }; cat "$(f)"
+f() { true; ls .env; }; f | xargs cat
+f() ( ls .env ); f | xargs cat
+f() { ls .env; }
+f() { ls .env; }; f
+f() { ls .env; }; f > out.txt
+f() { cat .env; }; f
+xargs cat < <(ls .env)
+xargs cat < <(true; ls .env)
+xargs cat < <(echo .env)
+xargs cat < <(true && echo .env)
+while read f; do cat "$f"; done < <(true; ls .env)
+while read f; do cat "$f"; done < <(ls .env)
+cat <(ls .env)
+cat <(true; ls .env)
+diff <(ls .env) <(true; echo .env)
+exec 3< <(true; ls .env); xargs cat <&3
+cat $(true; ls .env)
+cat $(ls .env)
+cat `true; ls .env`
+cat `ls .env`
+cat "$(true; echo .env)"
+cat "$( (true; echo .env) )"
+cat "$( { true; echo .env; } )"
+eval "$(true; echo cat .env)"
+x=$(true; ls .env); cat "$x"
+x=$(ls .env); cat "$x"
+a=(echo .env); cat "${a[1]}"
+a=(.env); cat "${a[@]}"
+mapfile -t a < <(true; ls .env); cat "${a[@]}"
+read f < <(true; ls .env); cat "$f"
+coproc { true; ls .env; }; xargs cat <&"${COPROC[0]}"
+true; ls .env | xargs cat
+true; ls .env
+(true; ls .env)
+{ true; ls .env; }
+(true; ls .env) | xargs cat

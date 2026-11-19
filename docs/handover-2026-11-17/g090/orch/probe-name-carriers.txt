@@ -1,0 +1,27 @@
+# a secret file's name carried to a reader through a variable, a file or the positional parameters
+# probe list of the orchestrating session; commands are data, judged as strings, never run
+f=.env; cat "$f"
+f=.env; cat $f
+f=.env && cat "$f"
+export f=.env; cat "$f"
+declare f=.env; cat "$f"
+read f <<< .env; cat "$f"
+printf -v f '%s' .env; cat "$f"
+printf -v f .env; cat $f
+set -- .env; cat "$1"
+for f in .env; do cat "$f"; done
+for f in .env; do cat $f; done
+f=.env cat "$f"
+F=.env; cp "$F" /tmp/x
+echo cat .env > run.sh; sh run.sh
+echo 'cat .env' > run.sh; sh run.sh
+printf 'cat .env\n' > run.sh; bash run.sh
+echo .env > list.txt; xargs cat < list.txt
+ls .env > list.txt; cat $(cat list.txt)
+echo .env | xargs cat
+echo .env | { xargs cat; }
+cat "$(echo .env)"
+cat `echo .env`
+cat $(printf .env)
+x=$(echo .env); cat "$x"
+x=`ls .env`; cat "$x"

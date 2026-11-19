@@ -1,0 +1,17 @@
+# An eighth list for the quiet-report check: lines that pin single rules. Data for probe.py and for
+# sem/close_brace.py. Never typed.
+# --- a substitution inside a backtick substitution must not move the end back
+{ ls .env; : "`: $(:) " ; { true ; : "` x"; } | xargs cat; : "`: $(:) " ; } ; : "` y"
+# --- a backslash is a plain character inside single quotes
+ls -la .env; echo 'C:\dir\'
+ls -la .env; echo "$(printf '%s\' a)"
+{ ls .env; : 'a\' ; { true ; : 'b' ; } | xargs cat; : 'a\' ; } ; : 'b'
+# --- an escaped backtick inside a backtick substitution
+{ ls .env; : "`: \`: " ; { true ; : "\`` x"; } | xargs cat; : "`: \`: " ; } ; : "\`` y"
+ls -la .env; echo "`echo \`date\``"
+# --- an escape inside a double-quoted string
+ls -la .env; echo "a \"quoted\" word and a back\\slash"
+# --- a lone bracket word
+[ -f .env ] && echo "it is there"
+# --- words behind `for` that read like openers
+for if in a b; do ls -la .env; done

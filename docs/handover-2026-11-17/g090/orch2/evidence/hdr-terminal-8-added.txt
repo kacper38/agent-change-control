@@ -1,0 +1,3 @@
+# guards, one letter each, in this order: 0.8.0 | 2a28378 (head of the seventh round) | 8f0a893 (the guard file of the head) | b2f4e2a without the rule on a bracket in a separator | b2f4e2a without the rule of the eighth round | b2f4e2a without both
+# row: id, expectation, letters (s silent, a ask), pipe: and pty: with Z when zsh showed the marker and B when bash did, the command (`.env` is run as `secret.txt`)
+# first the 25 rows of the table ROWS_FIX8_ADD, then the 28 lines they were chosen from (C1 to C28)

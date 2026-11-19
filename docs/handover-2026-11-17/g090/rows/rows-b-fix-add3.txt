@@ -1,0 +1,22 @@
+# Guard 0.9.0, fix pass, addendum 3 (2026-11-18): found by the orchestrating session while the pass ran.
+# Row: id | branch[@client] | rule | expected | command
+#
+# --- F24 (weaker than 0.8.0, in the build since K4): git takes any unambiguous prefix of --exclude, and the
+#     option takes the next word as its pattern even when that word is -n or --dry-run. Measured, git 2.55, in
+#     a scratch repository: `git clean --excl -n -f`, `git clean --e -n -f` and `git clean --exclud -n -fdx`
+#     remove the untracked files ("Removing untracked.tmp").
+F24 | feat/x | delete-guard | ask | git clean --excl -n -f
+F24 | feat/x | delete-guard | ask | git clean --e -n -f
+F24 | feat/x | delete-guard | ask | git clean --exclud -n -fdx
+F24 | feat/x | delete-guard | ask | git -C sub clean --ex -n -f
+F24 | feat/x | delete-guard | ask | git clean -f --excl --dry-run
+# the neighbours that hold today and keep holding (the three previews measured with git 2.55)
+Fs | feat/x | shell | silent | git clean -n
+Fs | feat/x | shell | silent | git clean --exclude x -n
+Fs | feat/x | shell | silent | git clean --exclude=x -n -f
+Fs | feat/x | shell | silent | git clean -n --quiet
+Fs | feat/x | shell | silent | git clean --no-dry-run -n -f
+Fs | feat/x | shell | silent | git clean --dry-run --no-dry-run --dry-run -f
+Fs | feat/x | shell | silent | git worktree prune --expire now -n
+Fs | feat/x | delete-guard | ask | git clean --exclude -n -f
+Fs | feat/x | delete-guard | ask | git clean -e -n -f

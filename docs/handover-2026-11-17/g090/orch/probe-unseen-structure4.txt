@@ -1,0 +1,17 @@
+# A fourth list for the quiet-report check. Data for probe.py and for sem/close_brace.py. Never typed.
+# --- a substitution in a double-quoted string whose own quotes show the lexer a separator
+{ ls .env; echo "$(echo " ; { true ; echo ")"; } | xargs cat; echo "$(echo " ; } ; echo ")"
+{ ls .env; echo "`echo " ; { true ; echo "`"; } | xargs cat; echo "`echo " ; } ; echo "`"
+{ ls .env; echo "$(echo " ; { ")"; } | xargs cat; echo "$(echo " ; } ; echo ")"
+# --- a closer behind a closer (bash takes it), with an opener the check does not see to make up the count
+if true; then ls .env; if true; then true; fi fi | xargs cat; time if true; then true; fi
+while true; do ls .env; while false; do true; done done | xargs cat; time while false; do true; done
+{ ls .env; { true; } } | xargs cat; time { true; }
+# --- a line break inside `[[ ]]`
+"{ ls .env; [[ a && { ]]; } | xargs cat; [[ a && }\n]]"
+"{ ls .env; [[ a && {\n]]; } | xargs cat; [[ a && }\n]]"
+# --- characters of the private plane that would pass for quoted ones
+"󰁬󰁳 󰀮󰁥󰁮󰁶; ls .env | xargs cat"
+# --- an opener the check does not see, every closer seen
+repeat 1 { true; ls .env; } | xargs cat
+time { true; ls .env; } | xargs cat; echo {

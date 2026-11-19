@@ -1,0 +1,30 @@
+# zsh forms around a report: a glob qualifier that runs code, the mapfile parameter, a redirection as a command
+ls .env(e:'cat $REPLY':)
+ls .env(e.'cat $REPLY'.)
+ls -la .env(+reader)
+stat .env(e:'cat $REPLY':)
+echo .env(e:'cat $REPLY':)
+echo $mapfile[.env]
+echo ${mapfile[.env]}
+print -r -- ${mapfile[.env]}
+echo "${(f)mapfile[.env]}"
+zmodload zsh/mapfile; echo $mapfile[.env]
+echo ${"$(<.env)"}
+echo $(<.env)
+echo "$(<~/.ssh/id_rsa)"
+< .env
+ls .env; < .env
+test -f .env && < .env
+git check-ignore --stdin < .env
+git status -v .env
+git status -vv -- .env
+git ls-files -s .env
+git ls-files --format='%(objectname) %(path)' .env
+git ls-files .env --debug
+echo .env | xargs -n1 cat
+ls .env(N)
+ls .env(.)
+ls -l .env(:A)
+echo ~/.ssh/id_rsa(:t)
+[[ -f .env ]] && echo ${$(<.env)[1]}
+test -f .env; echo ${"$(cat .env)"}

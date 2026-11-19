@@ -1,0 +1,32 @@
+env -S 'rm -rf build'
+genv -S 'rm -rf build'
+env -S 'git push --force origin feat'
+genv -S 'git push --force origin feat'
+env --split-string='rm -rf build'
+(cat run.sh) | bash
+{ cat run.sh; } | bash
+cat run.sh | bash
+gh auth token
+gh auth token -h github.com
+gh auth token --hostname github.com
+op item get GitHub --format json
+op item get GitHub --fields password
+op item get GitHub
+op item list
+gh api graphql -f query="$(cat q.graphql)"
+gh api graphql -f query="$Q"
+gh api graphql -F query=@q.graphql
+az devops invoke --area wit --resource workitems
+az devops invoke --area wit --resource workitems --http-method PATCH --in-file body.json
+az rest --uri https://management.azure.com/subscriptions?api-version=2022-12-01
+az rest --method post --uri https://management.azure.com/x
+aws ecr get-login-password --region eu-central-1 | docker login --username AWS --password-stdin 123.dkr.ecr.eu-central-1.amazonaws.com
+aws sts get-caller-identity
+aws sts get-session-token
+pass ls
+pass git log
+pass insert work/x
+pass generate work/x 20
+pass work/x
+pass show work/x
+pass version

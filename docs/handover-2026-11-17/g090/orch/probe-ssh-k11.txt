@@ -1,0 +1,41 @@
+# ssh hands its words to the remote shell joined by blanks: local quotes are gone there
+ssh h echo 'x; rm -rf y'
+ssh h 'echo x; rm -rf y'
+ssh h echo 'x | rm -rf y'
+ssh h grep -E 'a|ollama|b' f
+ssh h 'grep -E "a|ollama|b" f'
+ssh h "grep -E 'a|ollama|b' f"
+ssh h grep -E "'a|ollama|b'" f
+ssh h grep -E 'a|ollama run m|b' f
+ssh h ls '.env | xargs cat'
+ssh h cat .env
+ssh h echo '$(cat .env)'
+# a function body and a later pipe; a variable and a file as the carrier of a quiet report
+f() { echo .env; }; f | xargs cat
+f() { ls .env; }; cat "$(f)"
+x=$(ls .env); cat "$x"
+x=$(echo .env); cat $x
+x=`ls .env`; cat $x
+for f in $(ls .env); do cat "$f"; done
+ls .env > list.txt; xargs cat < list.txt
+ls .env > list.txt
+echo .env > list.txt; cat $(cat list.txt)
+echo .env | xargs cat
+cat $(ls .env)
+cat "$(echo .env)"
+read -r f < <(ls .env); cat "$f"
+ls .env | while read f; do cat "$f"; done
+{ ls .env; }
+( ls .env )
+{ ls .env; } > list.txt
+ls .env && cat "$(ls .env)"
+set -- .env; cat "$1"
+set -- $(ls .env); cat "$1"
+echo .env; cat !$
+ls .env; cat $_
+: .env; cat $_
+true .env; cat "$_"
+stat .env; head -1 "$_"
+test -f .env; . "$_"
+[ -f .env ] && source $_
+echo .env && xargs cat <<< "$_"

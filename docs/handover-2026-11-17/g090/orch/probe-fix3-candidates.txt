@@ -1,0 +1,34 @@
+# Candidate rows for the planted breaks of the quiet-report check that no test caught at abab75a (g04, g08 to
+# g12, g14): forms where one rule of the check alone decides. Commands are data, never run.
+time { ls .env; } | xargs cat
+time { ls -la .env; }
+time if true; then ls .env; fi | xargs cat
+"function f\n{ true; echo .env; }\ncat \"$(f)\""
+"function f\n{\n  ls .env\n}\nf | xargs cat"
+"function f\n{ true; echo .env; }"
+function f { true; echo .env; }; cat "$(f)"
+true | ls -la .env
+cat names.txt | ls -la .env
+true |& stat .env
+{ ls .env } | xargs cat
+{ ls -la .env }
+{ ls .env; } | xargs cat
+{ ls -la .env; }
+if true; then time { ls .env; } | xargs cat; fi
+if true; then time { ls .env; }; fi | xargs cat
+while true; do if true; then time { ls .env; }; fi | xargs cat; done
+coproc ls .env
+coproc { ls .env; }
+"coproc {\n ls .env\n}\ncat <&\"${COPROC[0]}\""
+coproc P { ls .env; }; cat <&"${P[0]}"
+{ ls .env; true } | xargs cat
+{ ls .env; true }
+gh api //graphql -f query='mutation { closeIssue(input: {issueId: "I_1"}) { clientMutationId } }'
+gh api //graphql -f query='mutation { addStar(input: {starrableId: "R_1"}) { clientMutationId } }'
+gh api //graphql -f query='{ viewer { login } }'
+gh api graphql// -f query='mutation { closeIssue(input: {issueId: "I_1"}) { clientMutationId } }'
+curl -X POST https://api.github.com./graphql -d '{"query":"mutation { closeIssue(input: {issueId: \"I_1\"}) { clientMutationId } }"}'
+curl -X POST https://api.github.com./graphql -d '{"query":"mutation { addStar(input: {starrableId: \"R_1\"}) { clientMutationId } }"}'
+curl -s https://api.github.com./graphql -d '{"query":"{ viewer { login } }"}'
+gh api https://api.github.com./graphql -f query='mutation { closeIssue(input: {issueId: "I_1"}) { clientMutationId } }'
+http POST https://api.github.com./graphql query='mutation { closeIssue(input: {issueId: "I_1"}) { clientMutationId } }'

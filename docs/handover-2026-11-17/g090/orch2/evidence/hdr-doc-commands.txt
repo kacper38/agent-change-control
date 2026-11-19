@@ -1,0 +1,2 @@
+# the result first, then the rows the check read
+# row: list | branch | rule | expected verdict | command (data; the guard judged the string, nothing was run)

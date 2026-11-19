@@ -1,0 +1,29 @@
+# zsh's alternate forms of `if`, `while`, `until`, `for`, `repeat` (a `{ list }` behind the test, no `then`/`do`):
+# the words behind the closing `]]` of a test are a command of their own. Commands are data; the guard judges them
+# as strings, and sem/close_brace.py runs them in a scratch folder against a stand-in file.
+if [[ -f .env ]] { cat .env }
+if [[ -f .env ]] { cat .env; }
+if [[ -f .env ]] cat .env
+while [[ -f .env ]] { cat .env; break }
+until [[ ! -f .env ]] { cat .env; break }
+[[ -f .env ]] { cat .env }
+[[ -f .env ]] cat .env
+if [ -f .env ] { cat .env }
+[ -f .env ] { cat .env }
+if [[ -f .env ]] { true } else { cat .env }
+if [[ ! -f .env ]] { true } elif [[ -f .env ]] { cat .env }
+for f (.env) { cat $f }
+for f in .env; { cat $f }
+repeat 1 { cat .env }
+repeat 1 cat .env
+if test -f .env; { cat .env }
+[[ -f .env ]] && cat .env
+if [[ -f .env ]]; then cat .env; fi
+# reports with words behind them that are no part of the report
+test -f .env -a -r .env
+[[ -f .env && -r .env ]]
+[[ -f .env ]] 2>/dev/null
+[[ -f .env ]]
+echo .env { cat .env }
+ls .env { cat .env }
+true { cat .env }

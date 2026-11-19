@@ -1,0 +1,20 @@
+# lines near the hook switch behind a shell word that must keep their verdict
+time git commit -m x
+time export FOO=1; git commit -m x
+{ export FOO=1; }; git commit -m x
+if export FOO=1; then git commit -m x; fi
+while export FOO=1; do git commit -m x; break; done
+for i in 1; do export FOO=1; done; git commit -m x
+f() { export FOO=1; }; f; git commit -m x
+if true; then export HUSKY=1; fi; git commit -m x
+{ export HUSKY=0; }; git status
+time export HUSKY=0; git status
+case x in x) export HUSKY=0;; esac; git commit -m x
+{ unset HUSKY; }; git commit -m x
+if [ -z "$CI" ]; then export HUSKY=0; fi; git commit -m x
+{ { export HUSKY=0; }; }; git commit -m x
+{ time export HUSKY=0; git commit -m x; }
+f() { export HUSKY=0; git commit -m x; }; f
+until export HUSKY=0; do break; done; git commit -m x
+while true; do export HUSKY=0; break; done; git commit -m x
+if false; then :; elif true; then export HUSKY=0; fi; git commit -m x

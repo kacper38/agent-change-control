@@ -1,0 +1,380 @@
+[
+ {
+  "id": "m01",
+  "what": "`$_` only in its two short spellings",
+  "old": "|\\$\\{[^}]*(?<![A-Za-z0-9_])_(?![A-Za-z0-9_])\")",
+  "new": "|\\$\\{_\\}\")"
+ },
+ {
+  "id": "m03",
+  "what": "no screen for `$[`",
+  "old": "\"\\\\$\\\\[|\\r|[\\U000f0000",
+  "new": "\"\\r|[\\U000f0000"
+ },
+ {
+  "id": "m04",
+  "what": "no screen for the private plane",
+  "old": "\"\\\\$\\\\[|\\r|[\\U000f0000-\\U000ffffd]\")",
+  "new": "\"\\\\$\\\\[|\\r\")"
+ },
+ {
+  "id": "m43",
+  "what": "`for` and `select` do not end the leading words",
+  "old": "                if t in (\"for\", \"select\"):\n                    break\n",
+  "new": ""
+ },
+ {
+  "id": "m06",
+  "what": "the mask is off",
+  "old": "    masked = _quiet_mask(_hi_prepare(command)[0])\n",
+  "new": "    masked = _hi_prepare(command)[0]\n"
+ },
+ {
+  "id": "m07",
+  "what": "no mark behind an opening quote",
+  "old": "                c += _QUOTE_MARK\n",
+  "new": ""
+ },
+ {
+  "id": "m08",
+  "what": "`$'` behind an unquoted `$` is read as a plain string",
+  "old": "if c == \"'\" and out and out[-1] == \"$\":",
+  "new": "if False:"
+ },
+ {
+  "id": "m09",
+  "what": "`$'` allowed in the body of a quoted substitution",
+  "old": "(\"(\", \"`\", \"${\", \"$'\")",
+  "new": "(\"(\", \"`\", \"${\")"
+ },
+ {
+  "id": "m10",
+  "what": "`(` allowed in the body",
+  "old": "(\"(\", \"`\", \"${\", \"$'\")",
+  "new": "(\"`\", \"${\", \"$'\")"
+ },
+ {
+  "id": "m11",
+  "what": "a backtick allowed in the body",
+  "old": "(\"(\", \"`\", \"${\", \"$'\")",
+  "new": "(\"(\", \"${\", \"$'\")"
+ },
+ {
+  "id": "m12",
+  "what": "`${` allowed in the body",
+  "old": "(\"(\", \"`\", \"${\", \"$'\")",
+  "new": "(\"(\", \"`\", \"$'\")"
+ },
+ {
+  "id": "m14",
+  "what": "`#` allowed in the body",
+  "old": "        elif c == \"#\":\n            return None\n",
+  "new": ""
+ },
+ {
+  "id": "m15",
+  "what": "an escaped `)` ends the body",
+  "old": "if k + 1 >= len(body):",
+  "new": "if False:"
+ },
+ {
+  "id": "m16",
+  "what": "an open quote in the body is let through",
+  "old": "    return None if quote else end",
+  "new": "    return end"
+ },
+ {
+  "id": "m17",
+  "what": "the lexer need not be back in the string at the end",
+  "old": "        if i == sub_end and quote != '\"':",
+  "new": "        if False:"
+ },
+ {
+  "id": "m18",
+  "what": "a separator of the lexer inside the substitution is let through",
+  "old": "        if not quote and i <= sub_end and c in _HI_PUNCT:",
+  "new": "        if False:"
+ },
+ {
+  "id": "m19",
+  "what": "a string may end inside `${`",
+  "old": "                if depth:\n",
+  "new": "                if False:\n"
+ },
+ {
+  "id": "m20",
+  "what": "`[[` without `]]` in a command is let through",
+  "old": "        if toks.count(\"[[\") != toks.count(\"]]\"):",
+  "new": "        if False:"
+ },
+ {
+  "id": "m21",
+  "what": "a token with an open brace is let through",
+  "old": "(t.count(\"{\") != t.count(\"}\") or t.count(\"[\") != t.count(\"]\"))",
+  "new": "(t.count(\"[\") != t.count(\"]\"))"
+ },
+ {
+  "id": "m22",
+  "what": "a token with an open square bracket is let through",
+  "old": "(t.count(\"{\") != t.count(\"}\") or t.count(\"[\") != t.count(\"]\"))",
+  "new": "(t.count(\"{\") != t.count(\"}\"))"
+ },
+ {
+  "id": "m23",
+  "what": "words behind a closer are let through",
+  "old": " or drop_redirections(toks[1:]):",
+  "new": ":"
+ },
+ {
+  "id": "m24",
+  "what": "a closer behind a shell word is let through",
+  "old": "            elif t in _COMPOUND_CLOSERS:",
+  "new": "            elif False:"
+ },
+ {
+  "id": "m25",
+  "what": "a `}` among the words of a command is let through",
+  "old": "        if \"}\" in toks[j:]:",
+  "new": "        if False:"
+ },
+ {
+  "id": "m27",
+  "what": "`[[ =~ ]]` is a quiet report",
+  "old": "if head == \"[[\" and \"=~\" in words:",
+  "new": "if False:"
+ },
+ {
+  "id": "m28",
+  "what": "an escape inside a double-quoted string is masked like any other",
+  "old": "(nxt if quote and nxt in ('\"', \"\\\\\") else _quoted_char(nxt))",
+  "new": "_quoted_char(nxt)"
+ },
+ {
+  "id": "m29",
+  "what": "a backtick substitution in a string is not looked at",
+  "old": "(c == \"`\" or (c == \"$\" and text[i + 1 : i + 2] == \"(\"))",
+  "new": "(c == \"$\" and text[i + 1 : i + 2] == \"(\")"
+ },
+ {
+  "id": "m30",
+  "what": "an escaped backtick ends a backtick substitution",
+  "old": "            j += 2 if text[j] == \"\\\\\" else 1",
+  "new": "            j += 1"
+ },
+ {
+  "id": "m31",
+  "what": "the report words are compared masked",
+  "old": "        words = tuple(_quiet_unmask(w) for w in masked_words)",
+  "new": "        words = tuple(masked_words)"
+ },
+ {
+  "id": "m32",
+  "what": "a lone bracket word counts as an open bracket",
+  "old": "t not in _BRACKET_WORDS and ",
+  "new": ""
+ },
+ {
+  "id": "m36",
+  "what": "the mark stays in the report words",
+  "old": " for c in word if c != _QUOTE_MARK)",
+  "new": " for c in word)"
+ },
+ {
+  "id": "m39",
+  "what": "a backslash escapes inside single quotes too (the mask)",
+  "old": "        if c == \"\\\\\" and quote != \"'\":\n            nxt",
+  "new": "        if c == \"\\\\\":\n            nxt"
+ },
+ {
+  "id": "m40",
+  "what": "a backslash escapes inside single quotes too (the body of a substitution)",
+  "old": "        if c == \"\\\\\" and quote != \"'\":\n            if k + 1",
+  "new": "        if c == \"\\\\\":\n            if k + 1"
+ },
+ {
+  "id": "m42",
+  "what": "a substitution inside a substitution moves the end back",
+  "old": "        if quote == '\"' and i > sub_end and (c",
+  "new": "        if quote == '\"' and (c"
+ },
+ {
+  "id": "n01",
+  "what": "no screen for a carriage return",
+  "old": "\"\\\\$\\\\[|\\r|[\\U000f0000",
+  "new": "\"\\\\$\\\\[|[\\U000f0000"
+ },
+ {
+  "id": "n02",
+  "what": "a name with a path is a report anywhere",
+  "old": "if \"/\" in words[0] and os.path.dirname(words[0]) not in _REPORT_DIRS:",
+  "new": "if False:"
+ },
+ {
+  "id": "n03",
+  "what": "any absolute path is a system folder",
+  "old": "os.path.dirname(words[0]) not in _REPORT_DIRS:",
+  "new": "not words[0].startswith(\"/\"):"
+ },
+ {
+  "id": "n04",
+  "what": "the folder at hand is a system folder",
+  "old": "frozenset({\"/bin\", \"/usr/bin\", \"/usr/local/bin\", \"/opt/homebrew/bin\"})",
+  "new": "frozenset({\"/bin\", \".\", \"/usr/bin\", \"/usr/local/bin\", \"/opt/homebrew/bin\"})"
+ },
+ {
+  "id": "n05a",
+  "what": "/bin is no system folder",
+  "old": "frozenset({\"/bin\", \"/usr/bin\", \"/usr/local/bin\", \"/opt/homebrew/bin\"})",
+  "new": "frozenset({\"/usr/bin\", \"/usr/local/bin\", \"/opt/homebrew/bin\"})"
+ },
+ {
+  "id": "n05b",
+  "what": "/usr/bin is no system folder",
+  "old": "frozenset({\"/bin\", \"/usr/bin\", \"/usr/local/bin\", \"/opt/homebrew/bin\"})",
+  "new": "frozenset({\"/bin\", \"/usr/local/bin\", \"/opt/homebrew/bin\"})"
+ },
+ {
+  "id": "n05c",
+  "what": "/usr/local/bin is no system folder",
+  "old": "frozenset({\"/bin\", \"/usr/bin\", \"/usr/local/bin\", \"/opt/homebrew/bin\"})",
+  "new": "frozenset({\"/bin\", \"/usr/bin\", \"/opt/homebrew/bin\"})"
+ },
+ {
+  "id": "n05d",
+  "what": "/opt/homebrew/bin is no system folder",
+  "old": "frozenset({\"/bin\", \"/usr/bin\", \"/usr/local/bin\", \"/opt/homebrew/bin\"})",
+  "new": "frozenset({\"/bin\", \"/usr/bin\", \"/usr/local/bin\"})"
+ },
+ {
+  "id": "n06",
+  "what": "no look for `$_` in the words as the shell reads them",
+  "old": "if any(_LAST_ARG_RE.search(_quiet_unmask(t)) for t in toks):",
+  "new": "if False:"
+ },
+ {
+  "id": "n07",
+  "what": "`$_` looked for in the masked words",
+  "old": "_LAST_ARG_RE.search(_quiet_unmask(t)) for t in toks",
+  "new": "_LAST_ARG_RE.search(t) for t in toks"
+ },
+ {
+  "id": "n08",
+  "what": "every printf is a report",
+  "old": "if head == \"printf\" and len(words) > 1 and not _printf_format(masked_words[1]):",
+  "new": "if False:"
+ },
+ {
+  "id": "n09",
+  "what": "a first argument that starts with a dash is a format",
+  "old": "return (not plain.startswith(\"-\") and \"$\" not in plain",
+  "new": "return (\"$\" not in plain"
+ },
+ {
+  "id": "n10",
+  "what": "a dollar sign in the first argument is no expansion",
+  "old": "not plain.startswith(\"-\") and \"$\" not in plain and",
+  "new": "not plain.startswith(\"-\") and"
+ },
+ {
+  "id": "n11",
+  "what": "a backtick in the first argument is no substitution",
+  "old": "and \"`\" not in plain",
+  "new": ""
+ },
+ {
+  "id": "n12",
+  "what": "the unquoted part of the first argument may hold anything",
+  "old": "\n            and _PRINTF_PLAIN_RE.fullmatch(first) is not None)",
+  "new": ")"
+ },
+ {
+  "id": "n13a",
+  "what": "braces allowed outside quotes",
+  "old": "\"[A-Za-z0-9%_./:,+@=\\\\\\\\\\U000f0000-\\U000ffffd-]*\"",
+  "new": "\"[A-Za-z0-9{},%_./:,+@=\\\\\\\\\\U000f0000-\\U000ffffd-]*\""
+ },
+ {
+  "id": "n13b",
+  "what": "a star allowed outside quotes",
+  "old": "\"[A-Za-z0-9%_./:,+@=\\\\\\\\\\U000f0000-\\U000ffffd-]*\"",
+  "new": "\"[A-Za-z0-9*%_./:,+@=\\\\\\\\\\U000f0000-\\U000ffffd-]*\""
+ },
+ {
+  "id": "n13c",
+  "what": "a question mark allowed outside quotes",
+  "old": "\"[A-Za-z0-9%_./:,+@=\\\\\\\\\\U000f0000-\\U000ffffd-]*\"",
+  "new": "\"[A-Za-z0-9?%_./:,+@=\\\\\\\\\\U000f0000-\\U000ffffd-]*\""
+ },
+ {
+  "id": "n13d",
+  "what": "square brackets allowed outside quotes",
+  "old": "\"[A-Za-z0-9%_./:,+@=\\\\\\\\\\U000f0000-\\U000ffffd-]*\"",
+  "new": "\"[A-Za-z0-9\\\\[\\\\]%_./:,+@=\\\\\\\\\\U000f0000-\\U000ffffd-]*\""
+ },
+ {
+  "id": "n13e",
+  "what": "a hash sign allowed outside quotes",
+  "old": "\"[A-Za-z0-9%_./:,+@=\\\\\\\\\\U000f0000-\\U000ffffd-]*\"",
+  "new": "\"[A-Za-z0-9#%_./:,+@=\\\\\\\\\\U000f0000-\\U000ffffd-]*\""
+ },
+ {
+  "id": "n13f",
+  "what": "a caret allowed outside quotes",
+  "old": "\"[A-Za-z0-9%_./:,+@=\\\\\\\\\\U000f0000-\\U000ffffd-]*\"",
+  "new": "\"[A-Za-z0-9^%_./:,+@=\\\\\\\\\\U000f0000-\\U000ffffd-]*\""
+ },
+ {
+  "id": "n13g",
+  "what": "a tilde allowed outside quotes",
+  "old": "\"[A-Za-z0-9%_./:,+@=\\\\\\\\\\U000f0000-\\U000ffffd-]*\"",
+  "new": "\"[A-Za-z0-9~%_./:,+@=\\\\\\\\\\U000f0000-\\U000ffffd-]*\""
+ },
+ {
+  "id": "n14",
+  "what": "`--` in front is taken for an option",
+  "old": "    if plain == \"--\":\n        return True\n",
+  "new": ""
+ },
+ {
+  "id": "n15",
+  "what": "a printf without words is read for its first argument",
+  "old": "if head == \"printf\" and len(words) > 1 and not",
+  "new": "if head == \"printf\" and not"
+ },
+ {
+  "id": "n16",
+  "what": "the last word is taken for the first argument",
+  "old": "_printf_format(masked_words[1])",
+  "new": "_printf_format(masked_words[-1])"
+ },
+ {
+  "id": "n17",
+  "what": "a quoted character is judged like a bare one",
+  "old": "_PRINTF_PLAIN_RE.fullmatch(first) is not None",
+  "new": "_PRINTF_PLAIN_RE.fullmatch(plain) is not None"
+ },
+ {
+  "id": "n18",
+  "what": "a backslash inside double quotes is no format character",
+  "old": "\"[A-Za-z0-9%_./:,+@=\\\\\\\\\\U000f0000-\\U000ffffd-]*\"",
+  "new": "\"[A-Za-z0-9%_./:,+@=\\U000f0000-\\U000ffffd-]*\""
+ },
+ {
+  "id": "n19",
+  "what": "`case` is looked for between blanks only",
+  "old": "or _CASE_WORD_RE.search(body):",
+  "new": "or \"case\" in body.split():"
+ },
+ {
+  "id": "n20",
+  "what": "`case` inside a longer word counts",
+  "old": "re.compile(r\"(?<![A-Za-z0-9_])case(?![A-Za-z0-9_])\")",
+  "new": "re.compile(r\"case\")"
+ },
+ {
+  "id": "n21",
+  "what": "no look for `case` at all",
+  "old": "or _CASE_WORD_RE.search(body):",
+  "new": ":"
+ }
+]

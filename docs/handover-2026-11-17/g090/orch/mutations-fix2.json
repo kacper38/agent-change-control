@@ -1,0 +1,326 @@
+[
+ {
+  "id": "g01",
+  "what": "F28: a pipe counts as a plain separator, so a report piped on is quiet",
+  "old": "_PLAIN_SEPS = frozenset({\"\", \";\", \"&&\", \"||\", \"&\"})",
+  "new": "_PLAIN_SEPS = frozenset({\"\", \";\", \"&&\", \"||\", \"&\", \"|\"})"
+ },
+ {
+  "id": "g02",
+  "what": "F28: a separator is compared whole, so a pipe with a line break behind it hands nothing on",
+  "old": "    return sep.replace(\" \", \"\").replace(\"\\n\", \"\") in _PLAIN_SEPS",
+  "new": "    return sep.strip(\" \") not in (\"|\", \"|&\")"
+ },
+ {
+  "id": "g03",
+  "what": "F28: a separator with a line break in it is no plain separator",
+  "old": "    return sep.replace(\" \", \"\").replace(\"\\n\", \"\") in _PLAIN_SEPS",
+  "new": "    return sep.strip(\" \") in _PLAIN_SEPS"
+ },
+ {
+  "id": "g04",
+  "what": "F33: a closer that is not the word of the construct it would close is taken as its closer",
+  "old": "            if not stack or stack[-1][1] != toks[0]:\n                return None",
+  "new": "            if not stack:\n                return None"
+ },
+ {
+  "id": "g05",
+  "what": "F11: of the constructs one command opens, the last closer decides alone",
+  "old": "            handed_on[opener] = handed_on.get(opener, False) or not _plain_sep(",
+  "new": "            handed_on[opener] = not _plain_sep("
+ },
+ {
+  "id": "g06",
+  "what": "F32: a bracket in a separator no longer ends the quiet reading",
+  "old": "        if any(c in sep for c in \"()`\"):",
+  "new": "        if any(c in sep for c in \"`\"):"
+ },
+ {
+  "id": "g07",
+  "what": "F32: a backtick in a separator no longer ends the quiet reading",
+  "old": "        if any(c in sep for c in \"()`\"):",
+  "new": "        if any(c in sep for c in \"()\"):"
+ },
+ {
+  "id": "g08",
+  "what": "F32: a line with `function` or `coproc` keeps its quiet reports",
+  "old": "        if _report_words(toks)[:1] in ((\"function\",), (\"coproc\",)):",
+  "new": "        if False:"
+ },
+ {
+  "id": "g09",
+  "what": "F32: a line with `function` keeps its quiet reports",
+  "old": "        if _report_words(toks)[:1] in ((\"function\",), (\"coproc\",)):",
+  "new": "        if _report_words(toks)[:1] in ((\"coproc\",),):"
+ },
+ {
+  "id": "g10",
+  "what": "F32: a line with `coproc` keeps its quiet reports",
+  "old": "        if _report_words(toks)[:1] in ((\"function\",), (\"coproc\",)):",
+  "new": "        if _report_words(toks)[:1] in ((\"function\",),):"
+ },
+ {
+  "id": "g11",
+  "what": "F33: a line whose closers do not match keeps its quiet reports",
+  "old": "    if outputs is None:\n        return ()\n    enclosing, handed_on = outputs",
+  "new": "    if outputs is None:\n        outputs = ([[] for _ in cmds], {})\n    enclosing, handed_on = outputs"
+ },
+ {
+  "id": "g12",
+  "what": "F28: only the separator behind a report is looked at",
+  "old": "        if not _plain_sep(sep) or not _plain_sep(cmds[k + 1][0] if k + 1 < len(cmds) else \"\"):",
+  "new": "        if not _plain_sep(cmds[k + 1][0] if k + 1 < len(cmds) else \"\"):"
+ },
+ {
+  "id": "g13",
+  "what": "F28: only the separator in front of a report is looked at, so a report piped on is quiet",
+  "old": "        if not _plain_sep(sep) or not _plain_sep(cmds[k + 1][0] if k + 1 < len(cmds) else \"\"):",
+  "new": "        if not _plain_sep(sep):"
+ },
+ {
+  "id": "g14",
+  "what": "F11: a construct that never closes counts as not handed on",
+  "old": "        if any(handed_on.get(o, True) for o in enclosing[k]):  # F11",
+  "new": "        if any(handed_on.get(o, False) for o in enclosing[k]):  # F11"
+ },
+ {
+  "id": "g15",
+  "what": "F11: a report inside a piped group or compound is quiet (f06 of the fix list, moved)",
+  "old": "        if any(handed_on.get(o, True) for o in enclosing[k]):  # F11",
+  "new": "        if False:  # F11"
+ },
+ {
+  "id": "g16",
+  "what": "F30: an export behind a shell word (`{`, `then`, `do`, `!`) is not read",
+  "old": "                if toks[0] in _NC_SHELL_WORDS:\n                    toks = toks[1:]\n                elif toks[0] == \"time\":",
+  "new": "                if False:\n                    toks = toks[1:]\n                elif toks[0] == \"time\":"
+ },
+ {
+  "id": "g17",
+  "what": "F30: an export behind `time` is not read",
+  "old": "                elif toks[0] == \"time\":\n                    toks = toks[2:] if toks[1:2] == [\"-p\"] else toks[1:]",
+  "new": "                elif False:\n                    toks = toks[2:] if toks[1:2] == [\"-p\"] else toks[1:]"
+ },
+ {
+  "id": "g18",
+  "what": "F30: the -p of `time -p` is taken as the command",
+  "old": "                    toks = toks[2:] if toks[1:2] == [\"-p\"] else toks[1:]",
+  "new": "                    toks = toks[1:]"
+ },
+ {
+  "id": "g19",
+  "what": "F30: `command -p export`, `command -- export`, `builtin -- eval` are not read",
+  "old": "                    while k < len(toks) and toks[k] in ((\"-p\", \"--\") if toks[0] == \"command\" else (\"--\",)):",
+  "new": "                    while False:"
+ },
+ {
+  "id": "g20",
+  "what": "F30: `command -p export` is not read",
+  "old": "                    while k < len(toks) and toks[k] in ((\"-p\", \"--\") if toks[0] == \"command\" else (\"--\",)):",
+  "new": "                    while k < len(toks) and toks[k] in (\"--\",):"
+ },
+ {
+  "id": "g21",
+  "what": "F19: builtin and command in front of eval or export hide it (f44 of the fix list, moved)",
+  "old": "                elif toks[0] in (\"builtin\", \"command\"):\n                    k = 1",
+  "new": "                elif False:\n                    k = 1"
+ },
+ {
+  "id": "g22",
+  "what": "F31: a port behind the API host hides the path",
+  "old": "_GITHUB_API_RE = re.compile(r\"api\\.github\\.com\\.?(?::\\d+)?(/[^\\s?#]*)\", re.IGNORECASE)",
+  "new": "_GITHUB_API_RE = re.compile(r\"api\\.github\\.com\\.?(/[^\\s?#]*)\", re.IGNORECASE)"
+ },
+ {
+  "id": "g23",
+  "what": "F31: a port behind the API host hides the GraphQL URL",
+  "old": "_GRAPHQL_URL_RE = re.compile(r\"api\\.github\\.com\\.?(?::\\d+)?/+graphql(?![\\w.-])\", re.IGNORECASE)",
+  "new": "_GRAPHQL_URL_RE = re.compile(r\"api\\.github\\.com\\.?/+graphql(?![\\w.-])\", re.IGNORECASE)"
+ },
+ {
+  "id": "g24",
+  "what": "F31: a doubled slash in front of graphql hides the GraphQL URL",
+  "old": "_GRAPHQL_URL_RE = re.compile(r\"api\\.github\\.com\\.?(?::\\d+)?/+graphql(?![\\w.-])\", re.IGNORECASE)",
+  "new": "_GRAPHQL_URL_RE = re.compile(r\"api\\.github\\.com\\.?(?::\\d+)?/graphql(?![\\w.-])\", re.IGNORECASE)"
+ },
+ {
+  "id": "g25",
+  "what": "F17: the dot behind the host name hides the GraphQL URL (f38 of the fix list, moved)",
+  "old": "_GRAPHQL_URL_RE = re.compile(r\"api\\.github\\.com\\.?(?::\\d+)?/+graphql(?![\\w.-])\", re.IGNORECASE)",
+  "new": "_GRAPHQL_URL_RE = re.compile(r\"api\\.github\\.com(?::\\d+)?/+graphql(?![\\w.-])\", re.IGNORECASE)"
+ },
+ {
+  "id": "g26",
+  "what": "F17: the dot behind the host name hides the API path",
+  "old": "_GITHUB_API_RE = re.compile(r\"api\\.github\\.com\\.?(?::\\d+)?(/[^\\s?#]*)\", re.IGNORECASE)",
+  "new": "_GITHUB_API_RE = re.compile(r\"api\\.github\\.com(?::\\d+)?(/[^\\s?#]*)\", re.IGNORECASE)"
+ },
+ {
+  "id": "g27",
+  "what": "F31: `gh api //graphql` is no GraphQL call",
+  "old": "    flat = re.sub(r\"/+\", \"/\", path)",
+  "new": "    flat = path"
+ },
+ {
+  "id": "g28",
+  "what": "F31: a doubled slash in the merge path of `gh api` hides the merge",
+  "old": "        if method == \"PUT\" and _MERGE_API_RE.search(re.sub(r\"/+\", \"/\", path)):",
+  "new": "        if method == \"PUT\" and _MERGE_API_RE.search(path):"
+ },
+ {
+  "id": "g29",
+  "what": "M: a merge through gh api does not ask (b37 of the build list, moved)",
+  "old": "        if method == \"PUT\" and _MERGE_API_RE.search(re.sub(r\"/+\", \"/\", path)):",
+  "new": "        if False and method == \"PUT\" and _MERGE_API_RE.search(re.sub(r\"/+\", \"/\", path)):"
+ },
+ {
+  "id": "g30",
+  "what": "F28: the separators of the compound-pipe check are compared with their ends cut only (`|\u23ce(`)",
+  "old": "    compact = [s.replace(\" \", \"\").replace(\"\\n\", \"\") for s in seps]",
+  "new": "    compact = [s.strip(\" \\n\") for s in seps]"
+ },
+ {
+  "id": "g31",
+  "what": "F29: a row of redirections behind a closing bracket does not stand for the subshell",
+  "old": "                    or (not left and \")\" in compact[r - 1]))",
+  "new": "                    or False)"
+ },
+ {
+  "id": "g32",
+  "what": "F36: only the shells of _PIPE_SHELLS read a pipe ($SHELL, ${SHELL} do not)",
+  "old": "        shell = name in _PIPE_SHELLS or os.path.basename(toks[i]) in _NC_STDIN_SHELLS",
+  "new": "        shell = name in _PIPE_SHELLS"
+ },
+ {
+  "id": "g33",
+  "what": "F36: `sudo -s`, `sudo -i` and `su` behind a pipe are no shells",
+  "old": "        if shell and _hi_shell_reads_stdin(args):\n            return True\n        if (name == \"sudo\" and _sudo_runs_shell(args)) or (name == \"su\" and _su_runs_shell(args)):",
+  "new": "        if shell and _hi_shell_reads_stdin(args):\n            return True\n        if False:"
+ },
+ {
+  "id": "g34",
+  "what": "F36: `sudo -s` behind a pipe is no shell",
+  "old": "        if shell and _hi_shell_reads_stdin(args):\n            return True\n        if (name == \"sudo\" and _sudo_runs_shell(args)) or (name == \"su\" and _su_runs_shell(args)):",
+  "new": "        if shell and _hi_shell_reads_stdin(args):\n            return True\n        if name == \"su\" and _su_runs_shell(args):"
+ },
+ {
+  "id": "g35",
+  "what": "F36: `su` behind a pipe is no shell",
+  "old": "        if shell and _hi_shell_reads_stdin(args):\n            return True\n        if (name == \"sudo\" and _sudo_runs_shell(args)) or (name == \"su\" and _su_runs_shell(args)):",
+  "new": "        if shell and _hi_shell_reads_stdin(args):\n            return True\n        if name == \"sudo\" and _sudo_runs_shell(args):"
+ },
+ {
+  "id": "g36",
+  "what": "I1: a shell behind a pipe is no reader of the pipe (b22 of the build list, moved)",
+  "old": "        if shell and _hi_shell_reads_stdin(args):\n            return True\n        if (name == \"sudo\"",
+  "new": "        if False:\n            return True\n        if (name == \"sudo\""
+ },
+ {
+  "id": "g37",
+  "what": "ad: a shell behind a container or remote tool counts as a shell of this machine",
+  "old": "        if name in _NC_ELSEWHERE:\n            return False\n        shell = name in _PIPE_SHELLS",
+  "new": "        if False:\n            return False\n        shell = name in _PIPE_SHELLS"
+ },
+ {
+  "id": "g38",
+  "what": "F40: delete-guard does not ask for an unread pipe",
+  "old": "        what = _delete_judge(ev)\n        pipe = _PIPE_NOT_READ if _unread_pipe(ev.command) else None",
+  "new": "        what = _delete_judge(ev)\n        pipe = None"
+ },
+ {
+  "id": "g39",
+  "what": "F40: deploy-ask does not ask for an unread pipe",
+  "old": "        what = _deploy_text(text) or deploy_what(ev.command)\n        pipe = _PIPE_NOT_READ if _unread_pipe(ev.command) else None",
+  "new": "        what = _deploy_text(text) or deploy_what(ev.command)\n        pipe = None"
+ },
+ {
+  "id": "g40",
+  "what": "F40: the reader pass does not ask for an unread pipe",
+  "old": "        if nested_unread_pipe(text, local):  # read past it",
+  "new": "        if False:  # read past it"
+ },
+ {
+  "id": "g41",
+  "what": "F40: a shell behind a plain pipe whose script is not on the line gets no mark",
+  "old": "    if unread is not None and _nc_pipe_shell(piped):\n        unread.append(True)",
+  "new": "    if False:\n        unread.append(True)"
+ },
+ {
+  "id": "g42",
+  "what": "F40: a pipe with a subshell, group or compound on one side gets no mark",
+  "old": "    if cmds is not None and unread is not None and _nc_compound_pipe(rows, seps, fed_bars):\n        unread.append(True)",
+  "new": "    if False:\n        unread.append(True)"
+ },
+ {
+  "id": "g43",
+  "what": "F37: a bar through which a script was read counts as an unread pipe",
+  "old": "        if r in fed_bars:\n            continue",
+  "new": "        if False:\n            continue"
+ },
+ {
+  "id": "g44",
+  "what": "F37: every bar in front of a command counts as read, whether a script came through or not",
+  "old": "        if piped is not None and runner is piped:\n            fed_bars.add(k + 1)",
+  "new": "        if piped is not None:\n            fed_bars.add(k + 1)"
+ },
+ {
+  "id": "g45",
+  "what": "F40: an unread pipe inside a nested script gets no mark",
+  "old": "            _nc_read(script, depth + 1, out, seen, local, inputs, bodies, envs, script_env, unread)",
+  "new": "            _nc_read(script, depth + 1, out, seen, local, inputs, bodies, envs, script_env)"
+ },
+ {
+  "id": "g46",
+  "what": "F40: an unread pipe stops secret-shell from reading the input redirections",
+  "old": "    if failed is None or failed == _pipe_ask(\"secret-shell\"):",
+  "new": "    if failed is None:"
+ },
+ {
+  "id": "g47",
+  "what": "F40: the read never reports an unread pipe",
+  "old": "    return tuple(out), tuple(inputs), tuple(envs), bool(unread)",
+  "new": "    return tuple(out), tuple(inputs), tuple(envs), False"
+ },
+ {
+  "id": "g48",
+  "what": "F38: httpie's --raw is no body",
+  "old": "                or (httpie and name == \"--raw\")):",
+  "new": "                or False):"
+ },
+ {
+  "id": "g49",
+  "what": "F38: --raw is a body for curl and wget too",
+  "old": "                or (httpie and name == \"--raw\")):",
+  "new": "                or name == \"--raw\"):"
+ },
+ {
+  "id": "g50",
+  "what": "F38: wget's --body-data is no body",
+  "old": "        if (name in _CURL_MUTATING_FLAGS or name == \"--body-data\" or t.startswith(\"--data\")",
+  "new": "        if (name in _CURL_MUTATING_FLAGS or t.startswith(\"--data\")"
+ },
+ {
+  "id": "g51",
+  "what": "F38: wget's --body-file is no body from a file",
+  "old": "        if name in (\"-T\", \"--upload-file\", \"--post-file\", \"--body-file\"):",
+  "new": "        if name in (\"-T\", \"--upload-file\", \"--post-file\"):"
+ },
+ {
+  "id": "g52",
+  "what": "F38: an httpie call that shows no document is found as no call",
+  "old": "    return httpie, None  # httpie sends",
+  "new": "    return False, None  # httpie sends"
+ },
+ {
+  "id": "g53",
+  "what": "F38: a curl or wget call that shows no body is found as a call without a document",
+  "old": "    return httpie, None  # httpie sends",
+  "new": "    return True, None  # httpie sends"
+ },
+ {
+  "id": "g54",
+  "what": "F39: the redirect targets are read on the line as written, so one behind a continuation is missed",
+  "old": "    for target in _REDIRECT_RE.findall(command.replace(\"\\\\\\n\", \"\")):",
+  "new": "    for target in _REDIRECT_RE.findall(command):"
+ }
+]

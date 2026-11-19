@@ -1,0 +1,19 @@
+# guard 0.9.0, groups B and C: rows added to the seventh fix round after the eighth. The seventh round lets a git
+# report be quiet only with `-C <dir>`, `--no-pager` or `-P` between `git` and the subcommand. Its rows for
+# `--paginate` and for `--config-env` with its value as a word of its own each have a second command or an
+# assignment on the line, and since the eighth round that alone makes the line ask. Two planted breaks showed it:
+# with `--paginate` put on the list of plain options, or `--config-env` taken like `-C`, every test passed.
+# On these lines nothing but the seventh round's rule decides. Every row holds before this commit, and at 0.8.0.
+# id | branch[@client] | rule | expected | command
+# --- Fm --- `--paginate` is no plain option: it sends the report into the pager, and which program that is the
+# line does not say (no shell printed the file in a fresh scratch repository; the guard does not try to tell)
+Fm | feat/x | secret-shell | ask | git --paginate ls-files .env
+Fm | main | secret-shell | ask | git --paginate ls-files .env
+Fm | feat/x@client | secret-shell | ask | git --paginate ls-files .env
+Fm | feat/x | secret-shell | ask | git --paginate status -s .env
+Fm | feat/x | secret-shell | ask | true; git --paginate ls-files .env
+# --- Fm --- `--config-env` with its value as the next word names a configuration key and a variable: the pager
+# is whatever that variable holds (no shell printed the file here: a fresh shell has no such variable)
+Fm | feat/x | secret-shell | ask | git --config-env pager.ls-files=X ls-files .env
+Fm | feat/x | secret-shell | ask | cd . && git --config-env pager.status=X status -s .env
+Fm | feat/x | secret-shell | ask | git -C . --config-env pager.ls-files=X ls-files .env

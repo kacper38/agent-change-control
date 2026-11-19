@@ -1,0 +1,209 @@
+--- a/tools/guard/guard.py
++++ b/tools/guard/guard.py
+@@ -1278,19 +1278,125 @@
+     return tuple(words[k:])
+ 
+ 
+-_LAST_ARG_RE = re.compile(r"\$_(?![A-Za-z0-9_])|\$\{_\}")
++# fifth fix round: `$_` in any spelling of a parameter expansion (`${_:-x}`, `${_%y}`)
++_LAST_ARG_RE = re.compile(r"\$_(?![A-Za-z0-9_])|\$\{[^}]*(?<![A-Za-z0-9_])_(?![A-Za-z0-9_])")
+ _COMPOUND_OPENERS = frozenset({"{", "if", "while", "until", "for", "case", "select"})
+ _COMPOUND_CLOSERS = frozenset({"}", "fi", "done", "esac"})
+ 
+ 
+ _GROUP_CLOSER = {"{": "}", "if": "fi", "while": "done", "until": "done", "for": "done", "select": "done"}
++# fifth fix round: the quiet reading is strict; a line it cannot read with certainty has no quiet report.
++# In `$[…]` a quote is no quote for the shell, and a character of the private plane would pass for a quoted one.
++# (`$'…'`, whose escapes the lexer does not know, and `$((…))` are turned down where the quotes are read.)
++_QUIET_UNREAD_RE = re.compile("\\$\\[|[\U000f0000-\U000ffffd]")
++_QUOTED_OFFSET = 0xF0000
++_QUOTE_MARK = "\U000ffffd"  # behind every opening quote: a word with an empty quoted part (`{''`) is no bare word
++_BRACKET_WORDS = frozenset({"{", "}", "[", "]", "[[", "]]"})
+ 
+ 
+ def _plain_sep(sep: str) -> bool:
+     """The lexer's separator hands no output on: read by its characters, never compared whole (`|⏎` is a pipe)."""
+     return sep.replace(" ", "").replace("\n", "") in _PLAIN_SEPS
++
++
++def _quoted_char(c: str) -> str:
++    return chr(ord(c) + _QUOTED_OFFSET) if c and ord(c) < 0xFFFD else c
++
++
++def _quiet_sub_end(text: str, i: int) -> Optional[int]:
++    """Index of the character that closes the substitution opened at text[i] inside a double-quoted string, or
++    None when the check cannot tell where the shell ends it. A backtick ends at the next backtick that is not
++    escaped. `$(` ends at the first `)` when the body up to it holds no bracket, backtick, `${`, `$'` or `case`,
++    no `#` outside quotes, and quotes that pair up: then that `)` is quoted for no shell. (A here-document, which
++    could hide it too, is turned down for the whole line.)"""
++    if text[i] == "`":
++        j = i + 1
++        while j < len(text):
++            if text[j] == "`":
++                return j
++            j += 2 if text[j] == "\\" else 1
++        return None
++    end = text.find(")", i + 2)
++    body = text[i + 2 : max(end, 0)]
++    if end < 0 or any(x in body for x in ("(", "`", "${", "$'")) or "case" in body.split():
++        return None
++    quote = ""
++    k = 0
++    while k < len(body):
++        c = body[k]
++        if c == "\\" and quote != "'":
++            if k + 1 >= len(body):
++                return None  # the `)` itself is escaped
++            k += 2
++            continue
++        if quote:
++            quote = "" if c == quote else quote
++        elif c in "'\"":
++            quote = c
++        elif c == "#":
++            return None
++        k += 1
++    return None if quote else end
++
++
++def _quiet_mask(text: str) -> Optional[str]:
++    """The prepared line with every quoted or escaped character moved to the private plane, by the lexer's own
++    quoting rules: a brace, a bracket or a reserved word the line spells with a quote or a backslash (`'{'`, `\\}`,
++    `"fi"`) is then none for the check, as it is none for the shell. The lexer takes a quote inside a substitution
++    of a double-quoted string for the string's own (`"$(grep -c "x" f)"`); the check lets that stand only where
++    it shows the lexer no separator and the string ends for the lexer where it ends for the shell. None for any
++    other such substitution, and when a double-quoted string ends inside a `${`: the shell reads on to the `}`,
++    the lexer stops at the quote (`"${X:-"a"}"`)."""
++    out: list[str] = []
++    quote = ""
++    depth = 0
++    sub_end = -1  # the last character of the substitution at hand
++    i, n = 0, len(text)
++    while i < n:
++        c = text[i]
++        if i == sub_end and quote != '"':
++            return None  # the lexer is not back in the string where the shell ends the substitution
++        if quote == '"' and i > sub_end and (c == "`" or (c == "$" and text[i + 1 : i + 2] == "(")):
++            end = _quiet_sub_end(text, i)
++            if end is None:
++                return None
++            sub_end = end
++        if c == "\\" and quote != "'":
++            nxt = text[i + 1 : i + 2]
++            # inside "…" the lexer takes the backslash off `\"` and `\\` only; these two stay as they are
++            out.append(c + (nxt if quote and nxt in ('"', "\\") else _quoted_char(nxt)))
++            i += 2
++            continue
++        if not quote and i <= sub_end and c in _HI_PUNCT:
++            return None  # a separator of the lexer inside the substitution, where the shell has none
++        if quote:
++            if c == quote:
++                if depth:
++                    return None
++                quote = ""
++                out.append(c)
++            else:
++                if quote == '"' and c == "$" and text[i + 1 : i + 2] == "{":
++                    depth += 1
++                elif quote == '"' and c == "}" and depth:
++                    depth -= 1
++                out.append(_quoted_char(c))
++        else:
++            if c in "'\"":
++                if c == "'" and out and out[-1] == "$":
++                    return None  # `$'…'`: its escapes (`\\'`) are none for the lexer. `'^a$'` ends a string and stays
++                quote, depth = c, 0
++                c += _QUOTE_MARK
++            out.append(c)
++        i += 1
++    return "".join(out)
+ 
+ 
++def _quiet_unmask(word: str) -> str:
++    return "".join(chr(ord(c) - _QUOTED_OFFSET) if 0xF0000 <= ord(c) < 0xFFFFD else c
++                   for c in word if c != _QUOTE_MARK)
++
++
+ def _compound_outputs(cmds: list) -> Optional[tuple[list, dict]]:
+     """For each simple command of the lexer's list, the groups and compounds around it (each by a number of its
+     own, counted in the order they open), and for each of these whether its output is handed on by the separator
+@@ -1305,21 +1411,34 @@
+     handed_on: dict = {}
+     opened = 0
+     for k, (_sep, toks) in enumerate(cmds):
++        j = 0
+         if toks[:1] and toks[0] in _COMPOUND_CLOSERS:
+-            if not stack or stack[-1][1] != toks[0]:
++            # fifth round: behind a closer only redirections; `} always {`, `fi fi` and `} }` open or close unseen
++            if not stack or stack[-1][1] != toks[0] or drop_redirections(toks[1:]):
+                 return None
+             # one construct, one closing: its own key, so a neighbour's answer never stands for it
+             handed_on[stack.pop()[0]] = not _plain_sep(cmds[k + 1][0] if k + 1 < len(cmds) else "")
++            j = len(toks)
+         # `{ { ls .env; }; }`, `then if true`: the leading words of one command can open more than one construct;
+         # each gets a number of its own, so one zsh closes unseen stays open here and counts as handed on
+-        for t in toks:
++        while j < len(toks):
++            t = toks[j]
+             if t in _GROUP_CLOSER:
+                 stack.append((opened, _GROUP_CLOSER[t]))
+                 opened += 1
++                j += 1
+                 if t in ("for", "select"):
+                     break
+-            elif t not in _NC_SHELL_WORDS:
++            elif t in _NC_SHELL_WORDS:
++                j += 1
++            elif t in _COMPOUND_CLOSERS:
++                return None  # fifth round: `else fi`, `do done`, `{ }`: a closer behind a shell word, which zsh takes
++            else:
+                 break
++        # fifth round: zsh closes a group at a `}` among the words of a command. With every closer seen, an opener
++        # the check does not see (`time {`, `repeat 1 {`, `always {`) leaves one closer too many, and that is None
++        if "}" in toks[j:]:
++            return None
+         enclosing.append([o for o, _ in stack])
+     return enclosing, handed_on
+ 
+@@ -1331,15 +1450,25 @@
+     (subshell, substitution, function, `case` pattern, array) or a `function` or `coproc` has none."""
+     if "<<" in command or _LAST_ARG_RE.search(command):  # F13: `$_` hands the last word of a report on
+         return ()
++    if _QUIET_UNREAD_RE.search(command):
++        return ()
+     # F23: the lexer ends a command at the `&` of `2>&1`, `>&1`, `<&0`, `2>&-`, so the pipe behind it belonged to a
+     # command `1`; _hi_prepare takes that `&` out, as the reader has it
+-    cmds = _hi_lex(_hi_prepare(command)[0])
++    masked = _quiet_mask(_hi_prepare(command)[0])
++    cmds = None if masked is None else _hi_lex(masked)
+     if cmds is None:  # F12: a line the lexer cannot split shows no pipe; no report of it is quiet
+         return ()
+     for sep, toks in cmds:
+         if any(c in sep for c in "()`"):
+             return ()
+         if _report_words(toks)[:1] in (("function",), ("coproc",)):
++            return ()
++        # fifth round: the lexer split inside `[[ … ]]`, `${…}` or a subscript, where the shell does not
++        # (`[[ a && { ]]`, `${X:-a; }`, `a[x ; { ]=1`): what looks like a first word there is none
++        if toks.count("[[") != toks.count("]]"):
++            return ()
++        if any(t not in _BRACKET_WORDS and (t.count("{") != t.count("}") or t.count("[") != t.count("]"))
++               for t in toks):
+             return ()
+     outputs = _compound_outputs(cmds)
+     if outputs is None:
+@@ -1351,10 +1480,13 @@
+             continue
+         if any(handed_on.get(o, True) for o in enclosing[k]):  # F11: `{ ls .env; } | xargs cat`
+             continue
+-        words = _report_words(toks)
++        words = tuple(_quiet_unmask(w) for w in _report_words(toks))
+         if not words:
+             continue
+         head = tool_name(words[0])
++        # fifth round: `printf -v x` and `[[ … =~ … ]]` hand their words on in a variable
++        if (head == "printf" and any(w.startswith("-v") for w in words[1:])) or (head == "[[" and "=~" in words):
++            continue
+         if head in _REPORT_HEADS:
+             out.append(words)
+         elif head == "git":

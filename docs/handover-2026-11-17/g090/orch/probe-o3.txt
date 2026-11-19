@@ -1,0 +1,11 @@
+echo brew uninstall jq
+echo brew UNINSTALL jq
+echo gem uninstall rake
+echo gem UNINSTALL rake
+printf '%s\n' brew UNINSTALL jq
+grep -rn "brew UNINSTALL" docs
+grep -rn "brew uninstall" docs
+echo brew upgrade
+echo brew UPGRADE
+brew UNINSTALL jq
+brew uninstall jq

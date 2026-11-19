@@ -1,0 +1,30 @@
+# candidates for the pin rows of the addendum to round eight: a word with a bracket that runs a command while the
+# shell expands it (process substitution, zsh's `=( )`, a glob qualifier), beside or on a git report
+C1 | feat/x | secret-shell | ask | ls <(git config pager.ls-files 'xargs cat'); git ls-files .env
+C2 | feat/x | secret-shell | ask | stat <(git config pager.ls-files 'xargs cat'); true; git ls-files .env
+C3 | feat/x | secret-shell | ask | git check-ignore <(git config pager.ls-files 'xargs cat'); git ls-files .env
+C4 | feat/x | secret-shell | ask | true <(git config pager.ls-files 'xargs cat'; echo) ; cat /dev/null; git ls-files .env
+C5 | feat/x | secret-shell | ask | echo >(git config pager.ls-files 'xargs cat'); git ls-files .env
+C6 | feat/x | secret-shell | ask | true >(git config pager.ls-files 'xargs cat'); true; git ls-files .env
+C7 | feat/x | secret-shell | ask | echo =(git config pager.ls-files 'xargs cat'); git ls-files .env
+C8 | feat/x | secret-shell | ask | ls -d *(e:'git config pager.ls-files "xargs cat"':); git ls-files .env
+C9 | feat/x | secret-shell | ask | echo *(e:'git config pager.status "xargs cat"':); git status -s .env
+C10 | feat/x | secret-shell | ask | ls <(git config pager.status 'xargs cat'); git status -s .env
+C11 | feat/x | secret-shell | ask | ls <(git config pager.check-ignore 'xargs cat'); git check-ignore .env
+C12 | feat/x | secret-shell | ask | ls =(git config pager.status 'xargs cat'); git status -s .env
+C13 | feat/x | secret-shell | ask | true =(git config pager.ls-files 'xargs cat'); git ls-files .env
+C14 | feat/x | secret-shell | ask | cd . =(git config pager.ls-files 'xargs cat'); git ls-files .env
+C15 | feat/x | secret-shell | ask | true *(e:'git config pager.ls-files "xargs cat"':); git ls-files .env
+C16 | feat/x | secret-shell | ask | ls -d *(e:'git config pager.check-ignore "xargs cat"':); git check-ignore .env
+C17 | feat/x | secret-shell | ask | ls <(git config pager.ls-files 'xargs cat') && git ls-files .env
+C18 | feat/x | secret-shell | ask | if ls <(git config pager.ls-files 'xargs cat'); then git ls-files .env; fi
+C19 | feat/x | secret-shell | ask | "ls <(git config pager.ls-files 'xargs cat')\ngit ls-files .env"
+C20 | feat/x | secret-shell | ask | ls <(export GIT_PAGER='xargs cat'); git ls-files .env
+C21 | feat/x | secret-shell | ask | echo <(git config pager.ls-files 'xargs cat'); git ls-files .env
+C22 | feat/x | secret-shell | ask | true <(git config pager.ls-files 'xargs cat'); git ls-files .env
+C23 | feat/x | secret-shell | ask | git ls-files .env <(git config pager.ls-files 'xargs cat')
+C24 | feat/x | secret-shell | ask | test -e <(git config pager.ls-files 'xargs cat'); git ls-files .env
+C25 | feat/x | secret-shell | ask | git ls-files .env =(git config pager.ls-files 'xargs cat')
+C26 | feat/x | secret-shell | ask | git -P status -s .env; ls <(git config pager.status 'xargs cat')
+C27 | feat/x | secret-shell | ask | until ls <(git config pager.ls-files 'xargs cat'); do true; done; git ls-files .env
+C28 | feat/x | secret-shell | ask | ls -d *(e:'export GIT_PAGER="xargs cat"':); git ls-files .env

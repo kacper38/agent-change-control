@@ -1,0 +1,21 @@
+# A group that zsh closes without a `;` in front of the `}`, on one side of a pipe into a shell, and around a hook
+# switch. Commands are data for the guard's rules, never run (sem/group-pipe-lines.txt holds harmless stand-ins).
+{ cat run.sh; echo true } | sh
+{ cat run.sh } | sh
+{ cat run.sh; true } | sh
+{ echo 'git push --force origin feat'; echo true } | sh
+{ echo 'git push --force origin feat' } | sh
+{ true; echo 'git push --force origin feat' } | sh
+cat run.sh | { sh }
+cat run.sh | { true; sh }
+echo 'git push --force origin feat' | { sh }
+echo 'git push --force origin feat' | { true; sh }
+{ cat run.sh; echo true; } | sh
+cat run.sh | { true; sh; }
+{ echo 'git push --force origin feat'; echo true; } | sh
+echo 'git push --force origin feat' | { true; sh; }
+{ export HUSKY=0; true }; git commit -m x
+{ export HUSKY=0 }; git commit -m x
+{ export HUSKY=0; true; }; git commit -m x
+{ cat run.sh; printf 'true\n' } | bash
+{ base64 -d payload.txt; echo } | sh

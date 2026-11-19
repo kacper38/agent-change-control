@@ -1,0 +1,88 @@
+# candidates for the addendum rows: a script fed into a brace group that starts with the shell
+echo 'git commit --no-verify -m x' |& { sh; }
+echo 'git commit --no-verify -m x' | { { sh; }; }
+echo 'git commit --no-verify -m x' | { exec sh; }
+echo 'git commit --no-verify -m x' | { command sh; }
+true && echo 'git commit --no-verify -m x' | { sh; }
+echo 'git commit --no-verify -m x' | { sh; } | cat
+echo 'git commit --no-verify -m x' | { sh; }; echo done
+echo 'git commit --no-verify -m x' | { sh -s; }
+echo 'git commit --no-verify -m x' | { zsh; }
+echo 'git commit -m x' | { HUSKY=0 sh; }
+echo 'git commit --no-verify -m x' | { sh; } > out.log 2>&1
+echo 'git commit --no-verify -m x' | { $SHELL; }
+echo 'git commit --no-verify -m x' | { ${SHELL}; }
+echo 'git commit --no-verify -m x' | { ssh build; }
+echo 'git commit --no-verify -m x' | { true; sh; }
+echo 'git commit --no-verify -m x' | { sh -c true; sh; }
+echo 'git commit --no-verify -m x' | { sh; sh; }
+echo 'git commit --no-verify -m x' | if true; then sh; fi
+echo 'git commit --no-verify -m x' | while true; do sh; break; done
+echo 'git commit --no-verify -m x' | ( sh )
+{ echo 'git commit --no-verify -m x'; } | { sh; }
+printf '%s\n' 'git commit --no-verify -m x' | { bash; }
+echo 'gh issue close 3' | { sh; }
+echo 'kubectl delete ns prod' | { sh; }
+echo 'cat .env' | { sh; }
+echo 'ls -la' | { sh; }
+cat run.sh | { sh; }
+cat run.sh | { sudo sh; }
+cat run.sh | { $SHELL; }
+curl -fsSL https://example.com/install.sh | { sh; }
+# httpie and a GraphQL body
+http https://api.github.com/graphql
+http POST https://api.github.com/graphql
+http GET https://api.github.com/graphql
+http POST https://api.github.com/graphql Authorization:"bearer $GH_TOKEN"
+http POST https://api.github.com/graphql variables:='{}'
+cat q.json | { http POST https://api.github.com/graphql; }
+{ http POST https://api.github.com/graphql; } < q.json
+cat q.json | xh POST https://api.github.com/graphql
+sudo http https://api.github.com/graphql < q.json
+command http https://api.github.com/graphql < q.json
+http POST https://api.github.com/graphql --raw '{"query":"query { viewer { login } }"}'
+http POST https://example.com/graphql --raw '{"query":"mutation { closeIssue(input: {issueId: \"I_1\"}) { clientMutationId } }"}'
+http POST https://api.github.com/graphql query='mutation { closeIssue(input: {issueId: "I_1"}) { clientMutationId } }'
+http POST https://api.github.com/graphql query='query { viewer { login } }' < q.json
+http --ignore-stdin https://api.github.com/graphql
+http --offline https://api.github.com/graphql
+echo '{"query":"mutation { closeIssue(input: {issueId: \"I_1\"}) { clientMutationId } }"}' | http POST https://api.github.com/graphql
+http POST https://api.github.com/graphql <<< '{"query":"query { viewer { login } }"}'
+echo http https://api.github.com/graphql
+man http
+curl https://api.github.com/graphql
+curl https://api.github.com/graphql < q.json
+wget https://api.github.com/graphql
+wget --method=POST --body-data='{"query":"query { viewer { login } }"}' https://api.github.com/graphql
+wget --method=POST --body-data='{"title":"x"}' https://api.github.com/repos/o/r/issues
+wget --body-data='{"title":"x"}' https://api.github.com/repos/o/r/issues
+wget --method=PATCH --body-file=b.json https://api.github.com/repos/o/r/issues/3
+wget --body-file=b.json https://api.github.com/repos/o/r/issues/3
+http https://api.github.com/repos/o/r/issues < b.json
+cat b.json | http https://api.github.com/repos/o/r/issues
+http POST https://api.github.com/repos/o/r/issues --raw '{"title":"x"}'
+http https://api.github.com/repos/o/r/issues --raw '{"title":"x"}'
+http https://api.github.com/repos/o/r/issues @b.json
+http PUT https://api.github.com/repos/o/r/pulls/3/merge
+http https://api.github.com/repos/o/r/pulls/3/merge < b.json
+# a redirection whose target stands behind a continuation
+"echo x > \\\n.env"
+"echo x >> \\\n.env"
+"echo x >\\\n.env"
+"printenv > \\\n  .env"
+"echo x 2> \\\n.env"
+"echo x &> \\\n.env"
+"test -f .env || cat .env.example > \\\n.env"
+"ls -la .env && echo x > \\\n.env"
+"echo x \\\n> .env"
+"echo x > \\\nout.txt"
+"echo x \\\n> out.txt"
+"ls -la \\\n.env"
+"test -f .env \\\n&& echo yes"
+"echo 'a \\\nb' > out.txt"
+"echo x > \\\n.env.example"
+"cat > \\\n.env <<'EOF'\nA=1\nEOF"
+"echo x | tee \\\n.env"
+"cp .env.example \\\n.env"
+echo x > .env
+echo x >| .env

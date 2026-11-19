@@ -1,0 +1,30 @@
+# a pipe into a shell around a group, with a redirection between the closer and the bar
+cat run.sh | bash
+cat run.sh 2>/dev/null | bash
+(cat run.sh) | bash
+(cat run.sh) 2>/dev/null | bash
+(cat run.sh) 2>&1 | bash
+(cat run.sh) >&2 | bash
+(cat run.sh) < /dev/null | bash
+(cat run.sh) 2>/dev/null |& bash
+(cat run.sh) 2>/dev/null | sudo bash
+(cat run.sh) 2> err.log | sh
+(cat run.sh) 2>>err.log | zsh
+( (cat run.sh) ) 2>/dev/null | bash
+{ cat run.sh; } | bash
+{ cat run.sh; } 2>/dev/null | bash
+{ cat run.sh; } 2>&1 | bash
+if true; then cat run.sh; fi | bash
+if true; then cat run.sh; fi 2>/dev/null | bash
+while read l; do echo "$l"; done < run.sh | bash
+while read l; do echo "$l"; done < run.sh 2>/dev/null | bash
+for f in run.sh; do cat "$f"; done 2>/dev/null | bash
+(cat run.sh; echo done) 2>/dev/null | zsh
+(cat run.sh) 2>/dev/null | env bash
+(cat run.sh) 2>/dev/null | tee log.txt | bash
+(cat run.sh) 2>/dev/null | bash -s
+(cat run.sh) 2>/dev/null | wc -l
+(cat run.sh) 2>/dev/null
+{ cat run.sh; } 2>/dev/null | wc -l
+(cat run.sh) 2>/dev/null | grep bash
+(cat run.sh) 2>/dev/null > bash

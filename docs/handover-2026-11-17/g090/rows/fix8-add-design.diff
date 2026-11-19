@@ -1,0 +1,23 @@
+--- <ORCH>/ref/guard-b2f4e2a.py	2026-11-19 20:13:03
++++ <S8>/fix8-add-design-guard.py	2026-11-19 20:21:00
+@@ -1567,7 +1567,9 @@
+ _BESIDE_GIT_REPORT = frozenset({"cd", "true", "false"}) | _COMPOUND_CLOSERS
+ # eighth fix round: a word that can run a command while the shell expands it, quoted or not: `$( )`, a backtick,
+ # and `${`, which opens `${ cmd; }` in bash 5.3 and the flags of zsh; read from the text of the line, so a
+-# literal one in single quotes counts too
++# literal one in single quotes counts too. The forms that open with a bare bracket are not listed and need not
++# be (`<( )`, `>( )`, zsh's `=( )`, a glob qualifier such as `*(e:'…':)`): the lexer ends a command at the bracket,
++# and a line with a bracket in a separator has no quiet report (second fix round, in _quiet_reports; rows F84)
+ _WORD_RUNS_RE = re.compile(r"\$[({]|`")
+ 
+ 
+@@ -1587,7 +1589,8 @@
+     `git config pager.ls-files 'xargs cat'`, `echo … >> .git/config`). So beside a quiet git report stand only
+     other quiet reports that are their words alone, shell words, a closer, and `cd`, `true` and `false`, each
+     without a redirection and without an assignment. (What an earlier call left in the configuration or the
+-    environment is not seen.)"""
++    environment is not seen. That holds for the folder a `cd` of the line or `-C <dir>` names as well: the report
++    runs under the configuration of the repository there, and the guard does not read it.)"""
+     if not _words_alone(toks):
+         return False
+     words = _report_words(toks)

@@ -1,0 +1,34 @@
+# A group that zsh closes without a `;` in front of the `}` (a sole `}` behind a command's first word), alone and
+# inside other groups and compounds: does the report's output reach `xargs cat`? Commands are data; the guard
+# judges them as strings, and sem/close_brace.py runs them in a scratch folder against a stand-in file.
+{ ls .env; true } | xargs cat
+{ { ls .env; true } | xargs cat; }
+{ { echo .env; true } | xargs cat; }
+{ { ls .env; true } | xargs cat }
+{ { ls .env } | xargs cat }
+{ { ls .env } | xargs cat; }
+{ ls .env } | xargs cat
+{ { ls .env; } | xargs cat; }
+{ true; { ls .env; true } | xargs cat; }
+{ { { true } ; ls .env; } | xargs cat; }
+{ { ls .env; { true }; } | xargs cat; }
+{ ls .env; true } | xargs cat; { true; }
+if true; then { ls .env; true } | xargs cat; fi
+if { ls .env; true } | xargs cat; then true; fi
+while true; do { ls .env; true } | xargs cat; break; done
+{ { ls .env; true } | xargs cat; } 2>/dev/null
+{ { ls .env; true } | xargs cat; }; true
+true; { { ls .env; true } | xargs cat; }
+{ { ls .env; true }; } | xargs cat
+{ { git ls-files .env; true } | xargs cat; }
+{ { test -f .env && echo .env; true } | xargs cat; }
+{ if true; then ls .env; fi; true } | xargs cat
+{ { { ls .env; true } | xargs cat; } }
+{ { ls .env; true } | xargs cat; { true; }; }
+"{ {\n  ls .env; true } | xargs cat\n}"
+# no pipe and no hand-on: these read nothing of the file
+{ ls .env; true }
+{ { ls .env; true }; }
+{ ls .env; echo } ; }
+ls .env; echo }
+{ ls -la .env }

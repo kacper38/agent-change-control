@@ -1,0 +1,16 @@
+# Harmless stand-ins, run by sem/group_pipe.py in a scratch folder: `run.sh` prints RAN7OK only when a shell runs it.
+# a group that zsh closes without `;`, piped into a shell
+{ cat run.sh; echo true } | sh
+{ cat run.sh } | sh
+{ cat run.sh; true } | sh
+{ echo 'sh run.sh'; echo true } | sh
+{ echo 'sh run.sh' } | sh
+{ true; echo 'sh run.sh' } | sh
+# a shell inside such a group behind the pipe
+cat run.sh | { sh }
+cat run.sh | { true; sh }
+echo 'sh run.sh' | { sh }
+echo 'sh run.sh' | { true; sh }
+# the forms with `;` in front of the `}`, as bash needs them
+{ cat run.sh; echo true; } | sh
+cat run.sh | { true; sh; }

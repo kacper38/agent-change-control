@@ -1,0 +1,16 @@
+# A ninth list for the quiet-report check: more lines that pin single rules. Data for probe.py and for
+# sem/close_brace.py. Never typed.
+# --- a backtick substitution in the body of `$(`: its `)` is not the end
+{ ls .env; : "$(: `: )` " ; { true ; : ") x"; } | xargs cat; : "$(: `: )` " ; } ; : ") y"
+# --- a subscript the lexer splits, with a closer that has nothing behind it
+declare -A a; { ls .env; a[x ; } ; y]=1; a[x ; { ; y]=1; } | xargs cat
+declare -A a; { ls .env; a[x ; } ; y]=1; a[x ; { true ; y]=1; } | xargs cat
+# --- arithmetic in a double-quoted string, unquoted, and as a command
+{ ls .env; : "$(( 1 " ; { true ; : " ))"; } | xargs cat; : "$(( 1 " ; } ; : " ))"
+ls -la .env; echo "$((1 + 2))"
+ls -la .env; echo $((1 + 2))
+# --- an escaped quote or backslash in the words of the report itself
+ls -la "odd \"name\"/.env"
+test -f "C:\\work\\.env" && echo there
+ls -la "a\\b/.env"
+echo "\"x\" .env" >> .gitignore

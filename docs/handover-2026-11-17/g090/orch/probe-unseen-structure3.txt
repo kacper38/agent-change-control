@@ -1,0 +1,12 @@
+# A third list for the quiet-report check. Data for probe.py and for sem/close_brace.py. Never typed.
+{ ls .env; : "$(( 1 " ; { true ; : " ))"; } | xargs cat; : "$(( 1 " ; } ; : " ))"
+{ ls .env; : "$(: " ; { true ; : ")"; } | xargs cat; : "$(: " ; } ; : ")"
+{ ls .env; echo ';' '{'; } | xargs cat; echo ';' '}'
+{ ls .env; echo \; \{; } | xargs cat; echo \; \}
+time { true; ls .env; true } | xargs cat
+{ ls .env; } always { true; } | xargs cat
+alias ls=cat; ls .env
+"alias ls=cat\nls .env"
+{ ls .env; : "$[ 1 " ; { true ; : " ]"; } | xargs cat; : "$[ 1 " ; } ; : " ]"
+ls .env '|' xargs cat
+ls .env \| xargs cat

@@ -1,0 +1,32 @@
+# a report inside a subshell or group whose closer carries a redirection, then a pipe
+(ls .env) | xargs cat
+(ls .env) 2>/dev/null | xargs cat
+(ls .env) 2>&1 | xargs cat
+(ls .env) 2> err.log | xargs cat
+(ls .env) < /dev/null | xargs cat
+( (ls .env) ) 2>/dev/null | xargs cat
+(echo .env) 2>/dev/null | xargs cat
+(printf '%s\n' .env) 2>/dev/null | xargs cat
+(git status .env) 2>/dev/null | xargs cat
+(stat .env) 2>/dev/null |& xargs cat
+(ls .env; ls id_rsa) 2>/dev/null | xargs cat
+{ ls .env; } 2>/dev/null | xargs cat
+{ ls .env; } 2>&1 | xargs cat
+if true; then ls .env; fi 2>/dev/null | xargs cat
+for f in a; do ls .env; done 2>/dev/null | xargs cat
+(ls .env) 2>/dev/null > >(xargs cat)
+(ls .env) 2>/dev/null | while read f; do cat "$f"; done
+(ls .env) 2>/dev/null
+(ls .env) 2>/dev/null; echo done
+(ls .env) > list.txt 2>/dev/null
+# the other side: a redirection in front of or behind the receiving shell
+cat run.sh | (bash) 2>/dev/null
+cat run.sh | 2>/dev/null bash
+cat run.sh | bash 2>/dev/null
+(cat run.sh) 2>/dev/null | (bash)
+(cat run.sh) 2>/dev/null | { bash; }
+(cat run.sh)2>/dev/null|bash
+(cat run.sh) 2>/dev/null 3>&1 | bash
+(cat run.sh) 2>/dev/null >&1 | bash
+time (cat run.sh) 2>/dev/null | bash
+! (cat run.sh) 2>/dev/null | bash

@@ -1,0 +1,21 @@
+# a report whose output is written into a secret file: the write still counts
+echo x > .env
+echo .env > .env
+printf 'A=1\n' >> .env
+ls > .env
+ls .env > .env
+test -f .env > .env
+echo x | tee .env
+echo x > ~/.ssh/authorized_keys
+echo x >| .env
+echo x &> .env
+echo x 2> .env
+echo x 1>.env
+echo x >.env
+echo x>>.env
+echo x >> .env; echo done
+ls -la .env && echo x > .env
+git status .env > .env
+echo ok > .env.example
+echo x >> ~/.aws/credentials
+stat .env >> ~/.ssh/config

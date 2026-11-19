@@ -1,0 +1,56 @@
+grep -f .env notes.txt
+grep -rf .env docs
+grep --file .env notes.txt
+grep --file=.env notes.txt
+rg -f .env docs
+ag -G .env TOKEN
+grep -e TOKEN .env
+grep -e TOKEN -- .env
+grep -A 3 TOKEN .env
+grep -m 1 TOKEN .env
+grep TOKEN .env
+grep -rn TOKEN docs .env
+git grep TOKEN -- .env
+git grep -e TOKEN -- .env
+git grep -f .env
+git grep --no-index TOKEN .env
+grep -d skip .env TOKEN
+grep -D skip TOKEN .env
+grep --color=always TOKEN .env
+grep -C 2 .env notes.txt
+zgrep TOKEN .env.gz
+rg TOKEN .env
+rg -e TOKEN .env
+rg --no-ignore --hidden TOKEN .env
+ack TOKEN .env
+grep .env -e TOKEN
+grep -e TOKEN -f patterns.txt .env
+grep --regexp TOKEN .env
+grep --regexp=TOKEN .env
+grep -rn .env docs
+grep -rn ".env" docs
+grep -c ".env" notes.txt
+git grep -n "\.pem" -- tools
+grep -e ".env" notes.txt
+grep -rn TOKEN ~/.ssh/id_ed25519
+grep -l TOKEN .env .env.local
+egrep 'KEY|TOKEN' .env
+fgrep TOKEN .env
+grep -h TOKEN .env
+grep -H .env -e TOKEN
+grep -n -e TOKEN -e KEY .env
+grep -q TOKEN .env && echo yes
+rg -g '!.env' TOKEN
+rg --files -g .env
+rg --pre cat TOKEN .env
+grep TOKEN < .env
+grep -r TOKEN --exclude-dir node_modules .env
+bash -c 'grep -f .env notes.txt'
+sudo grep -f .env notes.txt
+xargs grep TOKEN < list.txt
+find . -name .env -exec grep TOKEN {} +
+find . -name .env | xargs grep TOKEN
+find . -name .env
+find . -name '*.pem' -print
+find . -name .env -exec cat {} \;
+find . -name .env -delete

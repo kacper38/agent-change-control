@@ -1,0 +1,37 @@
+# separators that hold more than one operator, or an operator and a line break
+ls .env | (xargs cat)
+ls .env |(xargs cat)
+ls .env |& (xargs cat)
+ls .env | ( (xargs cat) )
+{ ls .env; } | (xargs cat)
+{ true; ls .env; } | (xargs cat)
+if true; then ls .env; fi | (xargs cat)
+(true; ls .env) | (xargs cat)
+(true; ls .env)| xargs cat
+(true; ls .env); echo x
+(true; ls .env) && echo x
+(true; ls .env) 2>/dev/null; echo x
+"ls .env |\nxargs cat"
+"ls .env |&\nxargs cat"
+"ls .env |\n(xargs cat)"
+"{ true; ls .env; } |\nxargs cat"
+"{ true; ls .env; }\n"
+"{ true; ls .env; } |\n\n  xargs cat"
+"if true; then ls .env; fi |\nxargs cat"
+"(\ntrue\nls .env\n) |\nxargs cat"
+"(\ntrue\nls .env\n)\n"
+"(true; ls .env\n) | xargs cat"
+"(true\nls .env) | xargs cat"
+"true;\nls .env |\nxargs cat"
+"true;\nls .env"
+"true &&\nls .env"
+"true\n\nls .env"
+"ls .env;\n"
+"ls .env &\nxargs cat"
+"ls .env ||\nxargs cat"
+"echo .env |\nxargs cat"
+"git status .env |\ncat"
+"stat .env |\nxargs cat"
+"printf '%s\\n' .env |\nxargs cat"
+"test -f .env &&\necho yes"
+"[ -f .env ] ||\nexit 1"

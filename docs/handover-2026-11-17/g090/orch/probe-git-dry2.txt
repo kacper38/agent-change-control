@@ -1,0 +1,30 @@
+# the value of a shortened long option swallows the -n: git takes any unambiguous prefix of --exclude
+git clean --excl -n -f
+git clean --e -n -f
+git clean --exclud -n -fdx
+git clean --exclude -n -f
+git clean -e -n -f
+git clean --excl=x -n
+git clean --excl x -n
+git clean -n --quiet
+git clean -n --force
+git clean --interactive -n
+git clean -n --some-unknown
+git clean -n -q -d -x -X
+git worktree prune --exp -n
+git worktree prune --expire now -n
+git worktree prune --expire -n
+git worktree prune -n --verbose
+git -c core.x=y clean -n --no-d
+git clean -n --no-dry
+git clean --no-dry-run -n
+git clean --dry-run --no-dry-run --dry-run
+git restore --staged --sou -W f.py
+git restore --staged -s -W f.py
+git restore --staged --source -W f.py
+git restore --staged --source=HEAD f.py
+git restore --staged --pathspec-from-file list.txt
+git restore --staged --pathspec-from -W
+git restore -S -p f.py
+git restore --stage f.py
+git restore --staged -- --worktree

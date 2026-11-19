@@ -1,0 +1,31 @@
+# a function written with the word, and a case whose pattern names a shell
+function f { true; ls .env; }; f | xargs cat
+function f { true; echo .env; }; cat "$(f)"
+function f { ls .env; }; f | xargs cat
+f () { true; ls .env; }; f | xargs cat
+f() { true; ls .env; }; f
+f() { true; ls .env; }
+case "$SHELL" in */bash|*/zsh) echo ok;; esac
+case x in sh|bash) echo ok;; esac
+case x in bash) echo ok;; esac
+case "$1" in start|stop) echo ok;; esac
+case x in a) echo ok;; esac
+case x in a) echo .env >> .gitignore;; esac
+if ! grep -q .env .gitignore; then echo .env >> .gitignore; fi
+grep -q .env .gitignore || echo .env >> .gitignore
+for f in a b; do test -f .env && echo found; done
+while read l; do [ -f .env ] && echo "$l"; done < list.txt
+{ ls -la .env; stat .env; }
+{ ls -la .env; stat .env; } > report.txt
+if [ -f .env ]; then echo present; fi
+if [ -f .env ]; then echo present; fi | cat
+if test -f .env; then ls -la .env; fi
+(cd sub && ls -la .env)
+ls -la .env; (cd x && make)
+ls -la .env "$(pwd)"
+ls -la .env $(pwd)
+stat .env; echo "$(date)"
+echo .env >> .gitignore; git add .gitignore
+test -f .env && echo "found $(date)"
+echo `date` .env
+ls -la .env; echo `date`

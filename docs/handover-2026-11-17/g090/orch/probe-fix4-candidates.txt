@@ -1,0 +1,31 @@
+# Candidates for the rows of the fourth fix round: two constructs opened by one command, one of them closed by zsh
+# at a `}` that is no first word. Commands are data for the guard; sem/close_brace.py runs them against a stand-in.
+{ while true; do ls .env; break; done; true } | xargs cat
+{ for f in a; do ls .env; done; true } | xargs cat
+{ until false; do ls .env; break; done; true } | xargs cat
+{ ! { ls .env; true } | xargs cat; }
+{ if true; then { ls .env; true } | xargs cat; fi; }
+if true; then { { ls .env; true } | xargs cat; }; fi
+{ { ls .env; true } | xargs cat; } && true
+{ { ls .env; true } | xargs -n 1 cat; }
+{ { printf '%s\n' .env; true } | xargs cat; }
+{ { stat -f %N .env; true } | xargs cat; }
+{ { git status .env; true } | xargs cat; }
+{ { ls .env; true } | { xargs cat; }; }
+{ { ls .env; true } |& xargs cat; }
+{ { ls .env; true } | xargs cat; }; { true; }
+{ { ls .env 2>/dev/null; true } | xargs cat; }
+{ { ls .env; : } | xargs cat; }
+{ { ls .env; echo ok } | xargs cat; }
+{ { ls .env; ls .env } | xargs cat; }
+# bash forms with two constructs opened by one command, everything closed in the plain way: nothing is handed on
+{ { ls -la .env; }; }
+{ { ls .env; }; true; }
+{ if true; then ls .env; fi; }
+if true; then { ls .env; }; fi
+{ { test -f .env; } && echo yes; }
+{ { ls .env; }; { true; }; }
+# and handed on in the bash form (asks already)
+{ { ls .env; } | xargs cat; }
+{ { ls .env; }; } | xargs cat
+{ if true; then ls .env; fi; } | xargs cat

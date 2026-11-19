@@ -1,0 +1,36 @@
+# Lines for the quiet-report check: an opener or closer the check may not see, or one it sees and the shell does not.
+# Data for probe.py (verdicts) and for sem/close_brace.py (what zsh and bash do with a stand-in file). Never typed.
+# --- a group opened behind a word the check does not pass over, with a closer zsh sees and the check does not
+time { true; { ls .env; true } | xargs cat; }
+time { true; ls .env; { true }; } | xargs cat
+repeat 1 { true; { ls .env; true } | xargs cat; }
+{ true; } always { true; { ls .env; true } | xargs cat; }
+nocorrect { true; { ls .env; true } | xargs cat; }
+noglob { true; { ls .env; true } | xargs cat; }
+time { true; ls .env; } | xargs cat
+if [[ -n a ]] { true; { ls .env; true } | xargs cat; }
+while [[ -n a ]] { true; { ls .env; true } | xargs cat; break; }
+for f in a; { true; { ls .env; true } | xargs cat; }
+# --- the same without a brace: an empty branch whose closer is no first word
+if true; then ls .env; else fi | xargs cat
+if true; then ls .env; else fi | xargs cat; time if true; then true; fi
+if true; then ls .env; else fi | xargs cat; repeat 1 if true; then true; fi
+while true; do ls .env; break; done | xargs cat
+# --- a quoted word the lexer hands on as a brace or a reserved word
+{ ls .env; '{'; } | xargs cat; '}'
+{ ls .env; "{"; } | xargs cat; "}"
+{ ls .env; \{; } | xargs cat; \}
+if true; then ls .env; 'if'; fi | xargs cat; 'fi'
+while true; do ls .env; 'while'; break; done | xargs cat; 'done'
+# --- a separator the shell does not split at
+{ ls .env; [[ a && { ]]; } | xargs cat; [[ a && } ]]
+{ ls .env; [[ a || { ]]; } | xargs cat; [[ a || } ]]
+if true; then ls .env; [[ a && if ]]; fi | xargs cat; [[ a && fi ]]
+{ ls .env; echo ${X:-a; { b}; } | xargs cat; echo ${X:-a; }
+if true; then ls .env; echo $[ 1 | if ]; fi | xargs cat; echo $[ 1 | fi ]
+# --- a comment and a continuation line
+"{ ls .env; true # ; {\n} | xargs cat\ntrue # ; }"
+"{ ls .env; echo \\\n'{'; } | xargs cat"
+# --- a report written to a file that a later command of the line reads (flow through a file)
+echo .env > names.txt; xargs cat < names.txt
+ls .env > names.txt; xargs cat < names.txt

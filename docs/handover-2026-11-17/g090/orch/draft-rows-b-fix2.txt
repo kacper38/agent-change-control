@@ -1,0 +1,224 @@
+# Rows for the second fix round of guard 0.9.0, groups B and C (item #57). Written by the orchestrating session
+# on 2026-11-18 from its own probes and from the second run of bin/fresh-review, before the fix.
+# Row: id | branch[@boundary] | rule | expected | command. A command that starts with a double quote is a JSON
+# string (it carries line breaks). Ids F28 to F36 are due: red at d1052b1. Fs and Fm rows hold at d1052b1 and keep
+# holding.
+
+# F28: a shell that reads its program from a pipe (criterion 7), where the separator in front of the bar or
+# behind it holds more than the bar: a redirection behind a subshell's closer, a line break, a bracket
+F28 | feat/x | delete-guard | ask | (cat run.sh) 2>/dev/null | bash
+F28 | feat/x | delete-guard | ask | (cat run.sh) 2>&1 | bash
+F28 | feat/x | delete-guard | ask | (cat run.sh) < /dev/null | sh
+F28 | feat/x | delete-guard | ask | (cat run.sh) 2>/dev/null |& bash
+F28 | feat/x | delete-guard | ask | (cat run.sh) 2>/dev/null | sudo bash
+F28 | feat/x | delete-guard | ask | ( (cat run.sh) ) 2>/dev/null | bash
+F28 | feat/x | delete-guard | ask | (cat run.sh; echo done) 2>> err.log | zsh
+F28 | feat/x | delete-guard | ask | (cat run.sh)2>/dev/null|bash
+F28 | feat/x | delete-guard | ask | (cat run.sh) 2>/dev/null 3>&1 | bash
+F28 | feat/x | delete-guard | ask | time (cat run.sh) 2>/dev/null | bash
+F28 | feat/x | delete-guard | ask | ! (cat run.sh) 2>/dev/null | bash
+F28 | feat/x | delete-guard | ask | "(cat run.sh) 2>/dev/null |\nbash"
+F28 | feat/x | delete-guard | ask | "cat run.sh |\n(bash)"
+F28 | feat/x | delete-guard | ask | "cat run.sh |\n( cd x && bash )"
+F28 | feat/x | delete-guard | ask | "gunzip -c x.gz |\n( cd /tmp; zsh )"
+F28 | feat/x | delete-guard | ask | "cat run.sh |\n(bash) 2>/dev/null"
+F28 | feat/x | delete-guard | ask | "(cat run.sh) 2>/dev/null |\n(bash)"
+F28 | feat/x | delete-guard | ask | "cat run.sh |&\n(bash)"
+F28 | main | git-guard | ask | (cat run.sh) 2>/dev/null | bash
+F28 | feat/x@client | egress-guard | ask | "cat run.sh |\n(bash)"
+# the same pipe into a shell the reader of 0.8.0 knows already (_nc_runs_stdin): named by $SHELL, or started by
+# sudo or su on this machine
+F28 | feat/x | delete-guard | ask | cat run.sh | $SHELL
+F28 | feat/x | delete-guard | ask | cat run.sh | ${SHELL}
+F28 | feat/x | delete-guard | ask | cat run.sh | "$SHELL"
+F28 | feat/x | delete-guard | ask | base64 -d x | $SHELL -s
+F28 | feat/x | delete-guard | ask | cat run.sh | sudo -s
+F28 | feat/x | delete-guard | ask | cat run.sh | sudo -i
+F28 | feat/x | delete-guard | ask | cat run.sh | su
+F28 | feat/x | delete-guard | ask | cat run.sh | su - build
+F28 | feat/x | delete-guard | ask | (cat run.sh) | $SHELL
+F28 | feat/x | delete-guard | ask | cat run.sh | ($SHELL)
+
+# F29: a report inside a `case` item whose output goes on (asked at 0.8.0, silent since the build)
+F29 | feat/x | secret-shell | ask | case x in a) true; ls .env;; esac | xargs cat
+F29 | feat/x | secret-shell | ask | case "$1" in a) true; echo .env;; *) true;; esac | xargs cat
+F29 | feat/x | secret-shell | ask | case x in a) true; git ls-files .env;; esac | xargs cat
+
+# F30: the hook switch (criterion 12) behind an option of `command` or `builtin`, and behind a shell word
+F30 | feat/x | git-guard | deny | command -p export HUSKY=0; git commit -m x
+F30 | feat/x | git-guard | deny | command -p eval 'export HUSKY=0'; git commit -m x
+F30 | feat/x | git-guard | deny | command -- export HUSKY=0; git commit -m x
+F30 | feat/x | git-guard | deny | builtin -- eval 'export HUSKY=0'; git commit -m x
+F30 | feat/x | git-guard | deny | command -p -- export LEFTHOOK=false; git push origin feat
+F30 | feat/x | git-guard | deny | { export HUSKY=0; git commit -m x; }
+F30 | feat/x | git-guard | deny | if true; then export HUSKY=0; git commit -m x; fi
+F30 | feat/x | git-guard | deny | { eval 'export HUSKY=0'; git commit -m x; }
+F30 | feat/x | git-guard | deny | for i in 1; do export LEFTHOOK=false; git push origin feat; done
+F30 | feat/x | git-guard | deny | { HUSKY=0; export HUSKY; git commit -m x; }
+F30 | feat/x | git-guard | deny | if true; then :; else declare -x HUSKY=0; git commit -m x; fi
+F30 | feat/x | git-guard | deny | { set -a; HUSKY=0; git commit -m x; }
+F30 | feat/x | git-guard | deny | ! export HUSKY=0; git commit -m x
+# the same behind `time`, as the condition of a compound, and inside a group, compound or function body that
+# closes before the commit (measured with bash 5.3, zsh 5.9 and sh: each exports to the commands after it;
+# `time -p` with bash and sh)
+F30 | feat/x | git-guard | deny | time export HUSKY=0; git commit -m x
+F30 | feat/x | git-guard | deny | time -p export HUSKY=0; git commit -m x
+F30 | feat/x | git-guard | deny | { export HUSKY=0; }; git commit -m x
+F30 | feat/x | git-guard | deny | if true; then export HUSKY=0; fi; git commit -m x
+F30 | feat/x | git-guard | deny | if export HUSKY=0; then git commit -m x; fi
+F30 | feat/x | git-guard | deny | while export HUSKY=0; do git commit -m x; break; done
+F30 | feat/x | git-guard | deny | for i in 1; do export HUSKY=0; done; git commit -m x
+F30 | feat/x | git-guard | deny | f() { export HUSKY=0; }; f; git commit -m x
+
+# F31: the GitHub API host with a port (criteria 5 and 11)
+F31 | feat/x | tracker-guard | ask | curl -X PUT https://api.github.com:443/repos/o/r/pulls/3/merge
+F31 | feat/x | tracker-guard | ask | curl -X PUT https://API.GITHUB.COM:443/repos/o/r/pulls/3/merge
+F31 | feat/x | tracker-guard | ask | curl -X PUT https://api.github.com.:443/repos/o/r/pulls/3/merge
+F31 | feat/x | tracker-guard | ask | http PUT https://api.github.com:443/repos/o/r/pulls/3/merge
+F31 | feat/x | tracker-guard | ask | wget --method=PUT https://api.github.com:443/repos/o/r/pulls/3/merge
+F31 | feat/x | tracker-guard | ask | curl -X POST https://api.github.com:443/graphql -d '{"query":"mutation { mergePullRequest(input: {pullRequestId: \"PR_1\"}) { clientMutationId } }"}'
+F31 | feat/x | tracker-guard | deny | curl -X POST https://api.github.com:443/graphql -d '{"query":"mutation { closeIssue(input: {issueId: \"I_1\"}) { clientMutationId } }"}'
+# and a doubled slash, which the merge path of curl reads already: the same reading for the path of gh api and
+# for the GraphQL path
+F31 | feat/x | tracker-guard | ask | gh api -X PUT repos/o/r/pulls//3/merge
+F31 | feat/x | tracker-guard | ask | curl -X POST https://api.github.com//graphql -d '{"query":"mutation { mergePullRequest(input: {pullRequestId: \"PR_1\"}) { clientMutationId } }"}'
+F31 | feat/x | tracker-guard | deny | curl -X POST https://api.github.com//graphql -d '{"query":"mutation { closeIssue(input: {issueId: \"I_1\"}) { clientMutationId } }"}'
+
+# F32: a report inside a function body, backticks or a coprocess: its output goes where the body is used
+F32 | feat/x | secret-shell | ask | f() { true; ls .env; }; f | xargs cat
+F32 | feat/x | secret-shell | ask | f () { true; ls .env; }; f | xargs cat
+F32 | feat/x | secret-shell | ask | function f { true; ls .env; }; f | xargs cat
+F32 | feat/x | secret-shell | ask | function f { true; echo .env; }; cat "$(f)"
+F32 | feat/x | secret-shell | ask | "f() {\n  true\n  ls .env\n}\nf | xargs cat"
+F32 | feat/x | secret-shell | ask | cat `true; ls .env`
+F32 | feat/x | secret-shell | ask | x=`true; echo .env`; cat "$x"
+F32 | feat/x | secret-shell | ask | coproc { true; ls .env; }; xargs cat <&"${COPROC[0]}"
+
+# F33: a report whose output goes into a pipe, where the separator holds a line break or a bracket beside the bar
+F33 | feat/x | secret-shell | ask | "ls .env |\nxargs cat"
+F33 | feat/x | secret-shell | ask | "ls .env |&\nxargs cat"
+F33 | feat/x | secret-shell | ask | "ls .env |\n\n  xargs cat"
+F33 | feat/x | secret-shell | ask | "ls .env | # names\nxargs cat"
+F33 | feat/x | secret-shell | ask | "echo .env |\nxargs cat"
+F33 | feat/x | secret-shell | ask | "git status .env |\ncat"
+F33 | feat/x | secret-shell | ask | "stat .env |\nxargs cat"
+F33 | feat/x | secret-shell | ask | "printf '%s\\n' .env |\nxargs cat"
+F33 | feat/x | secret-shell | ask | "ls .env 2>&1 |\nxargs cat"
+F33 | feat/x | secret-shell | ask | "true\nls .env |\nxargs cat"
+F33 | feat/x | secret-shell | ask | "ls .env |\ntee /dev/null |\nxargs cat"
+F33 | feat/x | secret-shell | ask | "{ true; ls .env; } |\nxargs cat"
+F33 | feat/x | secret-shell | ask | "{ ls .env; } 2>/dev/null |\nxargs cat"
+F33 | feat/x | secret-shell | ask | "if true; then ls .env; fi |\nxargs cat"
+F33 | feat/x | secret-shell | ask | "while true\ndo\n  ls .env\n  break\ndone |\nxargs cat"
+F33 | feat/x | secret-shell | ask | ls .env | (xargs cat)
+F33 | feat/x | secret-shell | ask | ls .env |(xargs cat)
+F33 | feat/x | secret-shell | ask | ls .env |& (xargs cat)
+F33 | feat/x | secret-shell | ask | { ls .env; } | (xargs cat)
+F33 | feat/x | secret-shell | ask | { true; ls .env; } | (xargs cat)
+F33 | feat/x | secret-shell | ask | if true; then ls .env; fi | (xargs cat)
+F33 | feat/x | secret-shell | ask | "ls .env |\n(xargs cat)"
+F33 | feat/x | secret-shell | ask | "(\n  true\n  ls .env\n) | xargs cat"
+F33 | feat/x | secret-shell | ask | "(\ntrue\nls .env\n) |\nxargs cat"
+F33 | feat/x | secret-shell | ask | true && (true; ls .env) | xargs cat
+F33 | feat/x | secret-shell | ask | "true\n(true; ls .env) | xargs cat"
+F33 | feat/x | secret-shell | ask | ( (true; ls .env) | xargs cat )
+F33 | feat/x | secret-shell | ask | { while read f; do cat "$f"; done < <(true; ls .env); }
+F33 | feat/x | secret-shell | ask | if true; then while read f; do cat "$f"; done < <(true; ls .env); fi
+F33 | main | secret-shell | ask | "ls .env |\nxargs cat"
+F33 | feat/x@client | secret-shell | ask | "ls .env |\nxargs cat"
+
+# F34: a line break beside a plain separator is a plain separator: these reports hand their output to nothing
+F34 | feat/x | shell | silent | "true;\nls -la .env"
+F34 | feat/x | shell | silent | "true &&\nls -la .env"
+F34 | feat/x | shell | silent | "cd app\n\nls -la .env"
+F34 | feat/x | shell | silent | "true ||\nstat .env"
+
+# F35: the check fails closed: a line with a bracket outside quotes has no quiet report
+F35 | feat/x | secret-shell | ask | case x in a) true; ls .env;; esac
+F35 | feat/x | secret-shell | ask | (true; ls .env) 2>/dev/null; echo x
+F35 | feat/x | secret-shell | ask | ls -la .env; (cd x && make)
+F35 | feat/x | secret-shell | ask | f() { true; ls .env; }
+F35 | feat/x | secret-shell | ask | f() { true; ls .env; }; f
+F35 | feat/x | secret-shell | ask | true && (cd sub && ls -la .env)
+F35 | feat/x | secret-shell | ask | "true\n(true; ls .env)"
+
+# F36: a GraphQL document httpie reads from its standard input (criterion 5), inside a group or a compound
+F36 | feat/x | tracker-guard | ask | { http https://api.github.com/graphql < q.json; }
+F36 | feat/x | tracker-guard | ask | ( http https://api.github.com/graphql < q.json )
+F36 | feat/x | tracker-guard | ask | if true; then http https://api.github.com/graphql < q.json; fi
+
+# Fm: conditions of the first fix pass that no test pinned (a planted break of each survived the suite); they
+# hold at d1052b1 and keep holding
+Fm | feat/x | delete-guard | ask | git clean -n --no -f
+Fm | feat/x | delete-guard | ask | git clean --n -n -fdx
+Fm | feat/x | delete-guard | ask | git clean -n -z -f
+Fm | feat/x | delete-guard | ask | git worktree prune -nz
+Fm | feat/x | tracker-guard | ask | curl -X PUT https://api.github.com/repos//o/r/pulls/3/merge
+Fm | feat/x | tracker-guard | ask | curl -X PUT https://api.github.com/repos/o/r/pulls/3//merge
+
+# Fs: these hold at d1052b1 and keep holding
+Fs | feat/x | shell | silent | (cat run.sh) 2>/dev/null | wc -l
+Fs | feat/x | shell | silent | (cat run.sh) 2>/dev/null
+Fs | feat/x | shell | silent | (cat run.sh) 2>/dev/null | grep bash
+Fs | feat/x | shell | silent | (cat run.sh) 2>/dev/null > bash
+Fs | feat/x | shell | silent | (cat data.txt) 2>/dev/null | bash process.sh
+Fs | feat/x | shell | silent | (make gen) 2>/dev/null | tee build.log
+Fs | feat/x | shell | silent | "cat data.txt |\nbash process.sh"
+Fs | feat/x | shell | silent | "yes |\nbash install.sh"
+Fs | feat/x | shell | silent | "cat run.sh |\n(wc -l)"
+Fs | feat/x | delete-guard | ask | (cat run.sh) | bash
+Fs | feat/x | delete-guard | ask | { cat run.sh; } 2>/dev/null | bash
+Fs | feat/x | delete-guard | ask | "cat run.sh |\nbash"
+Fs | feat/x | delete-guard | ask | cat run.sh | (bash)
+Fs | feat/x | shell | silent | echo 'ls -la' | $SHELL
+Fs | feat/x | shell | silent | cat data.txt | $SHELL process.sh
+Fs | feat/x | shell | silent | cat notes.txt | sudo tee /etc/motd
+Fs | feat/x | shell | silent | cat run.sh | ssh build bash
+Fs | feat/x | git-guard | deny | echo 'git push --force origin feat' | $SHELL
+Fs | feat/x | shell | silent | command -v export; git commit -m x
+Fs | feat/x | shell | silent | command -V eval; git commit -m x
+Fs | feat/x | shell | silent | { export FOO=1; git commit -m x; }
+Fs | feat/x | shell | silent | if true; then export HUSKY=1; git commit -m x; fi
+Fs | feat/x | shell | silent | { HUSKY=0; git commit -m x; }
+Fs | feat/x | git-guard | deny | command export HUSKY=0; git commit -m x
+Fs | feat/x | git-guard | deny | builtin export HUSKY=0; git commit -m x
+Fs | feat/x | git-guard | deny | ( export HUSKY=0; git commit -m x )
+Fs | feat/x | git-guard | deny | case x in x) export HUSKY=0;; esac; git commit -m x
+Fs | feat/x | shell | silent | time git commit -m x
+Fs | feat/x | shell | silent | time export FOO=1; git commit -m x
+Fs | feat/x | shell | silent | { export FOO=1; }; git commit -m x
+Fs | feat/x | shell | silent | if export FOO=1; then git commit -m x; fi
+Fs | feat/x | shell | silent | if true; then export HUSKY=1; fi; git commit -m x
+Fs | feat/x | shell | silent | { export HUSKY=0; }; git status
+Fs | feat/x | shell | silent | curl https://api.github.com:443/repos/o/r/pulls/3
+Fs | feat/x | shell | silent | curl -X POST https://api.github.com:443/graphql -d '{"query":"query { viewer { login } }"}'
+Fs | feat/x | tracker-guard | ask | curl -X PUT https://api.github.com/repos/o/r/pulls/3/merge
+Fs | feat/x | tracker-guard | ask | http https://api.github.com/graphql < q.json
+Fs | feat/x | shell | silent | ls -la .env
+Fs | feat/x | shell | silent | if [ -f .env ]; then echo present; fi
+Fs | feat/x | shell | silent | if ! grep -q .env .gitignore; then echo .env >> .gitignore; fi
+Fs | feat/x | shell | silent | grep -q .env .gitignore || echo .env >> .gitignore
+Fs | feat/x | shell | silent | for f in a b; do test -f .env && echo found; done
+Fs | feat/x | shell | silent | { ls -la .env; stat .env; } > report.txt
+Fs | feat/x | shell | silent | "test -f .env &&\necho yes"
+Fs | feat/x | shell | silent | "ls .env\nxargs cat"
+Fs | feat/x | shell | silent | "ls .env;\n"
+Fs | feat/x | shell | silent | stat .env; echo "$(date)"
+Fs | feat/x | shell | silent | test -f .env && echo "found $(date)"
+Fs | feat/x | shell | silent | ls .env 2>/dev/null
+Fs | feat/x | shell | silent | ls .env || true
+Fs | feat/x | secret-shell | ask | ls .env | xargs cat
+Fs | feat/x | secret-shell | ask | (ls .env) 2>/dev/null | xargs cat
+Fs | feat/x | secret-shell | ask | xargs cat < <(true; ls .env)
+Fs | feat/x | secret-shell | ask | xargs cat < <(true; ls .env); echo done
+Fs | feat/x | secret-shell | ask | cat <(true; ls .env) && echo ok
+Fs | feat/x | secret-shell | ask | cat $(true; ls .env)
+Fs | feat/x | secret-shell | ask | cat "$(true; echo .env)"
+Fs | feat/x | secret-shell | ask | { ls .env; } 2>&1 | xargs cat
+Fs | feat/x | secret-shell | ask | (true; ls .env) | xargs cat
+Fs | feat/x | secret-shell | ask | (true; ls .env) | xargs cat; echo done
+Fs | feat/x | secret-shell | ask | "ls .env \\\n| xargs cat"
+Fs | feat/x | secret-shell | ask | "case x in\n  a)\n    true\n    ls .env\n    ;;\nesac | xargs cat"
+Fs | feat/x | secret-shell | ask | case x in a) ls .env;; esac | xargs cat
+Fs | feat/x | secret-shell | ask | f() { ls .env; }; f | xargs cat
+Fs | feat/x | secret-shell | ask | cat `ls .env`

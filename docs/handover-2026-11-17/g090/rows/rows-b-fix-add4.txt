@@ -1,0 +1,34 @@
+# Guard 0.9.0, fix pass, addendum 4 (2026-11-18): found by the orchestrating session while the pass ran.
+# Row: id | branch[@client] | rule | expected | command
+#
+# --- F25 (weaker than 0.8.0 since the fix of F22): the grep macOS ships takes the value of --context only
+#     glued (`--context[=num]`), so the next word is the pattern. Measured on a scratch file, BSD grep 2.6.0:
+#     `grep --context TOKEN f` searches f for TOKEN (exit 0, the lines printed); GNU grep 3.12 refuses the same
+#     line ("invalid context length argument"). The short -C needs its number in both.
+F25 | feat/x | secret-shell | ask | grep --context TOKEN .env
+F25 | feat/x | secret-shell | ask | grep -rn --context TOKEN .env
+F25 | feat/x | secret-shell | ask | egrep --context TOKEN .env
+F25 | feat/x | secret-shell | ask | grep --context TOKEN ~/.ssh/id_rsa
+F25 | feat/x | secret-shell | ask | sudo grep --context TOKEN .env
+F25 | feat/x | secret-shell | ask | bash -c 'grep --context TOKEN .env'
+# --- F26 (weaker than 0.8.0, in the build since K7): `git status -v` prints the staged change of the path it
+#     names, and `-vv` the change in the work tree: the content of the file, not its name. Measured in a scratch
+#     repository, git 2.55: -v, --verbose and --v (a unique prefix) on a staged file, -vv and -v -v on a changed
+#     one. `git check-ignore -v` names the rule that matches, no content (a K7 row).
+F26 | feat/x | secret-shell | ask | git status -v .env
+F26 | feat/x | secret-shell | ask | git status -vv -- .env
+F26 | feat/x | secret-shell | ask | git status --verbose .env
+F26 | feat/x | secret-shell | ask | git status --v .env
+F26 | feat/x | secret-shell | ask | git status -v -v -- .env
+F26 | feat/x | secret-shell | ask | git status -bv .env
+F26 | feat/x | secret-shell | ask | git -C sub status --verbose -- .env
+# the neighbours that hold today and keep holding
+Fs | feat/x | shell | silent | git status .env
+Fs | feat/x | shell | silent | git status --short -- .env
+Fs | feat/x | shell | silent | git status --porcelain .env
+Fs | feat/x | shell | silent | git ls-files -s .env
+Fs | feat/x | shell | silent | git check-ignore -v .env
+Fs | feat/x | shell | silent | grep -C 3 .env docs
+Fs | feat/x | shell | silent | grep --context=3 .env docs
+Fs | feat/x | secret-shell | ask | grep --context=3 TOKEN .env
+Fs | feat/x | secret-shell | ask | grep -C 3 TOKEN .env

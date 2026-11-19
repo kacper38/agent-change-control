@@ -1,0 +1,56 @@
+# the findings of the second fresh-review (fix-pass range), each with its neighbours
+# 1. the `)` of a case item
+case x in a) true; ls .env;; esac | xargs cat
+case x in a) ls .env;; esac | xargs cat
+case x in a) ls .env;; b) true;; esac | xargs cat
+case x in (a) ls .env;; esac | xargs cat
+case x in a|b) echo .env;; esac | xargs cat
+case x in a) true; ls .env;; esac
+case x in a) ls .env;; esac
+case x in a) ls .env;; esac; echo done
+case x in a) ls .env;; esac > out.txt
+if true; then case x in a) ls .env;; esac; fi | xargs cat
+{ case x in a) ls .env;; esac; } | xargs cat
+(case x in a) ls .env;; esac) | xargs cat
+for f in a; do case x in a) ls .env;; esac; done | xargs cat
+case x in a) (ls .env);; esac | xargs cat
+case x in a) { ls .env; };; esac | xargs cat
+case x in a) true;; esac; ls .env | xargs cat
+case x in a) true;; esac; ls .env
+case x in a) cat run.sh;; esac | bash
+case x in a) true; cat run.sh;; esac | bash
+cat run.sh | case x in a) bash;; esac
+cat run.sh | case x in a) true; bash;; esac
+cat run.sh | case x in a) true;; esac
+case x in a) true;; esac | wc -l
+# 2. command -p in front of eval or export
+command -p eval 'export HUSKY=0'; git commit -m x
+command -p export HUSKY=0; git commit -m x
+command -- export HUSKY=0; git commit -m x
+builtin -- eval 'export HUSKY=0'; git commit -m x
+command -p -- export HUSKY=0; git commit -m x
+command export HUSKY=0; git commit -m x
+builtin export HUSKY=0; git commit -m x
+command -v export; git commit -m x
+command -V eval; git commit -m x
+export HUSKY=0; HUSKY=1; git commit -m x
+export HUSKY=0; HUSKY=1 git commit -m x
+export HUSKY=0; unset HUSKY; git commit -m x
+HUSKY=1; export HUSKY; git commit -m x
+# 3. an explicit port in the API host
+curl -X PUT https://api.github.com:443/repos/o/r/pulls/3/merge
+curl -X PUT https://api.github.com/repos/o/r/pulls/3/merge
+curl -X PUT https://api.github.com.:443/repos/o/r/pulls/3/merge
+curl -X PUT https://API.GITHUB.COM:443/repos/o/r/pulls/3/merge
+http PUT https://api.github.com:443/repos/o/r/pulls/3/merge
+curl -X POST https://api.github.com:443/graphql -d '{"query":"mutation { mergePullRequest(input: {pullRequestId: \"PR_1\"}) { clientMutationId } }"}'
+curl -X POST https://api.github.com/graphql -d '{"query":"mutation { mergePullRequest(input: {pullRequestId: \"PR_1\"}) { clientMutationId } }"}'
+curl -X PUT https://user@api.github.com/repos/o/r/pulls/3/merge
+curl -X PUT https://api.github.com:8443/repos/o/r/pulls/3/merge
+curl https://api.github.com:443/repos/o/r/pulls/3
+curl -X POST https://api.github.com:443/repos/o/r/issues/3/comments -d '{"body":"x"}'
+curl -X POST https://api.github.com/repos/o/r/issues/3/comments -d '{"body":"x"}'
+curl -X POST https://api.github.com//repos/o/r/issues/3/comments -d '{"body":"x"}'
+curl -X POST https://api.github.com./repos/o/r/issues/3/comments -d '{"body":"x"}'
+curl -X PATCH https://api.github.com/repos/o/r/issues/3 -d '{"state":"closed"}'
+curl -X PATCH https://api.github.com:443/repos/o/r/issues/3 -d '{"state":"closed"}'

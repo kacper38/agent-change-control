@@ -1,0 +1,17 @@
+# Guard 0.9.0, fix pass, addendum 5 (2026-11-18): a finding of bin/fresh-review on the build.
+# Row: id | branch[@client] | rule | expected | command
+#
+# --- F27 (a spelling the new cache table leaves out; silent at 0.8.0 too): Go's flag package takes a boolean
+#     flag with a value (`-modcache=true`, `-modcache=1`, and with two dashes), so the module cache is emptied
+#     in these spellings as well (flag package: "-flag=x" for boolean flags; strconv.ParseBool reads 1, t, T,
+#     TRUE, true, True as true).
+F27 | feat/x | delete-guard | ask | go clean -modcache=true
+F27 | feat/x | delete-guard | ask | go clean --modcache=true
+F27 | feat/x | delete-guard | ask | go clean -modcache=1
+F27 | feat/x | delete-guard | ask | go clean -i -modcache=T
+# the neighbours that hold today and keep holding
+Fs | feat/x | delete-guard | ask | go clean -modcache
+Fs | feat/x | delete-guard | ask | go clean --modcache
+Fs | feat/x | shell | silent | go clean -modcache=false
+Fs | feat/x | shell | silent | go clean -cache
+Fs | feat/x | shell | silent | go clean

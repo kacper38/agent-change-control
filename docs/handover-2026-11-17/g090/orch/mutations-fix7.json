@@ -1,0 +1,116 @@
+[
+ {
+  "id": "g01",
+  "what": "every git report is plain",
+  "old": "                    and _git_report_plain(toks, words, rest)):",
+  "new": "                    ):"
+ },
+ {
+  "id": "g02",
+  "what": "an assignment in front of git changes nothing",
+  "old": "    if any(_ASSIGN_RE.match(t) for t in lead[: len(lead) - len(words)]):\n        return False\n",
+  "new": ""
+ },
+ {
+  "id": "g03",
+  "what": "only the first word in front is looked at for an assignment",
+  "old": "for t in lead[: len(lead) - len(words)]):",
+  "new": "for t in lead[:1]):"
+ },
+ {
+  "id": "g05",
+  "what": "the assignment is looked for among the words with their redirections",
+  "old": "    lead = drop_redirections(list(toks))\n",
+  "new": "    lead = list(toks)\n"
+ },
+ {
+  "id": "g06",
+  "what": "any option of git in front of the subcommand is plain",
+  "old": "        else:\n            return False\n    return True",
+  "new": "        else:\n            del front[:1]\n    return True"
+ },
+ {
+  "id": "g07",
+  "what": "-p is plain",
+  "old": "_REPORT_GIT_OPTIONS = frozenset({\"--no-pager\", \"-P\"})",
+  "new": "_REPORT_GIT_OPTIONS = frozenset({\"--no-pager\", \"-P\", \"-p\"})"
+ },
+ {
+  "id": "g08",
+  "what": "--paginate is plain",
+  "old": "_REPORT_GIT_OPTIONS = frozenset({\"--no-pager\", \"-P\"})",
+  "new": "_REPORT_GIT_OPTIONS = frozenset({\"--no-pager\", \"-P\", \"--paginate\"})"
+ },
+ {
+  "id": "g09",
+  "what": "-c takes a value and is plain, as -C",
+  "old": "        if front[0] == \"-C\":",
+  "new": "        if front[0] in (\"-C\", \"-c\"):"
+ },
+ {
+  "id": "g10",
+  "what": "--config-env takes a value and is plain, as -C",
+  "old": "        if front[0] == \"-C\":",
+  "new": "        if front[0] in (\"-C\", \"--config-env\"):"
+ },
+ {
+  "id": "g11",
+  "what": "an option with a value glued on is plain (--config-env=…)",
+  "old": "        elif front[0] in _REPORT_GIT_OPTIONS:",
+  "new": "        elif front[0] in _REPORT_GIT_OPTIONS or \"=\" in front[0]:"
+ },
+ {
+  "id": "g12",
+  "what": "-C is not plain",
+  "old": "        if front[0] == \"-C\":",
+  "new": "        if front[0] == \"-C-\":"
+ },
+ {
+  "id": "g13",
+  "what": "the word behind -C is read as an option",
+  "old": "            del front[:2]",
+  "new": "            del front[:1]"
+ },
+ {
+  "id": "g14",
+  "what": "--no-pager is not plain",
+  "old": "_REPORT_GIT_OPTIONS = frozenset({\"--no-pager\", \"-P\"})",
+  "new": "_REPORT_GIT_OPTIONS = frozenset({\"-P\"})"
+ },
+ {
+  "id": "g15",
+  "what": "-P is not plain",
+  "old": "_REPORT_GIT_OPTIONS = frozenset({\"--no-pager\", \"-P\"})",
+  "new": "_REPORT_GIT_OPTIONS = frozenset({\"--no-pager\"})"
+ },
+ {
+  "id": "g16",
+  "what": "an option is plain by its first letters (-C., --no-pager=1, -Px)",
+  "old": "        elif front[0] in _REPORT_GIT_OPTIONS:",
+  "new": "        elif front[0].startswith(tuple(_REPORT_GIT_OPTIONS)):"
+ },
+ {
+  "id": "g17",
+  "what": "-C is found by its first letters (-C.)",
+  "old": "        if front[0] == \"-C\":",
+  "new": "        if front[0].startswith(\"-C\"):"
+ },
+ {
+  "id": "g18",
+  "what": "only the first option in front is looked at",
+  "old": "    while front:\n",
+  "new": "    for _once in front[:1]:\n"
+ },
+ {
+  "id": "g19",
+  "what": "the words in front start behind the first option",
+  "old": "    front = list(words[1 : len(words) - len(rest) - 1])",
+  "new": "    front = list(words[2 : len(words) - len(rest) - 1])"
+ },
+ {
+  "id": "g20",
+  "what": "any assignment in front of any report turns it down (the rule is for git only)",
+  "old": "        if head in _REPORT_HEADS:\n            out.append(words)",
+  "new": "        if head in _REPORT_HEADS:\n            if _git_report_plain(toks, words, list(words[1:])):\n                out.append(words)"
+ }
+]

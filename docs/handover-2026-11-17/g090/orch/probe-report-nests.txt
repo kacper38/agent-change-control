@@ -1,0 +1,45 @@
+# a report inside a nested script or behind a shell word, its output handed on
+sh -c 'true; ls .env' | xargs cat
+bash -c 'ls .env' | xargs cat
+bash -c 'true; ls .env'
+eval 'true; ls .env' | xargs cat
+eval 'true; ls .env'
+xargs -I{} sh -c 'true; ls .env'
+ssh host 'true; ls .env' | xargs cat
+ls .env; sh -c 'ls .env' | xargs cat
+sh -c 'ls .env' | xargs cat; ls .env
+ls .env; ls .env | xargs cat
+ls .env | xargs cat; ls .env
+((x = 1)); ls .env
+((x = 1)); ls .env | xargs cat
+[[ -f .env ]] && ls .env | xargs cat
+[[ -f .env ]] && ls .env
+time ls .env | xargs cat
+time ls .env
+! ls .env | xargs cat
+! ls .env
+ls .env |
+xargs cat
+ls .env \
+| xargs cat
+ls .env # | xargs cat
+ls .env; : | xargs cat
+ls .env 1>&2 | xargs cat
+ls .env 2>&1 >/dev/null | xargs cat
+ls .env >/dev/null 2>&1 | xargs cat
+ls .env >&2
+ls .env 2>/dev/null
+ls .env &> out.txt
+ls .env &>> out.txt
+ls .env >& out.txt
+ls .env |& tee out.txt
+ls .env | tee out.txt
+ls .env | cat
+ls .env | head -n 1
+ls .env | wc -l
+select f in a; do ls .env; done | xargs cat
+until true; do ls .env; done | xargs cat
+if ls .env; then true; fi | xargs cat
+while ls .env; do break; done | xargs cat
+if true; then ls .env; else echo .env; fi | xargs cat
+if true; then :; elif true; then ls .env; fi | xargs cat

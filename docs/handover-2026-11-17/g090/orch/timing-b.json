@@ -1,0 +1,16 @@
+{
+  "plain": "git status --short",
+  "row_files": [
+    "<S8>/rows-a.txt",
+    "<S8>/rows-a-added.txt",
+    "<S8>/rows-a-caps.txt",
+    "<S8>/rows-b.txt",
+    "<S8>/rows-b4.txt",
+    "<S8>/rows-b4-az.txt",
+    "<S8>/rows-b5.txt",
+    "<S8>/rows-c.txt"
+  ],
+  "big_unit": "echo hello world from the build log; ",
+  "big_caps_unit": "echo hello world from the build log; GIT status; ",
+  "big_bytes": 100000
+}

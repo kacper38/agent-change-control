@@ -1,0 +1,61 @@
+# a script the guard can read (echo, printf, a here-document) piped into a brace group that starts with a shell
+echo "git commit --no-verify -m x" | { sh; }
+echo 'git commit -m x' | { bash; }
+echo 'gh issue close 3' | { bash; }
+printf 'git push --force origin feat\n' | { bash -s; }
+echo 'git commit --no-verify -m x' | { sh; echo done; }
+echo 'git commit --no-verify -m x' | { sh; } 2>/dev/null
+echo 'ls -la' | { sh; }
+echo 'ls -la' | { bash; echo done; }
+echo 'rm -rf build' | { sh; }
+echo 'cat .env' | { sh; }
+cat run.sh | { sh; }
+cat run.sh | { bash; echo done; }
+echo 'git commit --no-verify -m x' | { cd repo; sh; }
+echo 'git commit --no-verify -m x' | { cd repo && sh; }
+echo 'ls -la' | { cd repo; sh; }
+echo 'git commit --no-verify -m x' | (sh)
+echo 'git commit --no-verify -m x' | ( sh; echo done )
+echo 'git commit --no-verify -m x' | if true; then sh; fi
+echo 'git commit --no-verify -m x' | while true; do sh; break; done
+echo 'git commit --no-verify -m x' | sh
+echo 'git commit --no-verify -m x' | { sudo sh; }
+echo 'git commit --no-verify -m x' | { env FOO=1 bash; }
+echo 'git commit --no-verify -m x' | { $SHELL; }
+echo 'git commit --no-verify -m x' | { ssh build; }
+"cat <<'EOF' | { sh; }\ngit commit --no-verify -m x\nEOF"
+"{ sh; } <<'EOF'\ngit commit --no-verify -m x\nEOF"
+{ echo 'git commit --no-verify -m x'; } | sh
+{ echo 'git commit --no-verify -m x'; } | { sh; }
+(echo 'git commit --no-verify -m x') | sh
+# httpie reads the GraphQL document from standard input, inside a nested script or behind a continuation
+http https://api.github.com/graphql < q.json
+bash -c 'http https://api.github.com/graphql < q.json'
+sh -c "http POST https://api.github.com/graphql < q.json"
+eval 'http https://api.github.com/graphql < q.json'
+echo 'http https://api.github.com/graphql < q.json' | sh
+"sh <<'EOF'\nhttp https://api.github.com/graphql < q.json\nEOF"
+x=`http https://api.github.com/graphql < q.json`
+x=$(http https://api.github.com/graphql < q.json)
+echo "$(http https://api.github.com/graphql < q.json)"
+"http \\\nhttps://api.github.com/graphql < q.json"
+"http https://api.github.com/graphql \\\n< q.json"
+"http https://api.github.com/graphql < \\\nq.json"
+sudo http https://api.github.com/graphql < q.json
+env FOO=1 http https://api.github.com/graphql < q.json
+time http https://api.github.com/graphql < q.json
+! http https://api.github.com/graphql < q.json
+for i in 1; do http https://api.github.com/graphql < q.json; done
+f() { http https://api.github.com/graphql < q.json; }; f
+true; http https://api.github.com/graphql < q.json
+http https://api.github.com/graphql < q.json; true
+http https://api.github.com/graphql < q.json | jq .
+cat q.json | http https://api.github.com/graphql
+http https://api.github.com/graphql <<< '{"query":"mutation { closeIssue(input: {issueId: \"I_1\"}) { clientMutationId } }"}'
+# the twins that name the document as a file
+bash -c 'gh api graphql -F query=@q.graphql'
+bash -c 'curl -X POST https://api.github.com/graphql -d @q.json'
+echo "$(gh api graphql -F query=@q.graphql)"
+x=`curl -X POST https://api.github.com/graphql -d @q.json`
+"gh api \\\ngraphql -F query=@q.graphql"
+"sh <<'EOF'\ncurl -X POST https://api.github.com/graphql -d @q.json\nEOF"

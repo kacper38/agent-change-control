@@ -1,0 +1,17 @@
+# candidates: a process substitution beside or on a git report (the engineer's possible gap of round eight)
+P1 | feat/x | secret-shell | ask | echo <(git config pager.ls-files 'xargs cat'); git ls-files .env
+P2 | feat/x | secret-shell | ask | ls <(git config pager.ls-files 'xargs cat'); git ls-files .env
+P3 | feat/x | secret-shell | ask | echo x > >(git config pager.ls-files 'xargs cat'); git ls-files .env
+P4 | feat/x | secret-shell | ask | true <(git config pager.ls-files 'xargs cat'); git ls-files .env
+P5 | feat/x | secret-shell | ask | echo >(git config pager.ls-files 'xargs cat'); git ls-files .env
+P6 | feat/x | secret-shell | ask | test -e <(git config pager.ls-files 'xargs cat'); git ls-files .env
+P7 | feat/x | secret-shell | ask | [[ -e <(git config pager.ls-files 'xargs cat') ]]; git ls-files .env
+P8 | feat/x | secret-shell | ask | git ls-files .env <(git config pager.ls-files 'xargs cat')
+P9 | feat/x | secret-shell | ask | true <(git config pager.ls-files 'xargs cat'); true; true; git ls-files .env
+P10 | feat/x | secret-shell | ask | cd . <(git config pager.status 'xargs cat'); git status .env
+P11 | feat/x | secret-shell | ask | true >(git config pager.ls-files 'xargs cat'); true; git ls-files .env
+P12 | feat/x | secret-shell | ask | echo =(git config pager.ls-files 'xargs cat'); git ls-files .env
+P13 | feat/x | secret-shell | ask | true <(git config pager.ls-files 'xargs cat'; echo) ; cat /dev/null; git ls-files .env
+P14 | feat/x | secret-shell | ask | git check-ignore <(git config pager.ls-files 'xargs cat'); git ls-files .env
+P15 | feat/x | secret-shell | ask | stat <(git config pager.ls-files 'xargs cat'); true; git ls-files .env
+P16 | feat/x | secret-shell | ask | printf %s <(git config pager.ls-files 'xargs cat'); true; git ls-files .env

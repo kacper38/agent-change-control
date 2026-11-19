@@ -1,0 +1,39 @@
+# a report with a redirection in front of the pipe that hands its output on
+ls .env 2>&1 | xargs cat
+ls .env 2>&1 | cat
+ls .env >&2 | xargs cat
+ls .env 2>/dev/null | xargs cat
+ls .env 2> /dev/null | xargs cat
+ls .env &> /dev/null | xargs cat
+ls .env >& out | xargs cat
+ls .env 2>&1 |& xargs cat
+ls -1 .env* 2>&1 | head -1 | xargs cat
+stat -f %N .env 2>&1 | xargs cat
+echo .env 2>&1 | xargs cat
+printf '%s\n' .env 2>&1 | xargs cat
+git ls-files .env 2>&1 | xargs cat
+test -f .env 2>&1 | xargs cat
+ls .env 1>&2 | xargs cat
+ls .env 2>&1 >/dev/null | xargs cat
+ls .env <&0 | xargs cat
+ls .env 2>&- | xargs cat
+ls .env >&1 | xargs cat
+{ ls .env; } 2>&1 | xargs cat
+( ls .env ) 2>&1 | xargs cat
+if true; then ls .env; fi 2>&1 | xargs cat
+for f in .env; do ls $f; done 2>&1 | xargs cat
+{ ls .env; } 2>/dev/null | xargs cat
+{ ls .env; } >&2 | xargs cat
+{ ls .env; } > >(xargs cat)
+{ ls .env; } 2>&1 > >(xargs cat)
+( ls .env ) > >(xargs cat)
+if true; then ls .env; fi > >(xargs cat)
+ls .env 2>&1 > >(xargs cat)
+ls .env 2>&1; echo done
+ls .env 2>&1 && echo ok
+ls .env > /dev/null 2>&1
+ls .env > /dev/null 2>&1 || echo missing
+test -f .env 2>/dev/null && echo yes
+# zsh's short loop (silent at 0.8.0 too)
+for f (.env) cat $f
+for f in .env; do cat $f; done

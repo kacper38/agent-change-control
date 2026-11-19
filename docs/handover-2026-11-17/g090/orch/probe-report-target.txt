@@ -1,0 +1,29 @@
+# a report (K6, K7, K9) whose output is redirected into a file: is the target still judged as a write?
+# probe list of the orchestrating session; commands are data, judged as strings, never run
+stat .env >> ~/.ssh/config
+echo x >> ~/.ssh/config
+stat x >> ~/.ssh/config
+cat notes.txt >> ~/.ssh/config
+ls .env > ~/.ssh/id_ed25519
+echo x > ~/.ssh/id_ed25519
+ls .env > .env
+ls x > .env
+echo .env > .env
+echo .env >> .env
+printf '%s\n' .env > secrets.pem
+ls .env > server.key
+stat .env > ~/.aws/credentials
+echo x > ~/.aws/credentials
+test -f .env > .env
+git status .env > .env
+git ls-files .env >> ~/.ssh/authorized_keys
+echo x >> ~/.ssh/authorized_keys
+{ ls .env; } > .env
+ls .env 2> .env
+ls .env &> .env
+ls .env >| .env
+ls .env 1> .env
+ls .env > "$HOME/.ssh/id_rsa"
+echo x > "$HOME/.ssh/id_rsa"
+ls .env | tee .env
+ls x | tee .env

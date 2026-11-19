@@ -1,0 +1,88 @@
+# probe rows of 2026-11-19, second session: git's pager (P7) and a report that evaluates text in its own words (U).
+# Data only: these lines are read by pty_probe.py, never typed on a command line. The expectation column is a guess.
+# id | branch[@client] | rule | expected | command
+# --- base: the plain reports
+G0 | feat/x | secret-shell | silent | git ls-files .env
+G0 | feat/x | secret-shell | silent | git status .env
+G0 | feat/x | secret-shell | silent | git check-ignore -v .env
+G0 | feat/x | secret-shell | silent | git -C . ls-files .env
+G0 | feat/x | secret-shell | silent | git --no-pager ls-files .env
+G0 | feat/x | secret-shell | silent | git -P status .env
+# --- P7: the pager named in an option of the report itself
+P7 | feat/x | secret-shell | ask | git -p ls-files .env
+P7 | feat/x | secret-shell | ask | git --paginate status .env
+P7 | feat/x | secret-shell | ask | git -c core.pager='xargs cat' -p ls-files .env
+P7 | feat/x | secret-shell | ask | git -c core.pager='xargs cat' --paginate status .env
+P7 | feat/x | secret-shell | ask | git -c core.pager='xargs cat' ls-files .env
+P7 | feat/x | secret-shell | ask | git -c core.pager='xargs cat' status .env
+P7 | feat/x | secret-shell | ask | git -c pager.status='xargs cat' status .env
+P7 | feat/x | secret-shell | ask | git -c pager.status='xargs cat' -p status .env
+P7 | feat/x | secret-shell | ask | git -c pager.ls-files='xargs cat' ls-files .env
+P7 | feat/x | secret-shell | ask | git -c pager.check-ignore='xargs cat' check-ignore -v .env
+P7 | feat/x | secret-shell | ask | git -c pager.status=true -c core.pager='xargs cat' status .env
+P7 | feat/x | secret-shell | ask | git -c core.pager='xargs cat' --no-pager ls-files .env
+P7 | feat/x | secret-shell | ask | git -c core.pager='xargs cat' -P ls-files .env
+P7 | feat/x | secret-shell | ask | git -c core.pager='cat .env' -p status
+P7 | feat/x | secret-shell | ask | git -c core.pager='cat .env #' -p ls-files
+P7 | feat/x | secret-shell | ask | git -C . -c core.pager='xargs cat' -p ls-files .env
+P7 | feat/x | secret-shell | ask | X='xargs cat' git --config-env=core.pager=X -p ls-files .env
+P7 | feat/x | secret-shell | ask | X='xargs cat' git --config-env core.pager=X -p ls-files .env
+# --- P7e: the pager named in the environment of the report itself
+P7e | feat/x | secret-shell | ask | GIT_PAGER='xargs cat' git -p ls-files .env
+P7e | feat/x | secret-shell | ask | GIT_PAGER='xargs cat' git ls-files .env
+P7e | feat/x | secret-shell | ask | PAGER='xargs cat' git -p ls-files .env
+P7e | feat/x | secret-shell | ask | PAGER='xargs cat' git --paginate status .env
+P7e | feat/x | secret-shell | ask | GIT_PAGER='xargs cat' git --no-pager ls-files .env
+P7e | feat/x | secret-shell | ask | GIT_PAGER='cat .env' git -p status
+P7e | feat/x | secret-shell | ask | GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.pager GIT_CONFIG_VALUE_0='xargs cat' git -p ls-files .env
+P7e | feat/x | secret-shell | ask | GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=pager.status GIT_CONFIG_VALUE_0='xargs cat' git status .env
+P7e | feat/x | secret-shell | ask | GIT_CONFIG_PARAMETERS="'pager.status=xargs cat'" git status .env
+# --- P7f: another program the report's own option runs
+P7f | feat/x | secret-shell | ask | git -c core.fsmonitor='cat .env >&2; false' status
+P7f | feat/x | secret-shell | ask | git -c core.fsmonitor='cat .env >&2; false' status .env
+P7f | feat/x | secret-shell | ask | git -c core.fsmonitor='cat .env >&2; false' ls-files .env
+P7f | feat/x | secret-shell | ask | GIT_CONFIG_PARAMETERS="'core.fsmonitor=cat .env >&2; false'" git status .env
+P7f | feat/x | secret-shell | ask | git --exec-path=. ls-files .env
+# --- P7x: the environment or the configuration set by an earlier command of the line (candidate limit)
+P7x | feat/x | secret-shell | ask | export GIT_PAGER='xargs cat'; git -p ls-files .env
+P7x | feat/x | secret-shell | ask | export GIT_PAGER='xargs cat'; git ls-files .env
+P7x | feat/x | secret-shell | ask | export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=pager.status GIT_CONFIG_VALUE_0='xargs cat'; git status .env
+P7x | feat/x | secret-shell | ask | git config pager.status 'xargs cat'; git status .env
+P7x | feat/x | secret-shell | ask | git config core.pager 'xargs cat'; git -p ls-files .env
+# --- price: options that hand nothing on, which a strict rule on git's own options would turn into asks
+Pp | feat/x | secret-shell | silent | git -c color.ui=always status .env
+Pp | feat/x | secret-shell | silent | git -c core.quotepath=off ls-files .env
+Pp | feat/x | secret-shell | silent | git --no-optional-locks status .env
+Pp | feat/x | secret-shell | silent | git --literal-pathspecs ls-files .env
+Pp | feat/x | secret-shell | silent | git --git-dir=.git --work-tree=. status .env
+Pp | feat/x | secret-shell | silent | GIT_OPTIONAL_LOCKS=0 git status .env
+Pp | feat/x | secret-shell | silent | LC_ALL=C git status .env
+# --- U: a report that evaluates text in its own words
+U1 | feat/x | secret-shell | ask | [[ -v 'a[$(cat .env >&2)]' ]]
+U1 | feat/x | secret-shell | ask | [[ -v "a[\$(cat .env >&2)]" ]]
+U1 | feat/x | secret-shell | ask | [[ -v 'a[`cat .env >&2`]' ]]
+U1 | feat/x | secret-shell | ask | test -v 'a[$(cat .env >&2)]'
+U1 | feat/x | secret-shell | ask | [ -v 'a[$(cat .env >&2)]' ]
+U2 | feat/x | secret-shell | ask | [[ 'a[$(cat .env >&2)]' -eq 0 ]]
+U2 | feat/x | secret-shell | ask | [[ 0 -eq 'a[$(cat .env >&2)]' ]]
+U2 | feat/x | secret-shell | ask | [[ 0 -lt '$(cat .env >&2)' ]]
+U2 | feat/x | secret-shell | ask | [[ -n x && 'a[$(cat .env >&2)]' -gt 0 ]]
+U2 | feat/x | secret-shell | ask | test 'a[$(cat .env >&2)]' -eq 0
+U2 | feat/x | secret-shell | ask | [ 'a[$(cat .env >&2)]' -eq 0 ]
+U2 | feat/x | secret-shell | ask | [ 0 -eq '$(cat .env >&2)' ]
+U3 | feat/x | secret-shell | ask | printf %d 'a[$(cat .env >&2)]'
+U3 | feat/x | secret-shell | ask | printf '%d\n' 'a[$(cat .env >&2)]'
+U3 | feat/x | secret-shell | ask | printf %d '$(cat .env >&2)'
+U3 | feat/x | secret-shell | ask | printf '%d' '`cat .env >&2`'
+U3 | feat/x | secret-shell | ask | printf %x 'a[$(cat .env >&2)]'
+U3 | feat/x | secret-shell | ask | printf '%s %d\n' x '$(cat .env >&2)'
+U3 | feat/x | secret-shell | ask | printf %.0f '$(cat .env >&2)'
+U4 | feat/x | secret-shell | ask | echo 'a[$(cat .env >&2)]'
+U4 | feat/x | secret-shell | ask | ls 'a[$(cat .env >&2)]'
+U4 | feat/x | secret-shell | ask | stat 'a[$(cat .env >&2)]'
+U5 | feat/x | secret-shell | ask | x='a[$(cat .env >&2)]'; [[ $x -eq 0 ]]
+U5 | feat/x | secret-shell | ask | x='a[$(cat .env >&2)]'; printf %d $x
+U6 | feat/x | secret-shell | ask | [[ -f .env && 'a[$(cat .env >&2)]' -eq 0 ]]
+U6 | feat/x | secret-shell | ask | test -f .env -a 'a[$(cat .env >&2)]' -eq 0
+U6 | feat/x | secret-shell | ask | ls .env; [[ -v 'a[$(cat .env >&2)]' ]]
+U6 | feat/x | secret-shell | ask | ls .env; [[ 'a[$(xargs cat <<<.e""nv >&2)]' -eq 0 ]]

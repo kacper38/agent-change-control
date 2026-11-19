@@ -1,0 +1,40 @@
+# a pipe the guard cannot read into a shell named by a variable, or started through sudo or su
+cat run.sh | $SHELL
+cat run.sh | ${SHELL}
+cat run.sh | "$SHELL"
+cat run.sh | $SHELL -s
+cat run.sh | sudo -s
+cat run.sh | sudo -i
+cat run.sh | sudo su
+cat run.sh | su
+cat run.sh | su - build
+cat run.sh | sudo bash
+cat run.sh | env bash
+cat run.sh | exec bash
+cat run.sh | command bash
+cat run.sh | /bin/bash
+cat run.sh | /usr/bin/env bash
+cat run.sh | nice bash
+cat run.sh | busybox sh
+cat run.sh | rbash
+cat run.sh | bash -
+cat run.sh | bash -s
+cat run.sh | bash /dev/stdin
+cat run.sh | source /dev/stdin
+cat run.sh | . /dev/stdin
+cat run.sh | xargs -I{} sh -c '{}'
+cat run.sh | xargs sh -c
+cat run.sh | sh -c "$(cat)"
+cat run.sh | python3
+cat run.sh | python3 -
+cat run.sh | perl
+cat run.sh | ruby
+cat run.sh | node
+cat run.sh | osascript
+cat run.sh | pwsh -Command -
+cat run.sh | tclsh
+cat run.sh | awk -f -
+cat run.sh | psql
+cat run.sh | sqlite3 app.db
+echo 'git push --force origin feat' | $SHELL
+(echo 'git push --force origin feat') | $SHELL

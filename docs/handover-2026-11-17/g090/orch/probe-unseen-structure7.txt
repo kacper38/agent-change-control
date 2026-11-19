@@ -1,0 +1,20 @@
+# A seventh list for the quiet-report check: where a quoted substitution ends. Data for probe.py and for
+# sem/close_brace.py. Never typed.
+# --- the lexer is not back in the string where the shell ends the substitution: the real closer and the pipe
+# --- are quoted for it
+{ ls .env; : "$(: 'a"b')" ; } | xargs cat ; { : \' ; }
+{ ls .env; : "`: 'a"b'`" ; } | xargs cat ; { : \' ; }
+# --- the first `)` is not the end of the substitution
+{ ls .env; : "$(: $(:) " ; { true ; : ") x"; } | xargs cat; : "$(: $(:) " ; } ; : ") y"
+{ ls .env; : "$(: ${X:-)} " ; { true ; : ") x"; } | xargs cat; : "$(: ${X:-)} " ; } ; : ") y"
+{ ls .env; : "$(case a in a) : " ; { true ; : " ;; esac) x"; } | xargs cat; : "$(case a in a) : " ; } ; : " ;; esac) y"
+"{ ls .env; : \"$(: # ) \" ; { true ; : \"\n) x\"; } | xargs cat; : \"$(: # ) \" ; } ; : \"\n) y\""
+{ ls .env; : "$(: \) " ; { true ; : ") x"; } | xargs cat; : "$(: \) " ; } ; : ") y"
+{ ls .env; : "$(: ')' " ; { true ; : ") x"; } | xargs cat; : "$(: ')' " ; } ; : ") y"
+{ ls .env; : "$(: (:) " ; { true ; : ") x"; } | xargs cat; : "$(: (:) " ; } ; : ") y"
+# --- plain lines with a quoted substitution the check reads to its end
+ls -la .env; echo "lines: $(wc -l < README.md)"
+ls -la .env; echo "n=$(grep -c "x y" notes.txt)"
+ls -la .env; echo "$(date +%F) $(whoami)"
+ls -la .env; echo "`date +%F` on `hostname -s`"
+test -f .env && echo "found by $(id -un) at $(date "+%H:%M")"

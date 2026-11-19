@@ -1,0 +1,27 @@
+# httpie and a request body from standard input: a pipe, a redirection, a here-string
+cat q.json | http https://api.github.com/graphql
+cat q.json | http POST https://api.github.com/graphql
+jq -c . q.json | https api.github.com/graphql
+cat q.json | http https://api.github.com/user
+echo ok | http GET https://example.com/graphql
+http https://api.github.com/graphql
+http https://api.github.com/graphql query='{viewer{login}}'
+http POST https://api.github.com/graphql query='query { viewer { login } }'
+http --ignore-stdin https://api.github.com/graphql < q.json
+http https://api.github.com/user < q.json
+http https://example.com/graphql < q.json
+echo '{"query":"query { viewer { login } }"}' | http POST https://api.github.com/graphql
+echo '{"query":"mutation { closeIssue(input: {issueId: \"I_1\"}) { clientMutationId } }"}' | http POST https://api.github.com/graphql
+cat q.json | curl -X POST https://api.github.com/graphql -d @-
+cat q.json | curl -X POST https://api.github.com/graphql --data-binary @-
+curl -X POST https://api.github.com/graphql -d @- < q.json
+cat q.json | gh api graphql --input -
+gh api graphql --input - < q.json
+gh api graphql --input q.json
+cat q.json | wget --method=POST --body-file=- https://api.github.com/graphql
+wget --method=POST --body-file=q.json https://api.github.com/graphql
+cat q.json | xargs -0 http POST https://api.github.com/graphql
+http POST https://api.github.com/graphql @q.json
+http POST https://api.github.com/graphql query=@q.graphql
+http POST https://api.github.com/graphql < q.json > out.json
+bash -c 'cat q.json | http POST https://api.github.com/graphql'

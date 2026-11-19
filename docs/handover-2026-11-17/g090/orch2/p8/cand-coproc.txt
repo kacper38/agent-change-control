@@ -1,0 +1,8 @@
+# candidates: a report's output handed to a coprocess through its descriptor (bash). Which of them print?
+C1 | feat/x | secret-shell | ask | coproc xargs cat; ls .env >&"${COPROC[1]}"; exec {COPROC[1]}>&-; cat <&"${COPROC[0]}"
+C2 | feat/x | secret-shell | ask | coproc xargs cat; exec 3<&${COPROC[0]} 4>&${COPROC[1]}; ls .env >&4; exec 4>&- {COPROC[1]}>&-; cat <&3
+C3 | feat/x | secret-shell | ask | coproc xargs cat; ls .env >&${COPROC[1]}; exec {COPROC[1]}>&-; wait
+C4 | feat/x | secret-shell | ask | coproc xargs cat >&2; ls .env >&${COPROC[1]}; exec {COPROC[1]}>&-; wait
+C5 | feat/x | secret-shell | ask | coproc true; ls .env
+C6 | feat/x | secret-shell | ask | coproc xargs cat >&2; echo .env >&${COPROC[1]}; exec {COPROC[1]}>&-; wait
+C7 | feat/x | secret-shell | ask | coproc xargs cat >&2; ls .env >&p; exec 4>&p; exec 4>&-; wait

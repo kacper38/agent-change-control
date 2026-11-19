@@ -1,0 +1,8 @@
+brew Uninstall jq
+gem Uninstall rake
+gem uninstall rake
+brew Install jq
+brew INSTALL jq
+brew install jq
+brew remove jq
+brew Remove jq

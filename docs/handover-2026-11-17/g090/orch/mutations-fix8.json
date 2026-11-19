@@ -1,0 +1,152 @@
+[
+ {
+  "id": "h01",
+  "what": "every git report that is plain is quiet, whatever stands beside it",
+  "old": "    if (git_at and not _WORD_RUNS_RE.search(command)\n            and all(k in git_at or k in beside or _sets_nothing(toks) for k, (_sep, toks) in enumerate(cmds))):",
+  "new": "    if git_at:"
+ },
+ {
+  "id": "h02",
+  "what": "a word that runs a command is not looked for",
+  "old": " and not _WORD_RUNS_RE.search(command)",
+  "new": ""
+ },
+ {
+  "id": "h03",
+  "what": "the other commands of the line are not looked at",
+  "old": "\n            and all(k in git_at or k in beside or _sets_nothing(toks) for k, (_sep, toks) in enumerate(cmds))):",
+  "new": "):"
+ },
+ {
+  "id": "h04",
+  "what": "only the first git report of a line may stand beside another",
+  "old": "all(k in git_at or k in beside",
+  "new": "all(k == min(git_at) or k in beside"
+ },
+ {
+  "id": "h05",
+  "what": "another quiet report may not stand beside a git report",
+  "old": "all(k in git_at or k in beside or _sets_nothing(toks)",
+  "new": "all(k in git_at or _sets_nothing(toks)"
+ },
+ {
+  "id": "h06",
+  "what": "every quiet report may stand beside, with a redirection or an assignment too",
+  "old": "            if _words_alone(toks):\n                beside.add(k)",
+  "new": "            beside.add(k)"
+ },
+ {
+  "id": "h07",
+  "what": "a command that sets nothing may carry a redirection or an assignment",
+  "old": "    if not _words_alone(toks):\n        return False\n    words = _report_words(toks)\n    return not words",
+  "new": "    words = _report_words(toks)\n    return not words"
+ },
+ {
+  "id": "h08",
+  "what": "a shell word alone is no command that sets nothing",
+  "old": "    return not words or words[0] in _BESIDE_GIT_REPORT",
+  "new": "    return bool(words) and words[0] in _BESIDE_GIT_REPORT"
+ },
+ {
+  "id": "h09",
+  "what": "any command sets nothing",
+  "old": "    return not words or words[0] in _BESIDE_GIT_REPORT",
+  "new": "    return True"
+ },
+ {
+  "id": "h10",
+  "what": "a closer may not stand beside",
+  "old": "_BESIDE_GIT_REPORT = frozenset({\"cd\", \"true\", \"false\"}) | _COMPOUND_CLOSERS",
+  "new": "_BESIDE_GIT_REPORT = frozenset({\"cd\", \"true\", \"false\"})"
+ },
+ {
+  "id": "h11",
+  "what": "cd may not stand beside",
+  "old": "_BESIDE_GIT_REPORT = frozenset({\"cd\", \"true\", \"false\"}) | _COMPOUND_CLOSERS",
+  "new": "_BESIDE_GIT_REPORT = frozenset({\"true\", \"false\"}) | _COMPOUND_CLOSERS"
+ },
+ {
+  "id": "h12",
+  "what": "true may not stand beside",
+  "old": "_BESIDE_GIT_REPORT = frozenset({\"cd\", \"true\", \"false\"}) | _COMPOUND_CLOSERS",
+  "new": "_BESIDE_GIT_REPORT = frozenset({\"cd\", \"false\"}) | _COMPOUND_CLOSERS"
+ },
+ {
+  "id": "h13",
+  "what": "false may not stand beside",
+  "old": "_BESIDE_GIT_REPORT = frozenset({\"cd\", \"true\", \"false\"}) | _COMPOUND_CLOSERS",
+  "new": "_BESIDE_GIT_REPORT = frozenset({\"cd\", \"true\"}) | _COMPOUND_CLOSERS"
+ },
+ {
+  "id": "h14",
+  "what": "export may stand beside",
+  "old": "_BESIDE_GIT_REPORT = frozenset({\"cd\", \"true\", \"false\"}) | _COMPOUND_CLOSERS",
+  "new": "_BESIDE_GIT_REPORT = frozenset({\"cd\", \"export\", \"true\", \"false\"}) | _COMPOUND_CLOSERS"
+ },
+ {
+  "id": "h15",
+  "what": "git may stand beside (git config)",
+  "old": "_BESIDE_GIT_REPORT = frozenset({\"cd\", \"true\", \"false\"}) | _COMPOUND_CLOSERS",
+  "new": "_BESIDE_GIT_REPORT = frozenset({\"cd\", \"git\", \"true\", \"false\"}) | _COMPOUND_CLOSERS"
+ },
+ {
+  "id": "h16",
+  "what": "the leading shell words count as words of the command",
+  "old": "    while k < len(toks) and toks[k] in _NC_SHELL_WORDS:\n        k += 1\n    return tuple(toks[k:]) == _report_words(toks)",
+  "new": "    return tuple(toks) == _report_words(toks)"
+ },
+ {
+  "id": "h17",
+  "what": "every command is its words alone",
+  "old": "    while k < len(toks) and toks[k] in _NC_SHELL_WORDS:\n        k += 1\n    return tuple(toks[k:]) == _report_words(toks)",
+  "new": "    return True"
+ },
+ {
+  "id": "h18",
+  "what": "`${` runs nothing",
+  "old": "_WORD_RUNS_RE = re.compile(r\"\\$[({]|`\")",
+  "new": "_WORD_RUNS_RE = re.compile(r\"\\$[(]|`\")"
+ },
+ {
+  "id": "h19",
+  "what": "`$(` runs nothing",
+  "old": "_WORD_RUNS_RE = re.compile(r\"\\$[({]|`\")",
+  "new": "_WORD_RUNS_RE = re.compile(r\"\\$[{]|`\")"
+ },
+ {
+  "id": "h20",
+  "what": "a backtick runs nothing",
+  "old": "_WORD_RUNS_RE = re.compile(r\"\\$[({]|`\")",
+  "new": "_WORD_RUNS_RE = re.compile(r\"\\$[({]\")"
+ },
+ {
+  "id": "h21",
+  "what": "the word is looked for in the git report's own words only",
+  "old": " and not _WORD_RUNS_RE.search(command)",
+  "new": " and not any(_WORD_RUNS_RE.search(w) for ws in git_at.values() for w in ws)"
+ },
+ {
+  "id": "h22",
+  "what": "the rule holds for the first command of the line only",
+  "old": "for k, (_sep, toks) in enumerate(cmds))):",
+  "new": "for k, (_sep, toks) in enumerate(cmds[:1]))):"
+ },
+ {
+  "id": "h23",
+  "what": "only the commands in front of the first git report are looked at",
+  "old": "for k, (_sep, toks) in enumerate(cmds))):",
+  "new": "for k, (_sep, toks) in enumerate(cmds[: min(git_at)]))):"
+ },
+ {
+  "id": "h24",
+  "what": "only the commands behind the first git report are looked at",
+  "old": "for k, (_sep, toks) in enumerate(cmds))):",
+  "new": "for k, (_sep, toks) in enumerate(cmds) if k >= min(git_at))):"
+ },
+ {
+  "id": "h25",
+  "what": "every report of the line takes the rule, not only git's",
+  "old": "        if head in _REPORT_HEADS:\n            out.append(words)\n            if _words_alone(toks):",
+  "new": "        if head in _REPORT_HEADS:\n            git_at[k] = words\n            if _words_alone(toks):"
+ }
+]

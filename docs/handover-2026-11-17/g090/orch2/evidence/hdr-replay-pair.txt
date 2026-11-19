@@ -1,0 +1,3 @@
+
+== replay over the same recorded calls, the head of the seventh round (2a28378) against 8f0a893 (the guard file of the head), both boundaries
+== ran at 19:36 UTC, before the run above, when the transcripts held 22085 calls; the eighth round and the rows after it change no verdict on a recorded call

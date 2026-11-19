@@ -1,0 +1,23 @@
+# K11: the quoted text of a search pattern stands a second time in the line, where it is no search pattern
+grep -E 'x|ollama run m' notes.txt "$(mytool 'x|ollama run m')"
+grep -E 'a|ollama run m' f | mytool 'a|ollama run m'
+grep -E 'a|ollama run m' f; mytool 'a|ollama run m'
+grep -E 'a|ollama run m' f && watch 'a|ollama run m'
+grep -E 'a|ollama run m' f; parallel 'a|ollama run m' ::: 1
+grep -E 'a|ollama run m' f; tmux new-session 'a|ollama run m'
+grep -E 'a|ollama run m' f; screen -dm sh -c 'a|ollama run m'
+grep -E 'a|ollama run m' f; ssh h 'a|ollama run m'
+grep -E 'a|ollama run m' f; bash -c 'a|ollama run m'
+grep -E 'a|ollama run m' f; eval 'a|ollama run m'
+grep -E 'a|ollama run m' f; su -c 'a|ollama run m'
+grep -E 'a|ollama run m' f; osascript -e 'a|ollama run m'
+grep -E 'a|ollama run m' f; make SHELL='a|ollama run m'
+grep -E 'a|ollama run m' f; git config alias.x '!a|ollama run m'
+# the same tools without the search in front: what the first pass alone gives
+mytool 'a|ollama run m'
+watch 'a|ollama run m'
+parallel 'a|ollama run m' ::: 1
+tmux new-session 'a|ollama run m'
+# the same pattern twice as a pattern: stays silent
+grep -E 'a|ollama|b' f1; grep -E 'a|ollama|b' f2
+grep -E 'a|ollama|b' f1 && rg 'a|ollama|b' docs

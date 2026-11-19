@@ -1,0 +1,14 @@
+# the grep macOS ships takes the value of --context only glued: the next word is the pattern (measured)
+grep --context TOKEN .env
+grep -rn --context TOKEN .env
+egrep --context TOKEN .env
+grep --context TOKEN ~/.ssh/id_rsa
+sudo grep --context TOKEN .env
+bash -c 'grep --context TOKEN .env'
+grep --context=3 TOKEN .env
+grep --context 3 TOKEN .env
+grep --context 3 .env docs
+grep -C 3 .env docs
+grep -C 3 TOKEN .env
+grep --color TOKEN .env
+grep --after-context TOKEN .env

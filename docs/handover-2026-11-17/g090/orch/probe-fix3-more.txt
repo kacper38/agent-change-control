@@ -1,0 +1,11 @@
+# More candidate rows for the planted breaks no test caught at abab75a. Commands are data, never run.
+time while true; do ls .env; break; done | xargs cat
+time for f in a; do ls .env; done | xargs cat
+time until false; do ls .env; break; done | xargs cat
+time -p if true; then ls .env; fi | xargs cat
+{ echo .env; true } | xargs cat
+{ stat .env; true } | xargs cat
+"function f\n{ true; ls .env; }\nf | xargs cat"
+"function f\n{ true; git ls-files .env; }\nf | xargs cat"
+true | stat .env
+git ls-files | ls -la .env

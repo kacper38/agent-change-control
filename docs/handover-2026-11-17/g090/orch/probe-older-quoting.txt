@@ -1,0 +1,19 @@
+# Does a quoting the readers take otherwise than the shell hide a command from the other rules? Asked at 0.8.0
+# and at the head, for the backlog item. Data for probe.py. Never typed.
+# --- `$'…'` with an escaped quote: for the shell the command in the middle runs
+: $'\''; git push --force origin feat; : \'
+: $'\''; rm -rf build; : \'
+: $'\''; cat .env; : \'
+: $'\''; git commit --no-verify -m x; : \'
+# --- a quote inside a substitution of a double-quoted string
+echo "$(echo 'a"b')" ; git push --force origin feat ; echo \'
+echo "$(echo 'a"b')" ; cat .env ; echo \'
+echo "$(echo 'a"b')" ; rm -rf build ; echo \'
+# --- a quoted separator in front of a command name: the shell prints the words
+echo ';' git push --force origin feat
+echo \; rm -rf build
+# --- the plain twins
+git push --force origin feat
+rm -rf build
+cat .env
+git commit --no-verify -m x

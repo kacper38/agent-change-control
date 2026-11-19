@@ -1,0 +1,28 @@
+grep -r --include .env TOKEN .
+grep -r --include=.env TOKEN .
+grep -rn TOKEN --include .env .
+grep -rn TOKEN . --include .env
+rg --glob .env TOKEN
+rg -g .env TOKEN
+rg --glob=.env TOKEN
+rg --hidden --iglob .ENV TOKEN
+grep -r --exclude .env TODO .
+grep -r --exclude=.env TODO .
+tar --exclude-from .env -czf out.tgz .
+tar --exclude-from=.env -czf out.tgz .
+rsync -a --include .env --exclude '*' src/ host:dst/
+rsync -a --include=.env --exclude='*' src/ host:dst/
+rsync -a --filter '+ .env' src/ dst/
+tar --include .env -czf out.tgz .
+ag --ignore .env TOKEN
+git ls-files --exclude .env
+tar --exclude .env -czf out.tgz .
+tar -czf out.tgz --exclude secrets .env
+cat --exclude .env
+tar -czf out.tgz --exclude x .env
+grep --exclude x TOKEN .env
+grep -r --exclude-dir .git TOKEN .env
+rsync -a --exclude node_modules .env host:dst/
+grep -r --include '*.env' TOKEN .
+grep -r --include='*.env' TOKEN .
+grep -r --include .env.production TOKEN .

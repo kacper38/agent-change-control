@@ -1,0 +1,9 @@
+ls .env 2>&1 | xargs cat
+ls .env 2>/dev/null | xargs cat
+ls .env >&2 | xargs cat
+ls .env <&0 | xargs cat
+{ ls .env; } 2>&1 | xargs cat
+{ ls .env; } > >(xargs cat)
+if true; then ls .env; fi > >(xargs cat)
+ls .env > >(xargs cat)
+ls .env | xargs cat

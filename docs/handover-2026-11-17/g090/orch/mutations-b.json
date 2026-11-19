@@ -1,0 +1,416 @@
+[
+ {
+  "id": "b01",
+  "what": "R1: aws ssm send-command no longer asks",
+  "old": "\"ssm\": _verbs(\"send-command start-session\")}",
+  "new": "\"ssm\": _verbs(\"start-session\")}"
+ },
+ {
+  "id": "b02",
+  "what": "Z: an az call whose verb is no known read is silent",
+  "old": "    return f\"`az {' '.join(lead)}` changes resources\"\n",
+  "new": "    return None\n"
+ },
+ {
+  "id": "b03",
+  "what": "Z: az rest with a writing method is silent",
+  "old": "        return None if method in _AZ_REST_READS else f\"`az rest --method {method}` changes resources\"",
+  "new": "        return None"
+ },
+ {
+  "id": "b04",
+  "what": "R2: uv remove is no delete",
+  "old": "\"uv\": (frozenset({\"remove\"}), {\"pip\": frozenset({\"uninstall\"}), \"tool\": frozenset({\"uninstall\"}),",
+  "new": "\"uv\": (frozenset(), {\"pip\": frozenset({\"uninstall\"}), \"tool\": frozenset({\"uninstall\"}),"
+ },
+ {
+  "id": "b05",
+  "what": "R2: the cache verbs of uv are no delete",
+  "old": "\"cache\": frozenset({\"clean\", \"prune\"}), \"python\": frozenset({\"uninstall\"})}),",
+  "new": "\"python\": frozenset({\"uninstall\"})}),"
+ },
+ {
+  "id": "b06",
+  "what": "R2: go clean asks without -modcache as well",
+  "old": "_DELETE_ONLY_WITH = {\"go\": frozenset({\"-modcache\", \"--modcache\"})}",
+  "new": "_DELETE_ONLY_WITH = {}"
+ },
+ {
+  "id": "b07",
+  "what": "U1: unshare is no wrapper",
+  "old": "**dict.fromkeys(\"unshare nsenter runuser ltrace",
+  "new": "**dict.fromkeys(\"nsenter runuser ltrace"
+ },
+ {
+  "id": "b08",
+  "what": "U1: lockf and its kin take no word before the command",
+  "old": "**dict.fromkeys(\"lockf faketime gosu chrt taskset\".split(), 1),",
+  "new": "**dict.fromkeys(\"lockf faketime gosu chrt taskset\".split(), 0),"
+ },
+ {
+  "id": "b09",
+  "what": "U1: op run is not looked through",
+  "old": "    \"op\": {(\"run\",): 0},\n",
+  "new": "    \"op\": {},\n"
+ },
+ {
+  "id": "b10",
+  "what": "U1: hyperfine's quoted word is no command line",
+  "old": "_NC_SCRIPT_WORDS = frozenset(\"ssh watch parallel trap tmux hyperfine watchexec entr\".split())",
+  "new": "_NC_SCRIPT_WORDS = frozenset(\"ssh watch parallel trap tmux watchexec entr\".split())"
+ },
+ {
+  "id": "b11",
+  "what": "U1: gdb --args is not looked through",
+  "old": "_NC_AFTER_OPTION: dict = {\"gdb\": frozenset({\"--args\"}), \"lldb\": frozenset({\"--\"})}",
+  "new": "_NC_AFTER_OPTION: dict = {\"gdb\": frozenset({\"--never\"}), \"lldb\": frozenset({\"--\"})}"
+ },
+ {
+  "id": "b12",
+  "what": "U3: a Homebrew g name is not the GNU tool",
+  "old": "    return name[1:] if name in _GNU_G_NAMES else name",
+  "new": "    return name"
+ },
+ {
+  "id": "b13",
+  "what": "U4: the net does not speak",
+  "old": "            for i, j in net_starts(toks) if net else ():",
+  "new": "            for i, j in ():"
+ },
+ {
+  "id": "b14",
+  "what": "U4: a text tool in front of git is no text tool",
+  "old": "        if _known_name(name) or name in _NET_TEXT:",
+  "new": "        if _known_name(name):"
+ },
+ {
+  "id": "b15",
+  "what": "L: a mutation on an issue or a label is not denied",
+  "old": "_GRAPHQL_TRACKER_RE = re.compile(r\"Issue|Label\")",
+  "new": "_GRAPHQL_TRACKER_RE = re.compile(r\"NeverAName\")"
+ },
+ {
+  "id": "b16",
+  "what": "L: another mutation does not ask",
+  "old": "    return \"ask\", GRAPHQL_ASK_MSG.format(what=f\"`{via}` sends the GraphQL mutation{named}\")",
+  "new": "    return None"
+ },
+ {
+  "id": "b17",
+  "what": "L3: a query the line does not hold does not ask",
+  "old": "    if query is None:\n        return \"ask\", GRAPHQL_ASK_MSG.format(what=f\"`{via}` sends a GraphQL document the guard cannot read\")",
+  "new": "    if query is None:\n        return None"
+ },
+ {
+  "id": "b18",
+  "what": "L: a query read from a variable counts as a document",
+  "old": "    if value.startswith(\"@\") or re.fullmatch(r\"\\$\\{?\\w+\\}?\", value.strip()):\n        return None",
+  "new": "    if value.startswith(\"@\"):\n        return None"
+ },
+ {
+  "id": "b19",
+  "what": "P: update-ref of refs/heads/<protected> is not denied",
+  "old": "    name = ref[len(\"refs/heads/\"):] if ref.startswith(\"refs/heads/\") else None",
+  "new": "    name = None"
+ },
+ {
+  "id": "b20",
+  "what": "P: update-ref HEAD on a protected branch is not denied",
+  "old": "    if name is None and ref == \"HEAD\":\n        name = current_branch(where)",
+  "new": "    if name is None and ref == \"HEAD\":\n        name = None"
+ },
+ {
+  "id": "b21",
+  "what": "P: update-ref --stdin does not ask",
+  "old": "    if \"--stdin\" in rest:\n        return \"ask\", UPDATE_REF_STDIN_MSG",
+  "new": "    if \"--stdin\" in rest:\n        return None"
+ },
+ {
+  "id": "b22",
+  "what": "I1: a shell fed by an unread pipe does not ask",
+  "old": "    if _nc_pipe_shell(piped):\n        raise CommandNotRead(_PIPE_NOT_READ)",
+  "new": "    if False:\n        raise CommandNotRead(_PIPE_NOT_READ)"
+ },
+ {
+  "id": "b23",
+  "what": "V: the secret store table does not speak",
+  "old": "        if _leading(args, words) and (cond is None or cond(args)):",
+  "new": "        if False and _leading(args, words) and (cond is None or cond(args)):"
+ },
+ {
+  "id": "b24",
+  "what": "V: az calls that print a secret do not ask",
+  "old": "        if not _help_probe(args) and any(lead[-len(tail) :] == tail for tail in _AZ_SECRET_TAILS):",
+  "new": "        if False:"
+ },
+ {
+  "id": "b25",
+  "what": "V: git credential fill does not ask",
+  "old": "        if (sub == \"credential\" and \"fill\" in rest) or (sub and sub.startswith(\"credential-\") and \"get\" in rest):",
+  "new": "        if False:"
+ },
+ {
+  "id": "b26",
+  "what": "V: sops -d does not ask",
+  "old": "    if head == \"sops\" and (\"-d\" in args or \"--decrypt\" in args):",
+  "new": "    if False:"
+ },
+ {
+  "id": "b27",
+  "what": "V (the engineer's addition): a bare pass NAME does not ask",
+  "old": "        if first is not None and first not in _PASS_SUBS:",
+  "new": "        if False:"
+ },
+ {
+  "id": "b28",
+  "what": "V (the engineer's additions): aws ecr get-login-password and sts get-session-token do not ask",
+  "old": "            ((\"ecr\", \"get-login-password\"), None), ((\"sts\", \"get-session-token\"), None)],",
+  "new": "            ],"
+ },
+ {
+  "id": "b29",
+  "what": "V (the engineer's addition): gcloud application-default token does not ask",
+  "old": "               ((\"auth\", \"application-default\", \"print-access-token\"), None)],",
+  "new": "               ],"
+ },
+ {
+  "id": "b30",
+  "what": "V: kubectl get secret asks whatever the output format",
+  "old": "        return value.split(\"=\", 1)[0] not in _KUBECTL_QUIET_OUTPUT\n    return False",
+  "new": "        return True\n    return True"
+ },
+ {
+  "id": "b31",
+  "what": "V: a help probe of a secret store asks",
+  "old": "    if _help_probe(args):\n        return None\n    for words, cond in _SECRET_STORES.get(head, ()):",
+  "new": "    for words, cond in _SECRET_STORES.get(head, ()):"
+ },
+ {
+  "id": "b32",
+  "what": "W1: a guard path in capitals is no guard path",
+  "old": "    return (_guard_config_as_written(path, home_claude)\n            or _guard_config_as_written(path.lower(), home_claude.lower()))",
+  "new": "    return _guard_config_as_written(path, home_claude)"
+ },
+ {
+  "id": "b33",
+  "what": "W: the GitHub API host in capitals is another host",
+  "old": "        url = next((t for t in seg[1:] if (\"api.github.com/repos/\" in t.lower() and _ISSUE_API_RE.search(t))",
+  "new": "        url = next((t for t in seg[1:] if (\"api.github.com/repos/\" in t and _ISSUE_API_RE.search(t))"
+ },
+ {
+  "id": "b34",
+  "what": "W2: a verb of brew or gem in capitals is no verb",
+  "old": "_CAPS_VERB_TOOLS = frozenset({\"brew\", \"gem\"})",
+  "new": "_CAPS_VERB_TOOLS = frozenset()"
+ },
+ {
+  "id": "b35",
+  "what": "M: gh pr merge does not ask",
+  "old": "        return \"ask\", MERGE_ASK_MSG.format(what=\"`gh pr merge`\")",
+  "new": "        return None"
+ },
+ {
+  "id": "b36",
+  "what": "M: gh pr merge --admin is not denied",
+  "old": "        if any(t == \"--admin\" or (t.startswith(\"--admin=\") and t[8:].lower() != \"false\") for t in seg):",
+  "new": "        if False:"
+ },
+ {
+  "id": "b37",
+  "what": "M: a merge through gh api does not ask",
+  "old": "        if method == \"PUT\" and _MERGE_API_RE.search(path):",
+  "new": "        if False:"
+ },
+ {
+  "id": "b38",
+  "what": "M: a merge through curl does not ask",
+  "old": "        if merge and _http_method(seg) == \"PUT\":",
+  "new": "        if False:"
+ },
+ {
+  "id": "b39",
+  "what": "X: an export inside eval does not reach the git call behind it",
+  "old": "            if toks[0] == \"eval\" and len(toks) > 1:",
+  "new": "            if False:"
+ },
+ {
+  "id": "b40",
+  "what": "X: LEFTHOOK=false is no switch",
+  "old": "\"LEFTHOOK\": frozenset({\"0\", \"false\"})}",
+  "new": "\"LEFTHOOK\": frozenset({\"0\"})}"
+ },
+ {
+  "id": "b41",
+  "what": "X: an ssh option behind the host is taken for the command",
+  "old": "    j = _ssh_options(args, k + 1)\n    return None if j is None else list(args[j:])",
+  "new": "    return list(args[k + 1 :])"
+ },
+ {
+  "id": "b42",
+  "what": "X: a here-document on a group is not handed to the shell inside",
+  "old": "        if not fed and toks in ([], [\"}\"]):\n            fed, runner = _nc_group_fed(rows, seps, k, bodies)",
+  "new": "        if False:\n            fed, runner = _nc_group_fed(rows, seps, k, bodies)"
+ },
+ {
+  "id": "b43",
+  "what": "X5: a `)` of a case pattern closes the substitution again",
+  "old": "            if c == \")\" and cases and depth == 1:\n                j += 1\n                continue",
+  "new": "            if False:\n                j += 1\n                continue"
+ },
+ {
+  "id": "b44",
+  "what": "the first pass of tracker-guard returns its ask before a later deny",
+  "old": "        if d and d[0] == \"deny\":\n            return d\n        if d:\n            asks.append(d)\n    # the reader takes the bodies out (0.8.0); the net reads a gh or az behind an unknown word (0.9.0)",
+  "new": "        if d:\n            return d\n    # the reader takes the bodies out (0.8.0); the net reads a gh or az behind an unknown word (0.9.0)"
+ },
+ {
+  "id": "c01",
+  "what": "K1: host-install judges find's operands again",
+  "old": "        start = next((k + 1 for k in range(1, len(toks)) if toks[k] in _NC_FIND_EXEC), len(toks))",
+  "new": "        start = 1"
+ },
+ {
+  "id": "c02",
+  "what": "K2: git restore --staged asks again",
+  "old": "            return ((\"--staged\" in rest or \"S\" in shorts) and \"--worktree\" not in rest and \"W\" not in shorts)",
+  "new": "            return False"
+ },
+ {
+  "id": "c03",
+  "what": "K2 keep: git restore --staged --worktree is silent",
+  "old": "            return ((\"--staged\" in rest or \"S\" in shorts) and \"--worktree\" not in rest and \"W\" not in shorts)",
+  "new": "            return \"--staged\" in rest or \"S\" in shorts"
+ },
+ {
+  "id": "c04",
+  "what": "K4: git clean -n asks again",
+  "old": "        if sub == \"clean\":\n            return _git_clean_dry(rest)",
+  "new": "        if sub == \"clean\":\n            return False"
+ },
+ {
+  "id": "c05",
+  "what": "K4 keep: the word after -e counts as a flag of git clean",
+  "old": "        elif t in (\"-e\", \"--exclude\"):\n            skip = True",
+  "new": "        elif t in (\"-e\", \"--exclude\"):\n            skip = False"
+ },
+ {
+  "id": "c06",
+  "what": "K4 keep: a `--` no longer ends the options of git clean",
+  "old": "        elif t == \"--\":\n            return False\n        elif t == \"--dry-run\":",
+  "new": "        elif t == \"--never\":\n            return False\n        elif t == \"--dry-run\":"
+ },
+ {
+  "id": "c07",
+  "what": "K4: kubectl delete --dry-run=client asks again",
+  "old": "    if name == \"kubectl\":\n        return _dry_run(\"kubectl\", toks[1:])\n    return False",
+  "new": "    return False"
+ },
+ {
+  "id": "c08",
+  "what": "K5: a help probe asks again",
+  "old": "    if toks[-1] in _DELETE_HELP and not any(t.startswith(\"-\") for t in toks[1:-1]):",
+  "new": "    if False:"
+ },
+ {
+  "id": "c09",
+  "what": "K5 keep: a help word behind another option is a probe too",
+  "old": "    if toks[-1] in _DELETE_HELP and not any(t.startswith(\"-\") for t in toks[1:-1]):",
+  "new": "    if toks[-1] in _DELETE_HELP:"
+ },
+ {
+  "id": "c10",
+  "what": "K5 keep: rm with an operand and --help is a probe",
+  "old": "        if name in _RM_CLASS:\n            return len(toks) == 2",
+  "new": "        if name in _RM_CLASS:\n            return True"
+ },
+ {
+  "id": "c11",
+  "what": "K4/K5 keep: a preview beside another command silences the line",
+  "old": "    return len(cmds) == 1 and _delete_preview(cmds[0])",
+  "new": "    return any(_delete_preview(c) for c in cmds)"
+ },
+ {
+  "id": "c12",
+  "what": "K5: deploy-ask asks for kubectl delete --help again",
+  "old": "        if _single_preview(ev.command):  # 0.9.0 (K5): `kubectl delete --help` as the whole line changes nothing\n            return None",
+  "new": "        if False:\n            return None"
+ },
+ {
+  "id": "c13",
+  "what": "K3: the first pass of secret-shell reads a search pattern as a path again",
+  "old": "        # 0.9.0 (K3): the first pass leaves a search tool's pattern out as the reader pass does\n        _secret_reader_seg(seg, ev.cwd, writes, reads)",
+  "new": "        _secret_seg(seg, ev.cwd, writes, reads)"
+ },
+ {
+  "id": "c14",
+  "what": "K8: the word after an exclude option is a path again",
+  "old": "        if seg[k - 1] in _PATTERN_VALUE_OPTIONS:  # 0.9.0 (K8): `tar --exclude .env`, the value in the next word\n            continue",
+  "new": "        if False:\n            continue"
+ },
+ {
+  "id": "c15",
+  "what": "K6/K7/K9: a report command on a secret path asks again",
+  "old": "    if quiet.get(words, 0) > 0:\n        quiet[words] -= 1\n        return True\n    return False",
+  "new": "    return False"
+ },
+ {
+  "id": "c16",
+  "what": "K6/K7/K9 keep: a report command whose output is piped onward is silent",
+  "old": "        if sep.strip(\" \") not in _QUIET_SEPS or nxt in (\"|\", \"|&\", \"(\"):\n            continue",
+  "new": "        if False:\n            continue"
+ },
+ {
+  "id": "c17",
+  "what": "K6/K7/K9 keep: a line with a here-document is read for quiet reports",
+  "old": "    if \"<<\" in command:\n        return ()",
+  "new": "    if False:\n        return ()"
+ },
+ {
+  "id": "c18",
+  "what": "K6/K7/K9 keep: a quiet report is not counted off, so its nested twin is silent too",
+  "old": "    if quiet.get(words, 0) > 0:\n        quiet[words] -= 1\n        return True",
+  "new": "    if quiet.get(words, 0) > 0:\n        return True"
+ },
+ {
+  "id": "c19",
+  "what": "K7: git status on a secret path asks again",
+  "old": "_REPORT_GIT_SUBS = frozenset({\"check-ignore\", \"ls-files\", \"status\"})",
+  "new": "_REPORT_GIT_SUBS = frozenset({\"check-ignore\", \"ls-files\"})"
+ },
+ {
+  "id": "c20",
+  "what": "K7 keep: git diff counts as a command that reports names",
+  "old": "_REPORT_GIT_SUBS = frozenset({\"check-ignore\", \"ls-files\", \"status\"})",
+  "new": "_REPORT_GIT_SUBS = frozenset({\"check-ignore\", \"ls-files\", \"status\", \"diff\"})"
+ },
+ {
+  "id": "c21",
+  "what": "K6 keep: cat counts as a report command",
+  "old": "_REPORT_HEADS = frozenset({\"echo\", \"printf\", \"ls\", \"stat\", \"test\", \"[\", \"[[\"})",
+  "new": "_REPORT_HEADS = frozenset({\"echo\", \"printf\", \"ls\", \"stat\", \"test\", \"[\", \"[[\", \"cat\"})"
+ },
+ {
+  "id": "c22",
+  "what": "K10: command -v of an LLM tool asks again",
+  "old": "            if toks[i] == \"command\" and toks[i + 1 : i + 2] in ([\"-v\"], [\"-V\"]):",
+  "new": "            if False:"
+ },
+ {
+  "id": "c23",
+  "what": "K11: a vendor's name in a quoted search pattern asks again",
+  "old": "        if d and not _only_in_search_patterns(text, ev.command, seg):",
+  "new": "        if d:"
+ },
+ {
+  "id": "c24",
+  "what": "K11 keep: a hit outside the pattern is dropped as well",
+  "old": "            if not any(a <= pos and end <= b for a, b in spans):\n                return False",
+  "new": "            if False:\n                return False"
+ },
+ {
+  "id": "c25",
+  "what": "K11 keep: a pattern without a bar counts too, so any quoted word of a search tool hides a hit",
+  "old": "        if not _SEP_RE.search(p):\n            continue",
+  "new": "        if False:\n            continue"
+ }
+]

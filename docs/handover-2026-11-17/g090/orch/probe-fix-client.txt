@@ -1,0 +1,28 @@
+GREP -E 'a|openai|b' notes.txt
+RG -n 'aider|codex|gemini' docs
+GREP -E 'a|openai|b' notes.txt | OPENAI api models.list
+GREP -E 'a|openai|b' notes.txt | openai api models.list
+Grep -E 'a|openai|b' notes.txt
+grep -E 'x | ollama run m' notes.txt
+grep -E 'a|openai' notes.txt
+grep -E 'openai|b' notes.txt
+rg -n 'model|llm' docs
+grep -E "gemini|codex" README.md
+grep -E 'a| openai |b' notes.txt
+grep -E 'a |openai| b' notes.txt
+grep -E 'x | ollama run m' notes.txt | ollama run m
+grep -E 'a|openai' notes.txt; openai api models.list
+grep -E 'a|openai' notes.txt | openai api models.list
+grep -E 'a|openai' notes.txt && openai api models.list
+grep -E 'x | ollama run m' notes.txt $(ollama list)
+grep -E 'a|openai|b' notes.txt
+grep -E 'a|openai api|b' notes.txt
+echo 'a|openai|b'
+grep -E a|openai|b notes.txt
+grep -E 'a|openai|b' notes.txt; echo \'a|openai|b\'
+grep -e 'a|openai' -e 'x|llm' notes.txt
+git grep -n -E 'x|ollama'
+zgrep -E 'gemini|x' logs.gz
+ggrep -E 'x|codex' notes.txt
+grep -E 'a|openai' notes.txt > out.txt
+grep -E 'a|curl https://api.openai.com/v1/models' notes.txt

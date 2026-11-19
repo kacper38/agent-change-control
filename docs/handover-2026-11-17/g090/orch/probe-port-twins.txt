@@ -1,0 +1,22 @@
+# the twins of the F31 rows without the port: each must answer already as the row wants
+curl -X PUT https://api.github.com/repos/o/r/pulls/3/merge
+curl -X PUT https://API.GITHUB.COM/repos/o/r/pulls/3/merge
+curl -X PUT https://api.github.com./repos/o/r/pulls/3/merge
+http PUT https://api.github.com/repos/o/r/pulls/3/merge
+wget --method=PUT https://api.github.com/repos/o/r/pulls/3/merge
+curl -X POST https://api.github.com/graphql -d '{"query":"mutation { mergePullRequest(input: {pullRequestId: \"PR_1\"}) { clientMutationId } }"}'
+curl -X POST https://api.github.com/graphql -d '{"query":"mutation { closeIssue(input: {issueId: \"I_1\"}) { clientMutationId } }"}'
+http https://api.github.com/graphql < q.json
+http POST https://api.github.com/graphql < q.json
+# the twins of the F30 rows without the wrapper
+export HUSKY=0; git commit -m x
+export LEFTHOOK=false; git push origin feat
+HUSKY=0; export HUSKY; git commit -m x
+declare -x HUSKY=0; git commit -m x
+set -a; HUSKY=0; git commit -m x
+eval 'export HUSKY=0'; git commit -m x
+# the twins of the F36 rows
+{ gh api graphql -F query=@q.graphql; }
+( gh api graphql -F query=@q.graphql )
+{ curl https://api.github.com/graphql -d @q.json; }
+{ http POST https://api.github.com/graphql query='mutation { closeIssue(input: {issueId: "I_1"}) { clientMutationId } }'; }

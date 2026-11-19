@@ -1,0 +1,11 @@
+# a doubled slash in the path of a merge through the API
+curl -X PUT https://api.github.com//repos/o/r/pulls/3/merge
+curl -X PUT https://api.github.com/repos//o/r/pulls/3/merge
+curl -X PUT https://api.github.com/repos/o/r/pulls//3/merge
+curl -X PUT https://api.github.com/repos/o/r/pulls/3//merge
+http PUT https://api.github.com//repos/o/r/pulls/3/merge
+gh api -X PUT //repos/o/r/pulls/3/merge
+gh api -X PUT repos/o/r/pulls//3/merge
+gh api -X PUT /repos/o/r/pulls/3/merge
+curl -X POST https://api.github.com//graphql -d '{"query":"mutation { mergePullRequest(input: {pullRequestId: \"PR_1\"}) { clientMutationId } }"}'
+curl -X PUT https://api.github.com/repos/o/r/pulls/3/merge

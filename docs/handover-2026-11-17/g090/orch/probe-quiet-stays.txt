@@ -1,0 +1,41 @@
+# Plain lines with a report and quotes, braces or brackets that read nothing: the stricter reading should leave
+# their verdicts as the head has them. Data for probe.py. Never typed.
+ls -la .env; echo "done"
+ls -la .env; echo done
+test -f .env && echo "1) found"
+test -f .env && echo "found (ok)"
+ls -la "${HOME}/.env"
+ls -la ${HOME}/.env
+ls -la "$HOME/.env"
+[[ -f .env && -r .env ]] && echo ok
+[[ -f .env ]] && echo "yes"
+if [ -f .env ]; then echo "yes"; fi
+if [ -f .env ]; then echo "yes"; else echo "no"; fi
+if [[ -f .env ]]; then echo yes; fi
+echo ".env" >> .gitignore
+echo '.env' >> .gitignore
+grep -q "^\.env$" .gitignore || echo .env >> .gitignore
+ls .env; echo ":)"
+test -f .env && echo "found $(date +%s)"
+test -f .env && echo "found `date`"
+find . -maxdepth 1 -name .env -exec ls -la {} \;
+ls -la .env {a,b}.txt
+stat -f '%N %z' .env
+ls .env; echo '{}'
+ls .env; echo "{ }"
+test -f .env || echo "missing: .env"
+[ -f .env ] && echo "exists" || echo "missing"
+ls -la .env 2>/dev/null || echo "no .env"
+for f in .env.example; do test -f .env && echo "$f"; done
+ls -la .env; printf '%s\n' "ok"
+printf '%s\n' .env
+test -f .env && echo "it's there"
+ls .env; echo "say \"hi\""
+ls -la .env && echo "size: ${#PATH}"
+ls -la .env && echo "${USER:-nobody}"
+{ ls -la .env; } 2>/dev/null
+{ ls -la .env; echo "done"; }
+git status .env; echo "branch: $(git branch --show-current)"
+git check-ignore -q .env && echo "ignored"
+ls -la .env # the secrets file
+echo "check .env" && ls -la .env

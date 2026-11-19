@@ -1,0 +1,52 @@
+# a quiet report whose own options or environment hand the secret file to something that reads it
+git status .env
+git -c core.fsmonitor='cat .env >&2' status
+git -c core.fsmonitor=.env status
+git -c core.pager='cat .env' status
+git -c pager.status=true -c core.pager='cat .env' status
+git -c core.excludesFile=.env status --ignored
+git -c core.excludesFile=.env check-ignore -v x
+git -c core.attributesFile=.env ls-files
+git -c include.path=.env status
+git --config-env=core.pager=X status .env
+git --exec-path=.env status
+git --git-dir=.env status
+git -C .env status
+git -p status .env
+git --paginate status .env
+git --no-pager status .env
+git check-ignore --stdin < .env
+git check-ignore -v -n --stdin < .env
+git check-ignore --stdin -z < .env
+git ls-files --exclude-from=.env -o
+git ls-files -X .env -o
+git ls-files --exclude-per-directory=.env -o
+git ls-files --with-tree=.env
+git status --pathspec-from-file=.env
+git ls-files --format='%(path)' .env
+GIT_PAGER='cat .env' git status
+GIT_CONFIG_PARAMETERS="'core.fsmonitor=cat .env'" git status
+GIT_EXTERNAL_DIFF='cat .env' git status
+PAGER='cat .env' git status
+X=.env ls
+LS_COLORS=.env ls
+ENV=.env ls
+BASH_ENV=.env ls
+ls < .env
+stat < .env
+echo x < .env
+test -f x < .env
+[[ -f .env ]] < .env
+printf '%s\n' x < .env
+ls --hide=.env
+ls -I .env
+stat -f '%N' .env
+stat --printf='%n' .env
+stat -c '%n' .env
+stat -t .env
+echo -e .env
+printf '%s' .env
+printf -- .env
+test -s .env
+[ -r .env ]
+[[ -r .env && -s .env ]]

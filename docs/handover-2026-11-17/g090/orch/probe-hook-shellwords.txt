@@ -1,0 +1,48 @@
+# the hook switch behind a shell word, inside a compound or behind a precommand modifier, then a commit
+export HUSKY=0; git commit -m x
+time export HUSKY=0; git commit -m x
+time -p export HUSKY=0; git commit -m x
+command -p -- eval 'export HUSKY=0'; git commit -m x
+{ export HUSKY=0; }; git commit -m x
+{ { export HUSKY=0; }; }; git commit -m x
+if true; then export HUSKY=0; fi; git commit -m x
+if false; then :; elif true; then export HUSKY=0; fi; git commit -m x
+if export HUSKY=0; then git commit -m x; fi
+if export HUSKY=0; then :; fi; git commit -m x
+while export HUSKY=0; do git commit -m x; break; done
+until export HUSKY=0; do break; done; git commit -m x
+for i in 1; do export HUSKY=0; done; git commit -m x
+while true; do export HUSKY=0; break; done; git commit -m x
+case x in x) export HUSKY=0;; esac; git commit -m x
+case x in x) export HUSKY=0; git commit -m x;; esac
+! export HUSKY=0; git commit -m x
+f() { export HUSKY=0; }; f; git commit -m x
+f() { export HUSKY=0; git commit -m x; }; f
+(export HUSKY=0); git commit -m x
+(export HUSKY=0; git commit -m x)
+true | export HUSKY=0; git commit -m x
+noglob export HUSKY=0; git commit -m x
+nocorrect export HUSKY=0; git commit -m x
+- export HUSKY=0; git commit -m x
+typeset -x HUSKY=0; git commit -m x
+declare -x HUSKY=0; git commit -m x
+export -- HUSKY=0; git commit -m x
+HUSKY=0; export HUSKY; git commit -m x
+set -a; HUSKY=0; git commit -m x
+set -o allexport; HUSKY=0; git commit -m x
+setopt allexport; HUSKY=0; git commit -m x
+export HUSKY; HUSKY=0; git commit -m x
+: ${HUSKY:=0}; export HUSKY; git commit -m x
+read HUSKY <<< 0; export HUSKY; git commit -m x
+printf -v HUSKY 0; export HUSKY; git commit -m x
+export HUSKY=0 && git commit -m x
+export HUSKY=0 || git commit -m x
+export HUSKY=0 & git commit -m x
+# the plain twins of some held-out candidates
+http POST https://api.github.com/graphql query='mutation { mergePullRequest(input: {pullRequestId: "PR_1"}) { clientMutationId } }'
+https api.github.com/graphql < q.json
+http https://api.github.com/graphql 0< q.json
+curl -X POST https://api.github.com/graphql -d @q.json
+export SKIP=ruff; git commit -m x
+gh api -X PUT /repos/o/r/pulls/3/merge
+gh api --method PUT repos/o/r/pulls/3/merge

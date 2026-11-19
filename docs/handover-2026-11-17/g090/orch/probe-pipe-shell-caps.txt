@@ -1,0 +1,14 @@
+# A shell behind a pipe, its name in capitals or with a path (the file system of macOS folds the case): the two
+# tables that name the shells are read through different name functions. Commands are data, never run.
+cat run.sh | fish
+cat run.sh | ash
+cat run.sh | FISH
+cat run.sh | Ash
+cat run.sh | /opt/homebrew/bin/FISH
+cat run.sh | BASH
+cat run.sh | /bin/SH
+cat run.sh | fish.exe
+cat run.sh | env FISH
+cat run.sh | sudo FISH
+(cat run.sh) | FISH
+cat run.sh | { cd x; FISH; }

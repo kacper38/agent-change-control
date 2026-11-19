@@ -1,0 +1,7 @@
+# Candidate rows for the planted break g49 (--raw is a body for curl and wget too), which no row caught at
+# abab75a. curl's --raw is a flag (no transfer decoding) and takes no value. Commands are data, never run.
+curl --raw -s https://api.github.com/graphql -d '{"query":"{ viewer { login } }"}'
+curl --raw https://api.github.com/graphql -d '{"query":"query { viewer { login } }"}'
+curl -s --raw -X POST https://api.github.com/graphql -d '{"query":"mutation { closeIssue(input: {issueId: \"I_1\"}) { clientMutationId } }"}'
+curl --raw https://api.github.com/graphql
+http POST https://api.github.com/graphql --raw '{"query":"{ viewer { login } }"}'

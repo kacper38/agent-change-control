@@ -1,0 +1,16 @@
+# a report behind `!` or `time`, alone and in front of a compound
+! if true; then ls .env; fi | xargs cat
+time for f in a; do ls .env; done | xargs cat
+time { ls .env; } | xargs cat
+! { true; ls .env; } | xargs cat
+time ls .env | xargs cat
+! ls .env | xargs cat
+time ls -la .env
+! test -f .env
+time { ls -la .env; }
+! { test -f .env; }
+time if true; then ls -la .env; fi
+if ! test -f .env; then echo missing; fi
+time -p ls -la .env
+! time ls .env | xargs cat
+time ! ls .env | xargs cat

@@ -1,0 +1,21 @@
+# A fifth list for the quiet-report check. Data for probe.py and for sem/close_brace.py. Never typed.
+# --- a substitution in a double-quoted string whose own quotes show the lexer a separator; the word behind it
+# --- is no word of separator characters, so the lexer's quirk does not step in
+{ ls .env; echo "$(echo " ; { true ; echo ") x"; } | xargs cat; echo "$(echo " ; } ; echo ") y"
+{ ls .env; : "$(: " ; { true ; : ") x"; } | xargs cat; : "$(: " ; } ; : ") y"
+{ ls .env; echo "`echo " ; { true ; echo "` x"; } | xargs cat; echo "`echo " ; } ; echo "` y"
+{ ls .env; echo "$(echo 'a" ; { true ; echo "b')"; } | xargs cat; echo "$(echo 'a" ; } ; echo "b')"
+# --- the same quotes show the lexer a report the shell does not run, and its count goes to the piped twin
+echo "$(echo 'c" ; ls .env ; echo "d')"; ls .env | xargs cat
+echo "`echo 'c" ; ls .env ; echo "d'`"; ls .env | xargs cat
+# --- the lexer is not back in the string where the shell ends the substitution: the pipe behind it is quoted for it
+ls .env "$(echo 'a"b')" | xargs cat \'
+ls .env "`echo 'a"b'`" | xargs cat \'
+# --- closers behind closers
+while true; do ls .env; break; while false; do true; done done | xargs cat; time while false; do true; done
+# --- an empty quoted part beside a brace
+{ ls .env; {''; } | xargs cat; ''}
+{ ls .env; ''{; } | xargs cat; }''
+{ ls .env; {""; } | xargs cat; ""}
+# --- a draft row that was never run
+while true; do ls .env; break; do done | xargs cat; time while false; do true; done

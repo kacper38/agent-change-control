@@ -1,0 +1,16 @@
+# candidates: a backtick in a quoted word, arithmetic, line breaks behind shell words, zsh's forms
+B1 | feat/x | secret-shell | ask | echo "`git config pager.ls-files 'xargs cat'`"; git ls-files .env
+B2 | feat/x | secret-shell | ask | echo "$((1))"; git ls-files .env
+B3 | feat/x | secret-shell | silent | "if true; then\n  git ls-files .env\nfi"
+B4 | feat/x | secret-shell | silent | "while false; do\n  git status -s .env\ndone"
+B5 | feat/x | secret-shell | silent | "{\n  git check-ignore .env\n}"
+B6 | feat/x | secret-shell | ask | echo ${(e):-'$(git config pager.ls-files "xargs cat")'}; git ls-files .env
+B7 | feat/x | secret-shell | ask | : ${GIT_CONFIG_PARAMETERS::="'pager.ls-files=xargs cat'"}; git ls-files .env
+B8 | feat/x | secret-shell | ask | echo $GIT_CONFIG_PARAMETERS[1,0]; git ls-files .env
+B9 | feat/x | secret-shell | ask | ls ~+ .env; git ls-files .env
+B10 | feat/x | secret-shell | ask | echo x >&2; git ls-files .env
+B11 | feat/x | secret-shell | ask | true; git ls-files .env &
+B12 | feat/x | secret-shell | ask | cd .git && git config pager.ls-files 'xargs cat'; cd .. && git ls-files .env
+B13 | feat/x | secret-shell | ask | echo =(git config pager.ls-files 'xargs cat'); git ls-files .env
+B14 | feat/x | secret-shell | ask | ls -d *(e:'git config pager.ls-files "xargs cat"':); git ls-files .env
+B15 | feat/x | secret-shell | ask | echo ${:-x}${$(git config pager.ls-files 'xargs cat')}; git ls-files .env

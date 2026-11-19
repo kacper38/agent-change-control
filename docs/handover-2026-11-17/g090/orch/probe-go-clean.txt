@@ -1,0 +1,16 @@
+# go clean with a cache flag in Go's other spellings (the flag package takes -flag, --flag and -flag=true)
+go clean -modcache
+go clean --modcache
+go clean -modcache=true
+go clean --modcache=true
+go clean -modcache=1
+go clean -modcache=false
+go clean -cache
+go clean -cache=true
+go clean -testcache
+go clean -fuzzcache
+go clean -i -r -cache=true
+go clean
+go clean -n -modcache
+go clean -modcache -n
+go clean -x ./...

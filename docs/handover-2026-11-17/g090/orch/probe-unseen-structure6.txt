@@ -1,0 +1,15 @@
+# A sixth list for the quiet-report check: `$'…'`. Data for probe.py and for sem/close_brace.py. Never typed.
+# --- `$'…'` inside a quoted substitution: its escaped quote hides the `)` from a plain reading of the body
+{ ls .env; : "$(: $'a\' ) " ; { true ; : "')"; } | xargs cat; : "$(: $'a\' ) " ; } ; : "')"
+echo "$(echo $'a\' ) " ; ls .env ; echo "')" ; ls .env | xargs cat
+# --- `$'…'` behind a string that ends
+{ ls .env; : 'a'$'\'' ; } | xargs cat; { : \' ; }
+{ ls .env; : "a"$'\'' ; } | xargs cat; { : \' ; }
+# --- a single-quoted string that only ends in `$`: no `$'…'` for any shell
+grep -q '^.env$' .gitignore || echo ".env" >> .gitignore
+ls -la .env; echo 'costs 5$'
+ls -la .env; echo 'a$' 'b'
+{ ls .env; : 'a$' '{'; } | xargs cat; : 'a$' '}'
+# --- `$'` inside a double-quoted string is two plain characters
+ls -la .env; echo "a$'b"
+{ ls .env; : "a$'" ; } | xargs cat

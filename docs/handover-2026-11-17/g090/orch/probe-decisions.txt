@@ -1,0 +1,84 @@
+# Every command the decision record of guard 0.9.0 names in its bullets on limits and older gaps, probed at 0.8.0
+# and at the head so that the record states what was measured. Commands are data, never run.
+az group export -n rg
+az storage blob url -c c -n b
+az acr task logs -r reg
+az policy state summarize
+az network watcher test-connectivity -g rg --source-resource vm --dest-address 10.0.0.4
+go clean -modcache -h
+grep -r --include=.env TOKEN .
+rg --glob=.env TOKEN
+cat run.py | python3
+cat run.sh | ssh build bash
+bash -c "$(cat run.sh)"
+bash run.sh
+echo "$X" | bash
+f=.env; cat "$f"
+echo cat .env > run.sh; sh run.sh
+echo .env > list.txt; xargs cat < list.txt
+gh api -X POST repos/o/r/merges -f base=main -f head=feat
+gh pr review 3 --approve
+op document get notes
+sops exec-env secrets.enc.yaml 'printenv'
+ansible-vault edit vault.yml
+LEFTHOOK=off git commit -m x
+LEFTHOOK=FALSE git commit -m x
+LEFTHOOK=false git commit -m x
+az devops invoke --area git --resource repositories
+gh api graphql -f query='query { search(query: "mutation testing", type: REPOSITORY, first: 1) { repositoryCount } }'
+echo brew UNINSTALL jq
+cat run.sh | case x in a) bash;; esac
+case "$SHELL" in */bash|*/zsh) echo ok;; esac
+echo 'git push --force origin feat' | sh
+echo 'git push --force origin feat' | (sh)
+{ echo 'git push --force origin feat'; } | sh
+echo 'git push --force origin feat' | { cd repo; sh; }
+alias ll='rm -rf'; ll build
+cat run.sh | source /dev/stdin
+cat run.sh | rbash
+cat list.txt | xargs -I{} sh -c '{}'
+[[ -r .env && -s .env ]]
+ls .env &
+time ls -la .env
+"test -f .env \\\n&& echo yes"
+ls -la .env; echo $(date)
+ls -la .env; echo "$(date)"
+{ ls -la .env }
+gh api graphql -f query="$Q"
+http --ignore-stdin https://api.github.com/graphql
+http GET https://api.github.com/graphql
+echo '{"query":"{ viewer { login } }"}' | http POST https://api.github.com/graphql
+xh POST https://api.github.com/graphql query='mutation { closeIssue(input: {issueId: "I_1"}) { clientMutationId } }'
+gh api graphql -f query='mutation { addComment(input: {subjectId: "I_1", body: "x"}) { clientMutationId } }'
+git update-ref refs/heads/Main abc123
+f() { export HUSKY=0; }; git commit -m x
+for f (.env) cat $f
+cat .env*
+cat .en?
+echo x >| .env
+echo x >> ~/.ssh/authorized_keys
+echo x >> ~/.ssh/config
+curl -X PATCH https://api.github.com:443/repos/o/r/issues/3 -d '{"state":"closed"}'
+curl -X PATCH https://api.github.com/repos/o/r/issues/3 -d '{"state":"closed"}'
+http https://api.github.com/repos/o/r/issues/3 --raw '{"state":"closed"}'
+echo 'rm -rf build' | (ssh build)
+echo 'rm -rf build' | ssh build
+git -c core.fsmonitor='rm -rf build' status
+GIT_PAGER='rm -rf build' git log
+git -c core.sshCommand=.env fetch
+X=.env ./run.sh
+"find . -name '*.tmp' \\\n-delete"
+"bash <<'EOF'\necho x > .env\nEOF"
+curl -K req.cfg
+curl -F query=@q.graphql https://api.github.com/graphql
+noglob export HUSKY=0; git commit -m x
+gh pr merge 3
+gh pr merge 3 --admin
+gh pr merge 3 --auto --squash
+aws s3 rm s3://bucket/key
+gcloud compute instances delete vm-1
+printenv
+env
+kubectl get secret app -o yaml | wc -l
+aws ecr get-login-password | docker login --username AWS --password-stdin 123.dkr.ecr.eu-central-1.amazonaws.com
+echo gem uninstall rake

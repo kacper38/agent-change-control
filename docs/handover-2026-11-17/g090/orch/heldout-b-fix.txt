@@ -1,0 +1,60 @@
+# Unseen forms for the fix pass of guard 0.9.0 (B and C), kept by the orchestrating session; the engineer and
+# the reviewer never see this file. HR: due with the fix (red at the build head 8879cd5). HS: holds at the head
+# and must keep holding. Same format as the row files.
+
+# B1 kin: genv -S
+HR | feat/x | delete-guard | ask | genv -u FOO -S 'rm -rf build'
+HR | feat/x | git-guard | deny | sudo genv -S 'git push --force origin feat'
+HR | feat/x | host-install | ask | genv -S 'pip install requests'
+HS | feat/x | shell | silent | genv -S 'git status'
+HS | feat/x | delete-guard | ask | env -u FOO -S 'rm -rf build'
+
+# B2 kin: a subshell feeds a shell
+HR | feat/x | delete-guard | ask | (cat run.sh; echo done) | zsh
+HR | feat/x | delete-guard | ask | (gunzip -c x.gz) | sh
+HR | feat/x | delete-guard | ask | (cat run.sh) | sudo bash
+HR | feat/x | delete-guard | ask | (cat run.sh) 2>/dev/null | bash
+HS | feat/x | shell | silent | (git status) | cat
+HS | feat/x | shell | silent | (cat run.sh) | wc -l
+
+# B3 kin: gh auth with -h as the host
+HR | feat/x | secret-shell | ask | gh auth token -u me -h github.com
+HS | feat/x | secret-shell | ask | gh auth status --hostname github.com -t
+HR | feat/x | secret-shell | ask | gh auth status -t -h github.com
+HS | feat/x | shell | silent | gh auth status --hostname github.com
+
+# B4 kin: a query the line does not show
+HR | feat/x | tracker-guard | ask | gh api graphql -f query="$(< q.graphql)"
+HR | feat/x | tracker-guard | ask | gh api graphql --field query="$(cat q.graphql)"
+HR | feat/x | tracker-guard | ask | gh api graphql -f query="$(cat q.graphql)" -f id=I_1
+HR | feat/x | tracker-guard | ask | gh api graphql -fquery="$(cat q.graphql)"
+HS | feat/x | shell | silent | gh api graphql -f query='{ viewer { login } }' -f id="$(cat id.txt)"
+
+# B5 kin: op item get
+HR | feat/x | secret-shell | ask | op item get "GitHub Token" --vault Private
+HR | feat/x | secret-shell | ask | op item get abc123def456 --format=json
+HS | feat/x | shell | silent | op item list --vault Private
+HS | feat/x | shell | silent | op item get GitHub --help
+
+# B6 kin: a search tool in capitals, client boundary
+HR | feat/x@client | shell | silent | EGREP 'a|llm|b' notes.txt
+HR | feat/x@client | shell | silent | GREP -rn -E 'x|gemini|y' docs
+HS | feat/x@client | egress-guard | ask | GREP x notes.txt | OLLAMA run m
+
+# B7 kin: the name in the last alternative, client boundary
+HR | feat/x@client | shell | silent | grep -E 'a|ollama run' notes.txt
+HR | feat/x@client | shell | silent | git grep -n -E 'x|openai api' -- docs
+HR | feat/x@client | shell | silent | rg 'x|llm chat' src
+HS | feat/x@client | egress-guard | ask | grep -E 'a|openai api' notes.txt | llm -m x
+HS | feat/x@client | egress-guard | ask | grep -E 'a|openai api' notes.txt && ollama run m
+
+# B8 kin: an include option's value
+HR | feat/x | secret-shell | ask | grep --include .env -rn TOKEN .
+HR | feat/x | secret-shell | ask | rg -g .env.local TOKEN src
+HR | feat/x | secret-shell | ask | rg --glob .env --hidden TOKEN
+HR | feat/x | secret-shell | ask | ag --file-search-regex .env TOKEN
+HR | feat/x | secret-shell | ask | rsync -av --include .env --include '*/' --exclude '*' . backup/
+HR | feat/x | secret-shell | ask | bash -c 'grep -r --include .env TOKEN .'
+HS | feat/x | shell | silent | grep -rn --exclude-dir node_modules --exclude .env TODO src
+HS | feat/x | shell | silent | rsync -a --exclude .env --exclude '*.pem' src/ dst/
+HS | feat/x | secret-shell | ask | grep -rn --exclude-dir node_modules TOKEN .env

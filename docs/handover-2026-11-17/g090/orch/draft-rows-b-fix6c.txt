@@ -1,0 +1,19 @@
+# DRAFT candidates, third list: a secret name with a character glued to it. Data for rows_verdicts.py. Never typed.
+# id | branch[@client] | rule | expected | command
+Fg | feat/x | secret-shell | ask | ls .env*| xargs cat
+Fg | feat/x | secret-shell | ask | ls .env* | xargs cat
+Fg | feat/x | secret-shell | ask | cat .env*
+Fg | feat/x | secret-shell | ask | cat .env?
+Fg | feat/x | secret-shell | ask | cat .en?
+Fg | feat/x | secret-shell | ask | cat .e*
+Fg | feat/x | secret-shell | ask | echo .env* | xargs cat
+Fg | feat/x | secret-shell | ask | { ls .env*} | xargs cat
+Fg | feat/x | secret-shell | ask | { echo .env*; } | xargs cat
+Fg | feat/x | secret-shell | ask | "{ echo .env\\\n} | xargs cat"
+Fg | feat/x | secret-shell | ask | { echo .env} | xargs cat
+Fg | feat/x | secret-shell | ask | { ls .env} | xargs cat
+Fg | feat/x | secret-shell | ask | { cat .env}
+Fg | feat/x | secret-shell | ask | { true; cat .env}
+Fg | feat/x | secret-shell | ask | cat .env}
+Fg | feat/x | secret-shell | silent | ls -la .env*
+Fg | feat/x | secret-shell | silent | ls -la .env.*

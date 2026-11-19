@@ -1,0 +1,104 @@
+# Unseen forms for the fix pass of guard 0.9.0 (B and C), second file: kin of the review's findings. Kept by the
+# orchestrating session; the engineer and the reviewer never see this file. HR: due with the fix (red at the
+# build head 8879cd5). HS: holds at the head and must keep holding. Same format as the row files.
+
+# F03 kin: the shell behind the pipe inside a subshell, a group or a compound
+HR | feat/x | delete-guard | ask | cat run.sh | ( bash )
+HR | feat/x | delete-guard | ask | cat run.sh | ( exec bash )
+HR | feat/x | delete-guard | ask | cat run.sh | { cd x && sh; }
+HR | feat/x | delete-guard | ask | gunzip -c x.gz | ( cd /tmp; zsh )
+HS | feat/x | shell | silent | cat data.txt | ( cd x && sort )
+HS | feat/x | shell | silent | cat run.sh | while read l; do echo "$l"; done
+
+# F05 kin: a query the line does not show, the endpoint in another spelling
+HR | feat/x | tracker-guard | ask | gh api graphql -f query='{viewer{login}}' --input=q.json
+HR | feat/x | tracker-guard | ask | gh api https://api.github.com/graphql -f query="$Q"
+HR | feat/x | tracker-guard | ask | gh api /graphql -F query=@q.graphql
+HR | feat/x | tracker-guard | deny | gh api -X POST /graphql -f query='mutation { reopenIssue(input: {issueId: "X"}) { clientMutationId } }'
+HR | feat/x | tracker-guard | deny | http POST https://api.github.com/graphql query:='"mutation { reopenIssue(input: {issueId: \"X\"}) { clientMutationId } }"'
+HS | feat/x | shell | silent | gh api /graphql -f query='query { viewer { login } }'
+HS | feat/x | shell | silent | gh api /repos/o/r/issues/3/comments
+
+# F06 kin: secret stores in other spellings
+HR | feat/x | secret-shell | ask | op item get GitHub --vault Private --format=json
+HR | feat/x | secret-shell | ask | security find-generic-password -a me -ws svc
+HR | feat/x | secret-shell | ask | aws configure get profile.dev.aws_session_token
+HR | feat/x | secret-shell | ask | aws --profile dev secretsmanager batch-get-secret-value --secret-id-list a b
+HR | feat/x | secret-shell | ask | kubectl -n prod get Secrets app -o json
+HR | feat/x | secret-shell | ask | kubectl get secret app --template '{{.data.password}}'
+HR | feat/x | secret-shell | ask | kubectl get --raw=/api/v1/namespaces/prod/secrets/app
+HR | feat/x | secret-shell | ask | kubectl config view --flatten --minify
+HR | feat/x | secret-shell | ask | doppler secrets --raw
+HS | feat/x | shell | silent | kubectl get --raw /api/v1/nodes
+HS | feat/x | shell | silent | kubectl config view -o json
+HS | feat/x | shell | silent | doppler secrets --only-names --json
+HS | feat/x | shell | silent | aws configure get profile.dev.region
+HS | feat/x | shell | silent | security find-generic-password -a me -s svc
+
+# F09 kin: the value of an option that names a file
+HR | feat/x | secret-shell | ask | ag --path-to-ignore .env.local x
+HR | feat/x | secret-shell | ask | rg --hidden --ignore-file .env TOKEN src
+HS | feat/x | secret-shell | ask | tar -X .env -czf out.tgz .
+
+# F10 kin: inside a client boundary, ssh words and a pager
+HR | feat/x@client | egress-guard | ask | ssh build grep -rn -E 'x|codex|y' src
+HR | feat/x@client | egress-guard | ask | ssh h rg 'a|gemini|b' docs
+HR | feat/x@client | egress-guard | ask | ag --pager 'less|llm|x' TODO src
+HS | feat/x@client | egress-guard | ask | ack --pager='less|ollama|x' x .
+
+# F11 kin: a report inside a group or a compound, piped on
+HR | feat/x | secret-shell | ask | { stat .env; } | xargs cat
+HR | feat/x | secret-shell | ask | { test -f .env && echo .env; } | xargs cat
+HR | feat/x | secret-shell | ask | until false; do ls .env; break; done | xargs head
+HR | feat/x | secret-shell | ask | { git ls-files .env; } | xargs cat
+HR | feat/x | secret-shell | ask | { ls .env; } | wc -l
+HS | feat/x | shell | silent | stat .env
+HS | feat/x | secret-shell | ask | stat .env | xargs cat
+
+# F12 kin: a line the reader cannot split
+HR | feat/x | secret-shell | ask | echo .env | xargs cat # don't
+HR | feat/x | secret-shell | ask | stat .env | xargs cat # can't
+
+# F13 kin: `$_`
+HR | feat/x | secret-shell | ask | ls .env && cat "$_"
+HR | feat/x | secret-shell | ask | echo .env; head -n1 $_
+HR | feat/x | secret-shell | ask | test -e .env && source "$_"
+HR | feat/x | secret-shell | ask | stat .env; cat ${_}
+HS | feat/x | shell | silent | ls .env; echo "$?"
+
+# F14 kin: the dry run taken back
+HR | feat/x | delete-guard | ask | git clean -n --no-dry -fd
+HR | feat/x | delete-guard | ask | git clean --dry-run -f --no-dry-run
+HR | feat/x | delete-guard | ask | git worktree prune --dry-run --no-dry-run
+HR | feat/x | delete-guard | ask | git clean -nfd --no-dr
+
+# F15 kin: a prefix of --worktree
+HR | feat/x | delete-guard | ask | git restore --staged --workt f.py
+HR | feat/x | delete-guard | ask | git restore --wo --staged f.py
+HR | feat/x | delete-guard | ask | git restore -S --worktre f.py
+
+# F16 kin: doppler run --command
+HR | feat/x | git-guard | deny | doppler run --command "git push --force origin feat"
+HR | feat/x | delete-guard | ask | doppler run -p proj -c dev --command 'rm -rf x'
+HS | feat/x | shell | silent | doppler run --command 'echo hi'
+
+# F17 kin: a merge through the API in another spelling
+HR | feat/x | tracker-guard | ask | curl --upload-file body.json https://api.github.com/repos/o/r/pulls/3/merge
+HR | feat/x | tracker-guard | ask | curl -XPUT https://api.github.com//repos/o/r/pulls/3/merge
+HR | feat/x | tracker-guard | ask | http Put https://api.github.com/repos/o/r/pulls/3/merge
+
+# F18 kin: the protected ref in capitals
+HR | feat/x | protected-branch | deny | git update-ref refs/heads/MAIN abc123
+HR | feat/x | protected-branch | deny | git update-ref Refs/Heads/main abc123
+HS | feat/x | shell | silent | git update-ref refs/heads/mainline abc123
+
+# F19 kin: the hook switch exported another way
+HR | feat/x | git-guard | deny | builtin eval "export LEFTHOOK=0"; git commit -m x
+HR | feat/x | git-guard | deny | command eval export HUSKY=0; git commit -m x
+HR | feat/x | git-guard | deny | export LEFTHOOK; LEFTHOOK=0; git commit -m x
+HS | feat/x | shell | silent | export HUSKY; git commit -m x
+
+# F20 kin: a verb with capitals
+HR | feat/x | delete-guard | ask | gem UnInstall rake
+HR | feat/x | delete-guard | ask | brew Remove jq
+HS | feat/x | delete-guard | ask | brew uninstall jq

@@ -1,0 +1,51 @@
+# Plain lines with a report that names a secret file and hands nothing on: does the strict reading keep the
+# verdict the head gives? Data for probe.py. Never typed.
+[[ -f .env && -r .env ]] && echo yes
+[[ -f .env || -f .env.local ]] && echo found
+[[ -f .env && -s .env ]]
+if [[ -f .env && -r .env ]]; then echo yes; fi
+[ -f .env ] && [ -r .env ] && echo yes
+[ -f .env -a -r .env ] && echo yes
+test -f .env -a -r .env
+ls -la .env; echo "$(basename "$(pwd)")"
+ls -la .env; echo "$(basename $(pwd))"
+ls -la .env; echo "dir: $(pwd)"
+ls -la .env; echo "branch: $(git branch --show-current)"
+ls -la .env; echo ${VAR:-not set}
+ls -la .env; echo "${VAR:-not set}"
+ls -la .env; echo "it's $(date)"
+ls -la .env && echo 'exists' || echo 'missing'
+ls -la .env 2>/dev/null || echo "no .env"
+test -f .env && echo "yes: .env" || echo "no: .env"
+ls -la .env .env.* 2>/dev/null
+stat -f '%Sp %z' .env
+stat -c '%a %s' .env
+ls -la .env; echo "---"; ls -la .env.example
+echo "checking .env"; test -f .env && echo present
+for f in .env .env.local; do test -f "$f" && echo "$f"; done
+for f in .env .env.local; do [ -f "$f" ] && echo "$f exists"; done
+if test -f .env; then echo "found"; else echo "missing"; fi
+ls -la .env; echo "a{b}c"
+ls -la .env; echo a{b,c}d
+ls -la .env; echo "{"
+ls -la .env; echo '$(not run)'
+ls -la .env; echo "cost: \$5"
+ls -la .env; echo "tab\there"
+ls -la .env; echo "back\\slash"
+ls -la .env; echo "quote\"inside"
+ls -la .env; echo it\'s
+ls -la .env; echo "semi; colon"
+ls -la .env; echo 'pipe | here'
+ls -la .env; echo "amp & here"
+ls -la .env; echo "(paren)"
+ls -la .env # a comment with a { brace
+"ls -la .env\necho done"
+"test -f .env \\\n  && echo yes"
+git status --short .env
+git check-ignore -v .env
+git ls-files .env
+git ls-files --error-unmatch .env 2>/dev/null && echo tracked
+git check-ignore -q .env && echo "ignored"
+printf '%s\n' ".env is $(test -f .env && echo there)"
+echo ".env" >> .gitignore
+grep -q '^.env$' .gitignore || echo ".env" >> .gitignore

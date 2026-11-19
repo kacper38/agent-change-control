@@ -1,0 +1,42 @@
+# wget and a GraphQL body: inline data and a body file
+wget --post-data='{"query":"mutation { closeIssue(input: {issueId: \"I_1\"}) { clientMutationId } }"}' https://api.github.com/graphql
+wget --method=POST --body-data='{"query":"mutation { closeIssue(input: {issueId: \"I_1\"}) { clientMutationId } }"}' https://api.github.com/graphql
+wget --post-data='{"query":"query { viewer { login } }"}' https://api.github.com/graphql
+wget --post-file=q.json https://api.github.com/graphql
+wget --post-file q.json https://api.github.com/graphql
+wget --method=POST --body-file=q.json https://api.github.com/graphql
+wget --method=POST --body-file q.json https://api.github.com/graphql
+wget --body-file=q.json --method=POST https://api.github.com/graphql
+wget -O - --post-file=q.json https://api.github.com/graphql
+wget https://api.github.com/graphql
+wget --post-file=q.json https://example.com/graphql
+wget --post-file=q.json https://api.github.com/repos/o/r/pulls
+# curl twins
+curl -X POST https://api.github.com/graphql -d @q.json
+curl https://api.github.com/graphql --data @q.json
+curl https://api.github.com/graphql --data-binary @q.json
+curl https://api.github.com/graphql --data-raw @q.json
+curl https://api.github.com/graphql --json @q.json
+curl https://api.github.com/graphql --data-urlencode query@q.graphql
+curl https://api.github.com/graphql -T q.json
+curl https://api.github.com/graphql --upload-file q.json
+curl https://api.github.com/graphql -F query=@q.graphql
+curl https://api.github.com/graphql -K req.cfg
+curl -K req.cfg
+curl https://api.github.com/graphql -d "$(cat q.json)"
+curl https://api.github.com/graphql -d "$BODY"
+# httpie forms
+http POST https://api.github.com/graphql @q.json
+http POST https://api.github.com/graphql query=@q.graphql
+http POST https://api.github.com/graphql query:=@q.json
+http POST https://api.github.com/graphql --raw '{"query":"mutation { closeIssue(input: {issueId: \"I_1\"}) { clientMutationId } }"}'
+http POST https://api.github.com/graphql --raw "$BODY"
+http POST https://api.github.com/graphql query="$Q"
+xh POST https://api.github.com/graphql < q.json
+xh POST https://api.github.com/graphql query='mutation { closeIssue(input: {issueId: "I_1"}) { clientMutationId } }'
+# gh forms
+gh api graphql -f query="$Q"
+gh api graphql -f query="$(cat q.graphql)"
+gh api graphql -F query=@q.graphql
+gh api graphql --input q.json
+gh api graphql -f query='mutation { closeIssue(input: {issueId: "I_1"}) { clientMutationId } }'

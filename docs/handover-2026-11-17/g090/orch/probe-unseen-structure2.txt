@@ -1,0 +1,22 @@
+# More lines for the quiet-report check. Data for probe.py and for sem/close_brace.py. Never typed.
+# --- quoting the lexer reads otherwise than the shell
+{ ls .env; : $'\'' ; } | xargs cat; { : \' ; }
+: $'\''; { true; : \'; ls .env; : $'\''; } | xargs cat; : \'
+{ ls .env; : "`: " ; { true ; : "`"; } | xargs cat; : "`: " ; } ; : "`"
+{ ls .env; : "${X:-" ; { true ; : "}"; } | xargs cat; : "${X:-" ; } ; : "}"
+declare -A a; { ls .env; a[x ; { ]=1; } | xargs cat; a[x ; } ]=1
+# --- a report that hands its words on by itself
+printf -v x %s .env; cat "$x"
+[[ .env =~ .* ]]; cat $BASH_REMATCH $MATCH
+ls .env; cat "${_:-x}"
+echo .env; cat ${_%y}
+# --- a closer behind a closer or behind a shell word
+if true; then if true; then ls .env; fi fi | xargs cat
+{ { ls .env; } } | xargs cat
+{ if true; then ls .env; else fi | xargs cat; time if true; then true; fi; }
+if true; then ls .env; else fi | xargs cat; if true; then true; fi
+{ ls .env; { } | xargs cat; }
+# --- an opener behind a word the check does not pass over, all closers seen
+time { true; ls .env; } | xargs cat; '{'; }
+repeat 1 { true; ls .env; } | xargs cat
+time if true; then true; ls .env; fi | xargs cat

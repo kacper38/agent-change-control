@@ -1,0 +1,34 @@
+# a name carried in a variable or a script text made by a report command
+f=.env; cat "$f"
+printf -v f '%s' .env; cat "$f"
+printf -v f .env; cat $f
+export F=.env; cat $F
+echo cat .env | sh
+echo 'cat .env' | bash
+printf 'cat %s\n' .env | sh
+eval "$(echo cat .env)"
+eval "$(printf 'cat %s' .env)"
+source <(echo cat .env)
+echo cat .env > run.sh; sh run.sh
+echo 'cat .env' > run.sh
+echo "cat .env" >> Makefile
+printf '%s\n' 'cat .env' > hook.sh
+echo .env | xargs cat
+read -r f <<< .env; cat "$f"
+set -- .env; cat "$1"
+a=(.env); cat "${a[@]}"
+for f in .env; do :; done; cat "$f"
+ls .env 1> >(xargs cat)
+test -f .env && cat "$_"
+echo .env; cat "$(echo .env)"
+# K1: find's pattern operand, with a command behind it
+find . -name yarn -exec yarn install \;
+find . -name package.json -execdir npm install \;
+find . -name x -ok pip install y \;
+find . -name yarn -print0 | xargs -0 -n1 yarn add
+find . -name yarn | xargs brew install
+find . -name yarn -o -name pnpm
+find . -name pip -prune -o -type f -print
+find . -path '*/node_modules/yarn' -prune
+find . -name npm -newer brew
+find . -name yarn -exec echo {} \;

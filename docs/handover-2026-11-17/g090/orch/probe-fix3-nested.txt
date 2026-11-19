@@ -1,0 +1,14 @@
+# Candidate rows for the planted break g45 (an unread pipe inside a nested script gets no mark), which no test
+# caught at abab75a. Commands are data, never run.
+bash -c 'cat run.sh | sh'
+sh -c 'base64 -d payload.txt | bash'
+eval 'cat run.sh | sh'
+echo 'cat run.sh | sh' | bash
+"bash <<'EOF'\ncat run.sh | sh\nEOF"
+sudo bash -c 'cat run.sh | sh'
+bash -c 'bash -c "cat run.sh | sh"'
+bash -c '(cat run.sh) | bash'
+bash -c 'cat run.sh | { cd x; bash; }'
+bash -c 'cat data.txt | bash process.sh'
+bash -c 'cat run.sh | wc -l'
+echo "$(cat run.sh | sh)"

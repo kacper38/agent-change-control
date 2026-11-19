@@ -1,0 +1,68 @@
+[
+ {
+  "id": "h01",
+  "what": "an unread pipe inside a nested script leaves its mark in a list nobody reads (was g45)",
+  "old": "            _nc_read(script, depth + 1, out, seen, local, inputs, bodies, envs, script_env, unread=unread)",
+  "new": "            _nc_read(script, depth + 1, out, seen, local, inputs, bodies, envs, script_env, unread=[])"
+ },
+ {
+  "id": "h02",
+  "what": "a pipe with a group or compound on one side and a shell on the other leaves no mark",
+  "old": "    if cmds is not None and _nc_compound_pipe(rows, seps, fed_bars):\n        unread.append(True)",
+  "new": "    if cmds is not None and _nc_compound_pipe(rows, seps, fed_bars):\n        pass"
+ },
+ {
+  "id": "h03",
+  "what": "a shell behind a plain pipe whose script is not on the line leaves no mark",
+  "old": "    if _nc_pipe_shell(piped):\n        unread.append(True)",
+  "new": "    if _nc_pipe_shell(piped):\n        pass"
+ },
+ {
+  "id": "h04",
+  "what": "the reader pass leaves no mark that the read went through",
+  "old": "        if read is not None:\n            read.append(True)",
+  "new": "        if read is not None:\n            pass"
+ },
+ {
+  "id": "h05",
+  "what": "secret-shell adds the input redirections only when the pass answers nothing (was g46)",
+  "old": "    if read:\n        reads.extend(",
+  "new": "    if failed is None:\n        reads.extend("
+ },
+ {
+  "id": "h06",
+  "what": "secret-shell hands no list to the reader pass, so it never learns that the read went through",
+  "old": "    failed = reader_pass(ev.command, judge, \"secret-shell\", read=read)",
+  "new": "    failed = reader_pass(ev.command, judge, \"secret-shell\")"
+ },
+ {
+  "id": "h07",
+  "what": "the mark is set before the line is read, so a line the reader could not read counts as read",
+  "old": "        commands = nested_commands(text, local)\n        if read is not None:\n            read.append(True)",
+  "new": "        if read is not None:\n            read.append(True)\n        commands = nested_commands(text, local)"
+ },
+ {
+  "id": "h08",
+  "what": "constructs opened by one command share the key of that command again",
+  "old": "                stack.append((opened, _GROUP_CLOSER[t]))",
+  "new": "                stack.append((k, _GROUP_CLOSER[t]))"
+ },
+ {
+  "id": "h09",
+  "what": "every construct of a line shares one key",
+  "old": "                opened += 1\n",
+  "new": "                opened += 0\n"
+ },
+ {
+  "id": "h10",
+  "what": "a construct that closes never counts as handed on, whatever stands behind its closer (was g05)",
+  "old": "            handed_on[stack.pop()[0]] = not _plain_sep(cmds[k + 1][0] if k + 1 < len(cmds) else \"\")",
+  "new": "            handed_on[stack.pop()[0]] = False"
+ },
+ {
+  "id": "h11",
+  "what": "a construct that closes always counts as handed on",
+  "old": "            handed_on[stack.pop()[0]] = not _plain_sep(cmds[k + 1][0] if k + 1 < len(cmds) else \"\")",
+  "new": "            handed_on[stack.pop()[0]] = True"
+ }
+]

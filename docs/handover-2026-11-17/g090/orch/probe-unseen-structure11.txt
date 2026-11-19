@@ -1,0 +1,3 @@
+# An eleventh list for the quiet-report check: a backtick substitution in the body of `$(`, with a quoted backtick
+# behind it. Data for probe.py and for sem/close_brace.py. Never typed.
+{ ls .env; : "$(: `: \\)` '`' " ; { true ; : ") x"; } | xargs cat; : "$(: `: \\)` '`' " ; } ; : ") y"

@@ -1,0 +1,16 @@
+# DRAFT candidates, fourth list: `case` inside a quoted substitution with no blank in front; git config in a
+# report. Data for rows_verdicts.py. Never typed.
+# id | branch[@client] | rule | expected | command
+F65 | feat/x | secret-shell | ask | { ls .env; : "$(true;case x in x) : " ; } ; { : " ;; esac)" ; } | xargs cat
+F65 | feat/x | secret-shell | ask | { ls .env; : "$(true&&case x in x) : " ; } ; { : " ;; esac)" ; } | xargs cat
+F65 | feat/x | secret-shell | ask | { ls .env; : "$(true|case x in x) : " ; } ; { : " ;; esac)" ; } | xargs cat
+F65 | feat/x | secret-shell | ask | { ls .env; : "$(true; case x in x) : " ; } ; { : " ;; esac)" ; } | xargs cat
+F65 | feat/x | secret-shell | ask | "{ ls .env; : \"$(true\ncase x in x) : \" ; } ; { : \" ;; esac)\" ; } | xargs cat"
+F65 | feat/x | secret-shell | ask | { echo .env; : "$(:;case x in x) : " ; } ; { : " ;; esac)" ; } | xargs cat
+Fs | feat/x | secret-shell | silent | ls -la .env; echo "$(basename showcase)"
+Fs | feat/x | secret-shell | silent | ls -la .env; echo "$(echo lowercase)"
+Fs | feat/x | secret-shell | ask | ls -la .env; echo "$(grep --ignore-case x README.md)"
+Fg | feat/x | secret-shell | ask | git -c core.fsmonitor='cat .env' status
+Fg | feat/x | secret-shell | ask | git -c core.fsmonitor='cat .env' status .env
+Fg | feat/x | secret-shell | ask | git -c core.pager='xargs cat' --paginate ls-files .env
+Fg | feat/x | secret-shell | ask | git -c pager.status=true -c core.pager='xargs cat' status --short .env

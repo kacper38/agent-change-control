@@ -1,0 +1,9 @@
+# a comment or an assignment on an issue: through gh, through REST and through GraphQL
+gh issue comment 3 -b x
+gh issue edit 3 --add-assignee me
+gh api -X POST repos/o/r/issues/3/comments -f body=x
+gh api graphql -f query='mutation { addComment(input: {subjectId: "I_1", body: "x"}) { clientMutationId } }'
+gh api graphql -f query='mutation { addAssigneesToAssignable(input: {assignableId: "I_1", assigneeIds: ["U_1"]}) { clientMutationId } }'
+gh api graphql -f query='mutation { closeIssue(input: {issueId: "I_1"}) { clientMutationId } }'
+gh api graphql -f query='mutation { addLabelsToLabelable(input: {labelableId: "I_1", labelIds: ["L_1"]}) { clientMutationId } }'
+gh api graphql -f query='query { viewer { login } }'

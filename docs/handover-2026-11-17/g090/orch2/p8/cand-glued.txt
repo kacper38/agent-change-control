@@ -1,0 +1,7 @@
+# candidates: a secret name with a substitution or an expansion glued to it. Does any version see the name?
+G1 | feat/x | secret-shell | ask | cat ".env$(true)"
+G2 | feat/x | secret-shell | ask | cat .env"$(true)"
+G3 | feat/x | secret-shell | ask | cat .env$(true)
+G4 | feat/x | secret-shell | ask | cat ".env${X}"
+G5 | feat/x | secret-shell | ask | cat .env`true`
+G6 | feat/x | secret-shell | ask | git ls-files ".env$(git config pager.ls-files 'xargs cat')"

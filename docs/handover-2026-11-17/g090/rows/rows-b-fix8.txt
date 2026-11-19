@@ -1,0 +1,113 @@
+# guard 0.9.0, groups B and C: rows of the eighth fix round. A git report (`check-ignore`, `ls-files`, `status`)
+# is quiet in secret-shell only when no other command of the line can set what git reads: git takes a pager from
+# its environment and from its configuration, and a command on the same line can set either. Beside a quiet git
+# report stand only other quiet reports that are their words alone, shell words, a closer, and `cd`, `true` and
+# `false`, each without a redirection and without an assignment; and the line holds no word that can run a
+# command while the shell expands it (`$(`, a backtick, `${`), quoted or not.
+# On every line of F81, F82 and F83 a shell prints the file the line names once git's output is a terminal
+# (measured under a pseudo-terminal with git 2.55.0, zsh 5.9.1 and bash 5.3.15 against a stand-in file; the
+# `status` lines with `-s`, which prints the name without colour codes around it): zsh and bash on each, but
+# for the four lines of F83 with `${ …; }` and with a quoted subscript, which only bash 5.3 runs. 0.8.0 asks on
+# each of them.
+# id | branch[@client] | rule | expected | command
+# --- F81 --- a command of the line sets git's environment
+F81 | feat/x | secret-shell | ask | export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=pager.ls-files GIT_CONFIG_VALUE_0='xargs cat'; git ls-files .env
+F81 | main | secret-shell | ask | export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=pager.ls-files GIT_CONFIG_VALUE_0='xargs cat'; git ls-files .env
+F81 | feat/x@client | secret-shell | ask | export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=pager.ls-files GIT_CONFIG_VALUE_0='xargs cat'; git ls-files .env
+F81 | feat/x | secret-shell | ask | export GIT_CONFIG_PARAMETERS="'pager.status=xargs cat'"; git status -s .env
+F81 | feat/x | secret-shell | ask | export GIT_CONFIG_PARAMETERS="'pager.ls-files=xargs cat'" && git ls-files .env
+F81 | feat/x | secret-shell | ask | export GIT_CONFIG_PARAMETERS="'pager.check-ignore=xargs cat'"; git check-ignore --no-index .env
+F81 | feat/x | secret-shell | ask | export PAGER='xargs cat' GIT_CONFIG_PARAMETERS="'pager.ls-files=true'"; git ls-files .env
+F81 | feat/x | secret-shell | ask | declare -x GIT_CONFIG_PARAMETERS="'pager.ls-files=xargs cat'"; git ls-files .env
+F81 | feat/x | secret-shell | ask | typeset -x GIT_CONFIG_PARAMETERS="'pager.ls-files=xargs cat'"; git ls-files .env
+F81 | feat/x | secret-shell | ask | GIT_CONFIG_PARAMETERS="'pager.ls-files=xargs cat'"; export GIT_CONFIG_PARAMETERS; git ls-files .env
+F81 | feat/x | secret-shell | ask | set -a; GIT_CONFIG_PARAMETERS="'pager.ls-files=xargs cat'"; git ls-files .env
+F81 | feat/x | secret-shell | ask | eval "export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=pager.ls-files GIT_CONFIG_VALUE_0='xargs cat'"; git ls-files .env
+F81 | feat/x | secret-shell | ask | "export GIT_CONFIG_PARAMETERS=\"'pager.ls-files=xargs cat'\"\ngit ls-files .env"
+F81 | feat/x | secret-shell | ask | export GIT_CONFIG_PARAMETERS="'pager.ls-files=xargs cat'"; cd . && git ls-files .env
+F81 | feat/x | secret-shell | ask | export GIT_CONFIG_PARAMETERS="'pager.ls-files=xargs cat'"; ls -la .env; git ls-files .env
+F81 | feat/x | secret-shell | ask | export GIT_CONFIG_PARAMETERS="'pager.ls-files=xargs cat'"; if true; then git ls-files .env; fi
+F81 | feat/x | secret-shell | ask | export GIT_CONFIG_PARAMETERS="'pager.ls-files=xargs cat'"; { git ls-files .env; }
+F81 | feat/x | secret-shell | ask | export GIT_CONFIG_PARAMETERS="'pager.ls-files=xargs cat'"; git --no-pager -C . status -s .env; git ls-files .env
+F81 | feat/x | secret-shell | ask | for i in 1 2; do git ls-files .env; export GIT_CONFIG_PARAMETERS="'pager.ls-files=xargs cat'"; done
+F81 | feat/x | secret-shell | ask | while git ls-files .env; do export GIT_CONFIG_PARAMETERS="'pager.ls-files=xargs cat'"; test -f seen && break; : > seen; done
+# --- F82 --- a command of the line writes git's configuration
+F82 | feat/x | secret-shell | ask | git config pager.ls-files 'xargs cat'; git ls-files .env
+F82 | main | secret-shell | ask | git config pager.ls-files 'xargs cat'; git ls-files .env
+F82 | feat/x@client | secret-shell | ask | git config pager.ls-files 'xargs cat'; git ls-files .env
+F82 | feat/x | secret-shell | ask | git config pager.status 'xargs cat' && git status -s .env
+F82 | feat/x | secret-shell | ask | git config core.pager 'xargs cat'; git config pager.ls-files true; git ls-files .env
+F82 | feat/x | secret-shell | ask | git config pager.check-ignore 'xargs cat'; git check-ignore --no-index .env
+F82 | feat/x | secret-shell | ask | cd . && git config pager.ls-files 'xargs cat' && git ls-files .env
+F82 | feat/x | secret-shell | ask | printf '[pager]\n\tls-files = xargs cat\n' >> .git/config; git ls-files .env
+F82 | feat/x | secret-shell | ask | echo '[pager]' >> .git/config; echo ' ls-files = xargs cat' >> .git/config; git ls-files .env
+F82 | feat/x | secret-shell | ask | { echo '[pager]'; echo ' ls-files = xargs cat'; } >> .git/config; git ls-files .env
+F82 | feat/x | secret-shell | ask | test -d .git && printf '[pager]\n\tstatus = xargs cat\n' >> .git/config; git status -s .env
+F82 | feat/x | secret-shell | ask | if true; then echo '[pager]'; echo ' ls-files = xargs cat'; fi >> .git/config; git ls-files .env
+F82 | feat/x | secret-shell | ask | for i in 1 2; do git ls-files .env; git config pager.ls-files 'xargs cat'; done
+F82 | feat/x | secret-shell | ask | "git config pager.ls-files 'xargs cat'\ngit ls-files .env"
+# --- F83 --- a word of the line runs a command while the shell expands it, and that command sets the pager
+F83 | feat/x | secret-shell | ask | echo "$(git config pager.ls-files 'xargs cat')"; git ls-files .env
+F83 | main | secret-shell | ask | echo "$(git config pager.ls-files 'xargs cat')"; git ls-files .env
+F83 | feat/x@client | secret-shell | ask | echo "$(git config pager.ls-files 'xargs cat')"; git ls-files .env
+F83 | feat/x | secret-shell | ask | test -n "$(git config pager.status 'xargs cat'; echo x)" && git status -s .env
+F83 | feat/x | secret-shell | ask | cd "$(git config pager.ls-files 'xargs cat'; pwd)" && git ls-files .env
+F83 | feat/x | secret-shell | ask | echo "`git config pager.ls-files 'xargs cat'`"; git ls-files .env
+F83 | feat/x | secret-shell | ask | cd .git && git config pager.ls-files 'xargs cat'; cd .. && git ls-files .env
+F83 | feat/x | secret-shell | ask | git ls-files .env > "out$(git config pager.ls-files 'xargs cat').txt"; git ls-files .env
+F83 | feat/x | secret-shell | ask | echo "${ git config pager.ls-files 'xargs cat'; }"; git ls-files .env
+F83 | feat/x | secret-shell | ask | true "${ git config pager.status 'xargs cat'; }"; git status -s .env
+F83 | feat/x | secret-shell | ask | [[ -v 'a[$(git config pager.ls-files "xargs cat")]' ]]; git ls-files .env
+F83 | feat/x | secret-shell | ask | test -v 'a[$(git config pager.ls-files "xargs cat")]'; git ls-files .env
+# --- Fs --- what stays quiet (no line prints the file), and the asks that are the price of the rule
+Fs | feat/x | secret-shell | silent | git ls-files .env
+Fs | feat/x | secret-shell | silent | cd "$REPO" && git status -s .env
+Fs | feat/x | secret-shell | silent | echo "$HOME"; git ls-files .env
+Fs | feat/x | secret-shell | ask | echo "$(date)"; git status .env
+Fs | feat/x | secret-shell | ask | cd "${REPO}" && git status .env
+Fs | feat/x | secret-shell | ask | git status .env; echo "done in ${PWD}"
+Fs | feat/x | secret-shell | ask | echo 'a literal $(x)'; git ls-files .env
+Fs | feat/x | secret-shell | silent | cd . && git status -s .env
+Fs | feat/x | secret-shell | silent | ls -la .env; git check-ignore .env; git status -s .env
+Fs | feat/x | secret-shell | silent | git check-ignore -q .env && echo ignored || echo not ignored
+Fs | feat/x | secret-shell | silent | test -f .env && git status --short .env
+Fs | feat/x | secret-shell | silent | true; git ls-files .env; false
+Fs | feat/x | secret-shell | silent | if git ls-files --error-unmatch .env 2>/dev/null; then echo tracked; else echo untracked; fi
+Fs | feat/x | secret-shell | silent | while false; do git ls-files .env; done
+Fs | feat/x | secret-shell | silent | { git ls-files .env; }
+Fs | feat/x | secret-shell | silent | "if true; then\n  git ls-files .env\nfi"
+Fs | feat/x | secret-shell | silent | "while false; do\n  git status -s .env\ndone"
+Fs | feat/x | secret-shell | silent | "{\n  git check-ignore .env\n}"
+Fs | feat/x | secret-shell | silent | git status -s .env > /dev/null
+Fs | feat/x | secret-shell | silent | "cd .\ngit check-ignore .env\ngit status -s .env"
+Fs | feat/x | secret-shell | silent | export FOO=1; ls -la .env
+Fs | feat/x | secret-shell | silent | mkdir -p tmp; ls -la .env
+Fs | feat/x | secret-shell | silent | git config user.name x; test -f .env
+Fs | feat/x | secret-shell | silent | echo checking > log.txt; stat .env
+Fs | feat/x | secret-shell | ask | mkdir -p tmp; git status .env
+Fs | feat/x | secret-shell | ask | git add -A && git status .env
+Fs | feat/x | secret-shell | ask | git status .env; git diff --stat
+Fs | feat/x | secret-shell | ask | ls -la .env 2>/dev/null; git status .env
+Fs | feat/x | secret-shell | ask | echo checking > log.txt; git ls-files .env
+Fs | feat/x | secret-shell | ask | LC_ALL=C ls -la .env; git status .env
+Fs | feat/x | secret-shell | ask | X=1; git ls-files .env
+Fs | feat/x | secret-shell | ask | X=1 true; git ls-files .env
+Fs | feat/x | secret-shell | ask | cd . > log.txt; git ls-files .env
+Fs | feat/x | secret-shell | ask | for f in a b; do git ls-files .env; done
+Fs | feat/x | secret-shell | ask | source ./env.sh; git ls-files .env
+Fs | feat/x | secret-shell | ask | :; git ls-files .env
+Fs | feat/x | secret-shell | ask | echo x >&2; git ls-files .env
+Fs | feat/x | secret-shell | ask | { true; } > log.txt; git ls-files .env
+# --- Fm --- two lines of guard.py from the earlier rounds that a planted break showed without a row; every row
+# holds at the head of the seventh round and keeps holding
+# _quiet_reports, `if _report_words(toks)[:1] in (("function",), ("coproc",)):` -> without `("coproc",)`
+# a report whose output goes into the descriptor of a coprocess: bash prints the file on each line (measured,
+# with and without a terminal)
+Fm | feat/x | secret-shell | ask | coproc xargs cat; ls .env >&"${COPROC[1]}"; exec {COPROC[1]}>&-; cat <&"${COPROC[0]}"
+Fm | feat/x | secret-shell | ask | coproc xargs cat >&2; ls .env >&${COPROC[1]}; exec {COPROC[1]}>&-; wait
+Fm | feat/x | secret-shell | ask | coproc xargs cat >&2; echo .env >&${COPROC[1]}; exec {COPROC[1]}>&-; wait
+# _quiet_reports, `if any(handed_on.get(o, True) for o in enclosing[k]):` -> `handed_on.get(o, False)`
+# a construct that never closes on the line counts as handed on (zsh takes a loop without `do` and `done`; the
+# rows of the review fixes for this line are turned down earlier since the fifth round)
+Fm | feat/x | secret-shell | ask | for f in a; ls .env
+Fm | feat/x | secret-shell | ask | for f in a; test -f .env

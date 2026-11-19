@@ -1,0 +1,11 @@
+# candidates for rows that pin a condition a planted break survived
+git clean -n --no -f
+git clean --n -n -fdx
+git clean -n --no- -f
+git clean -n -z -f
+git clean -nz -f
+git worktree prune -n --no
+git worktree prune -nz
+git clean -n -f
+git clean -n
+git worktree prune -n -v

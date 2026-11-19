@@ -85,6 +85,30 @@ guard-6b83c85.py
   100 kB capitals   100000 B  median   696.2 ms  verdict silent
 exit 0 at 20:04:20
 
+== added on 2026-11-19 after the review of this folder: every weaker cell of the two replays above, as the replay tool listed them without command text: occurrences | rule | change | tool
+-- boundary own
+1 | secret-shell | ask->silent | Bash
+1 | secret-shell | ask->silent | Bash
+-- boundary client
+1 | secret-shell | ask->silent | Bash
+1 | egress-guard | ask->silent | Bash
+1 | egress-guard | ask->silent | Bash
+1 | egress-guard | ask->silent | Bash
+1 | secret-shell | ask->silent | Bash
+1 | egress-guard | ask->silent | Bash
+1 | egress-guard | ask->silent | Bash
+1 | egress-guard | ask->silent | Bash
+1 | egress-guard | ask->silent | Bash
+1 | egress-guard | ask->silent | Bash
+1 | egress-guard | ask->silent | Bash
+1 | egress-guard | ask->silent | Bash
+1 | egress-guard | ask->silent | Bash
+1 | egress-guard | ask->silent | Bash
+1 | egress-guard | ask->silent | Bash
+1 | egress-guard | ask->silent | Bash
+1 | egress-guard | ask->silent | Bash
+1 | egress-guard | ask->silent | Bash
+
 == replay over the same recorded calls, the head of the seventh round (2a28378) against 8f0a893 (the guard file of the head), both boundaries
 == ran at 19:36 UTC, before the run above, when the transcripts held 22085 calls; the eighth round and the rows after it change no verdict on a recorded call
 boundary own: exit 0 | stderr lines 10

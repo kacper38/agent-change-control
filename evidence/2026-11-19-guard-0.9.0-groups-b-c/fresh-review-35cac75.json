@@ -1,0 +1,32 @@
+{
+  "base": "b2f4e2a",
+  "base_sha": "b2f4e2a306626df8d69f4a2144c215482c277ed2",
+  "cost_usd": 1.230468,
+  "diff_sha256": "b5277385770b1f82d53821f79d6edae3f5d8808b066e99412fd1fc18a50659dd",
+  "duration_ms": 31307,
+  "findings": [
+    {
+      "file": "DECISIONS.md",
+      "line": 385,
+      "severity": "MINOR",
+      "summary": "The record says the reviewer's report, its probe files, the receipts and the engineers' reports \"are in `evidence/2026-11-19-guard-0.9.0-groups-b-c/`\". Line 387 says the evidence commits come after 6b83c85, which falls inside b2f4e2a...HEAD. Yet this diff adds no file under evidence/. Either the folder is missing from the branch or this review was handed a filtered diff. Before merge, confirm the folder is committed on the PR head; the GxP validation evidence depends on it."
+    },
+    {
+      "file": "DECISIONS.md",
+      "line": 392,
+      "severity": "MINOR",
+      "summary": "Several figures in the record were produced by scratch tools that are not in this diff and will not be on main. These are the scripts for the rewriting checks, the 4,644,681 built lines, the per-character check and the fuzz, the planted-break runner with its lists, and the row files. The record keeps them only on the branch `docs/handover-2026-11-17`. Lines 386-387 base the release's validation claims on these runs, so someone reading main cannot rerun them. Either name the commit SHA on that branch where the tools live, or say plainly in the record that this gap is deferred."
+    }
+  ],
+  "model_requested": "opus",
+  "models": [
+    "claude-opus-5-5"
+  ],
+  "prompt_file": "tools/review/prompt.md",
+  "prompt_sha256": "9183cc398915dfba9f36888461690903eae08ec94101ce557654dc8330c64fc9",
+  "sha": "35cac750e6a973c32490b58b3e9059f11b4f9f74",
+  "summary": "This change only adds evidence. Guard behaviour is unchanged: the guard.py edits touch comments and docstrings only, no code. The diff adds 33 pinning rows: 25 for F84 and Fs in ROWS_FIX8_ADD and 8 for Fm in ROWS_FIX7_ADD. Each row expects 'ask', and two new parametrized tests run them. The row counts match the counts DECISIONS.md gives. It also updates DECISIONS.md, README, SYSTEM.md and USING-AT-WORK for guard 0.9.0. No test or check is removed or weakened, and the diff holds no secrets. There are two traceability gaps, both in the record. First, the evidence folder it cites is not in this diff. Second, the scripts that produced the key validation figures exist only outside main.",
+  "ts": "2026-11-19T20:12:38Z",
+  "verdict": "COMMENT",
+  "verdict_as_answered": "COMMENT"
+}

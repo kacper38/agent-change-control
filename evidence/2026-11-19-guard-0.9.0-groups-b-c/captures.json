@@ -1,27 +1,47 @@
 [
   {
+    "bytes": 41,
+    "captured_at": "2026-11-19T20:24:12Z",
+    "command": "git rev-parse HEAD",
+    "exit_code": 0,
+    "file": "git-head.txt",
+    "name": "git-head",
+    "sha256": "86a15791cb34d6c95a4d7cdd3cf5b323753682b571e6924400c588cd15eb00ff",
+    "tool_version": "git version 2.55.0"
+  },
+  {
+    "bytes": 657,
+    "captured_at": "2026-11-19T20:26:16Z",
+    "command": "git status --short",
+    "exit_code": 0,
+    "file": "git-status.txt",
+    "name": "git-status",
+    "sha256": "5246d27ff86d7560571406d0b8680bd907e8f7e28bbe1259e86dac86434d96aa",
+    "tool_version": "git version 2.55.0"
+  },
+  {
     "bytes": 8433,
-    "captured_at": "2026-11-19T20:09:42Z",
+    "captured_at": "2026-11-19T20:25:01Z",
     "command": "uv run --offline --no-project --with pytest --python 3.13 python -m pytest -q -p no:cacheprovider -o addopts= tools",
     "exit_code": 0,
     "file": "pytest-py313.txt",
     "name": "pytest-py313",
-    "sha256": "9de1211cce62c0e3ae127fa5eb0e26e5f9a7caaa458bcc9ee4f0aba7c77d0d89",
+    "sha256": "49ec56b8e61f89cb0fd855bef40b590ed7c2d7954303355e4667ffc48d22b871",
     "tool_version": "uv 0.11.26 (Homebrew 2026-06-30 aarch64-apple-darwin)"
   },
   {
     "bytes": 8443,
-    "captured_at": "2026-11-19T20:10:56Z",
+    "captured_at": "2026-11-19T20:26:16Z",
     "command": "uv run --offline --no-project --with pytest --python 3.9 python -m pytest -q -p no:cacheprovider -o addopts= tools",
     "exit_code": 0,
     "file": "pytest-py39.txt",
     "name": "pytest-py39",
-    "sha256": "f91f8758a1bd11dfdb0f8683b300114fe6e8d660b99a1c89a12758d7f7de3ac0",
+    "sha256": "c18ded8faabcc8d2ca392a171afb49d326a25b164ab1989cfd177b2823d6b751",
     "tool_version": "uv 0.11.26 (Homebrew 2026-06-30 aarch64-apple-darwin)"
   },
   {
     "bytes": 19,
-    "captured_at": "2026-11-19T20:08:52Z",
+    "captured_at": "2026-11-19T20:24:12Z",
     "command": "ruff check tools",
     "exit_code": 0,
     "file": "ruff.txt",

@@ -2623,6 +2623,49 @@ Fm | feat/x | secret-shell | ask | for f in a; ls .env
 Fm | feat/x | secret-shell | ask | for f in a; test -f .env
 """  # noqa: E501 (a row holds its command as written)
 # --- fix rows, eighth fix round: end ---
+# --- fix rows, addendum to the eighth fix round: begin (rows-b-fix8-add.txt, 2026-11-19) ---
+ROWS_FIX8_ADD = r"""
+# guard 0.9.0, groups B and C: rows added to the eighth fix round after its review by a fresh context. The round
+# lists the words that run a command while the shell expands them as `$(`, a backtick and `${`. The forms that
+# open with a bare bracket are not on that list: a process substitution (`<( )`, `>( )`), zsh's `=( )` and a glob
+# qualifier (`*(e:'…':)`). They need not be: the lexer ends a command at the bracket, and a line with a bracket
+# in a separator has no quiet report (second fix round). No row said so beside a git report. These rows do.
+# Every row holds before this commit, at the head of the seventh round and at 0.8.0: they pin, they were not due.
+# id | branch[@client] | rule | expected | command
+# --- F84 --- a word with a bracket runs a command while the shell expands it, and that command sets the pager:
+# on every line a shell prints the file the line names once git's output is a terminal (measured under a
+# pseudo-terminal with git 2.55.0, zsh 5.9.1 and bash 5.3.15 against a stand-in file): zsh and bash on the lines
+# with `<( )`, zsh alone on the lines with `>( )`, `=( )` and a glob qualifier
+F84 | feat/x | secret-shell | ask | ls <(git config pager.ls-files 'xargs cat'); git ls-files .env
+F84 | main | secret-shell | ask | ls <(git config pager.ls-files 'xargs cat'); git ls-files .env
+F84 | feat/x@client | secret-shell | ask | ls <(git config pager.ls-files 'xargs cat'); git ls-files .env
+F84 | feat/x | secret-shell | ask | stat <(git config pager.ls-files 'xargs cat'); true; git ls-files .env
+F84 | feat/x | secret-shell | ask | git check-ignore <(git config pager.ls-files 'xargs cat'); git ls-files .env
+F84 | feat/x | secret-shell | ask | true <(git config pager.ls-files 'xargs cat'; echo) ; cat /dev/null; git ls-files .env
+F84 | feat/x | secret-shell | ask | ls <(git config pager.status 'xargs cat'); git status -s .env
+F84 | feat/x | secret-shell | ask | ls <(git config pager.ls-files 'xargs cat') && git ls-files .env
+F84 | feat/x | secret-shell | ask | if ls <(git config pager.ls-files 'xargs cat'); then git ls-files .env; fi
+F84 | feat/x | secret-shell | ask | "ls <(git config pager.ls-files 'xargs cat')\ngit ls-files .env"
+F84 | feat/x | secret-shell | ask | until ls <(git config pager.ls-files 'xargs cat'); do true; done; git ls-files .env
+F84 | feat/x | secret-shell | ask | echo >(git config pager.ls-files 'xargs cat'); git ls-files .env
+F84 | feat/x | secret-shell | ask | true >(git config pager.ls-files 'xargs cat'); true; git ls-files .env
+F84 | feat/x | secret-shell | ask | echo =(git config pager.ls-files 'xargs cat'); git ls-files .env
+F84 | feat/x | secret-shell | ask | ls =(git config pager.status 'xargs cat'); git status -s .env
+F84 | feat/x | secret-shell | ask | true =(git config pager.ls-files 'xargs cat'); git ls-files .env
+F84 | feat/x | secret-shell | ask | cd . =(git config pager.ls-files 'xargs cat'); git ls-files .env
+F84 | feat/x | secret-shell | ask | ls -d *(e:'git config pager.ls-files "xargs cat"':); git ls-files .env
+F84 | feat/x | secret-shell | ask | echo *(e:'git config pager.status "xargs cat"':); git status -s .env
+F84 | feat/x | secret-shell | ask | true *(e:'git config pager.ls-files "xargs cat"':); git ls-files .env
+# --- Fs --- the same forms where no shell printed the file in the measurement: a process substitution runs
+# beside the line, and whether it has written the configuration before git reads it is a race; an `export`
+# inside one does not reach the shell. The guard does not try to tell: each line asks
+Fs | feat/x | secret-shell | ask | echo <(git config pager.ls-files 'xargs cat'); git ls-files .env
+Fs | feat/x | secret-shell | ask | true <(git config pager.ls-files 'xargs cat'); git ls-files .env
+Fs | feat/x | secret-shell | ask | git ls-files .env <(git config pager.ls-files 'xargs cat')
+Fs | feat/x | secret-shell | ask | git -P status -s .env; ls <(git config pager.status 'xargs cat')
+Fs | feat/x | secret-shell | ask | ls <(export GIT_PAGER='xargs cat'); git ls-files .env
+"""  # noqa: E501 (a row holds its command as written)
+# --- fix rows, addendum to the eighth fix round: end ---
 
 _FILE_INPUT = {
     "Read": lambda p: {"file_path": p},
@@ -2660,6 +2703,7 @@ FIX5_TABLE = _rows(ROWS_FIX5)  # fifth fix round: F51 to F57 were due at 45dd3fd
 FIX6_TABLE = _rows(ROWS_FIX6)  # sixth fix round: F61 to F65 were due at 3bcab45
 FIX7_TABLE = _rows(ROWS_FIX7)  # seventh fix round: F71 and F72 were due at a246385, the price rows of Fs too
 FIX8_TABLE = _rows(ROWS_FIX8)  # eighth fix round: F81 to F83 were due at 010b75d, the price rows of Fs too
+FIX8_ADD_TABLE = _rows(ROWS_FIX8_ADD)  # addendum to the eighth fix round: F84 and Fs held at b2f4e2a, they pin
 FILE_TABLE = [tuple(p.strip() for p in line.split(" | ", 4)) for line in FILE_ROWS.splitlines() if line.strip()]
 
 
@@ -2774,6 +2818,13 @@ def test_fix7_row(guard, monkeypatch, rid, branch, boundary, rule, expected, com
 @pytest.mark.parametrize("rid, branch, boundary, rule, expected, command", FIX8_TABLE,
                          ids=[f"{row[0]}-{n}" for n, row in enumerate(FIX8_TABLE)])
 def test_fix8_row(guard, monkeypatch, rid, branch, boundary, rule, expected, command):
+    got = _answers(guard, monkeypatch, branch, boundary, rule, command)
+    assert {k: v for k, v in got.items() if v != expected} == {}, command
+
+
+@pytest.mark.parametrize("rid, branch, boundary, rule, expected, command", FIX8_ADD_TABLE,
+                         ids=[f"{row[0]}-{n}" for n, row in enumerate(FIX8_ADD_TABLE)])
+def test_fix8_add_row(guard, monkeypatch, rid, branch, boundary, rule, expected, command):
     got = _answers(guard, monkeypatch, branch, boundary, rule, command)
     assert {k: v for k, v in got.items() if v != expected} == {}, command
 

@@ -189,6 +189,10 @@ G1 | feat/x | git-guard | deny | git push .. abc123:origin/main
 G1 | feat/x | git-guard | deny | git push "$PWD" abc123:origin/main
 G1 | feat/x | git-guard | deny | git push sub/repo abc123:origin/main
 G1 | feat/x | git-guard | deny | git push .git abc123:refs/Remotes/origin/main
+G1 | feat/x | git-guard | deny | git push origin abc123:Refs/Remotes/origin/x
+G1 | feat/x | git-guard | deny | git push "`pwd`" abc123:origin/main
+G1 | feat/x | git-guard | deny | git push "$(pwd)" abc123:origin/main
+G1 | feat/x | git-guard | deny | git push . abc123:refs/Heads/x
 G1 | feat/x | git-guard | deny | git branch -d -r origin/main
 G1 | feat/x | git-guard | deny | git branch -dr origin/main
 G1 | feat/x | git-guard | deny | git branch --delete --remotes origin/main
@@ -206,6 +210,8 @@ G2 | feat/x | git-guard | ask | git config --remove-section remote.origin
 G2 | feat/x | git-guard | ask | git fetch origin main:refs/remotes/origin/main
 G2 | feat/x | git-guard | ask | git fetch origin +refs/heads/*:refs/remotes/origin/*
 G2 | feat/x | git-guard | ask | git fetch . abc123:refs/remotes/origin/main
+G2 | feat/x | git-guard | ask | git remote add self .
+G2 | feat/x | git-guard | ask | git remote add self /tmp/other-repo
 G2 | feat/x | git-guard | ask | git remote set-branches origin main
 G2 | feat/x | git-guard | ask | git remote set-head origin -a
 G2 | feat/x | git-guard | ask | git config url.https://example.org/.insteadOf https://github.com/
@@ -232,6 +238,7 @@ Gs | feat/x | git-guard | silent | git push . abc123:refs/heads/tmp
 Gs | feat/x | git-guard | silent | git push origin --delete feat/old
 Gs | feat/x | git-guard | silent | git push git@github.com:o/r.git feat/x
 Gs | feat/x | git-guard | silent | git push https://github.com/o/r.git feat/x
+Gs | feat/x | git-guard | silent | git remote add upstream https://github.com/o/r.git
 Gs | feat/x | git-guard | silent | git config --get url.x.insteadof
 Gl | feat/x | git-guard | silent | git fetch . abc123:refs/heads/other
 Gl | feat/x | git-guard | silent | echo abc123 > .git/refs/remotes/origin/main

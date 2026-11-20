@@ -2164,7 +2164,7 @@ def _git_local_remote(word: str) -> bool:
     """A push target that names a repository on this machine: a path (`.`, `..`, `.git`, `sub/repo`, `~/x`,
     `$PWD`, `file:…`), not a URL, an scp-like `host:path` or a configured remote's bare name. Fails closed: a word
     with a slash and no host part counts as a path."""
-    if word.startswith(("file:", "$", "~", ".", "/")):
+    if word.startswith(("file:", "$", "`", "~", ".", "/")):
         return True
     if "://" in word or re.match(r"^[^/]+:", word):
         return False
@@ -2184,7 +2184,7 @@ def _git_ref_rewrite(sub: str, rest: list[str]) -> Optional[Decision]:
         # a push into this repository (or another local one) resolves a short name like `origin/main` against
         # its refs, remote-tracking ones included: only refs/heads/ and refs/tags/ written out stay open
         if _git_local_remote(operands[0]):
-            if "--delete" in rest or "-d" in rest or any(not d.lower().startswith(("refs/heads/", "refs/tags/"))
+            if "--delete" in rest or "-d" in rest or any(not d.startswith(("refs/heads/", "refs/tags/"))
                                                           for d in dests if d):
                 return "deny", REF_REWRITE_MSG.format(
                     what="`git push` into a local repository with a short or deleted destination")
@@ -2198,6 +2198,8 @@ def _git_ref_rewrite(sub: str, rest: list[str]) -> Optional[Decision]:
         return "deny", REF_REWRITE_MSG.format(what="`git replace` (it swaps the objects every ref reads through)")
     if sub == "symbolic-ref" and remote and (len(operands) > 1 or "-d" in rest or "--delete" in rest):
         return "deny", REF_REWRITE_MSG.format(what="`git symbolic-ref`")
+    if sub == "remote" and operands[:1] == ["add"] and len(operands) >= 3 and _git_local_remote(operands[2]):
+        return "ask", REF_SOURCE_MSG.format(what="`git remote add` of a repository on this machine")
     if sub == "remote" and operands[:1] in (["set-url"], ["rename"], ["remove"], ["rm"], ["set-branches"],
                                             ["set-head"]):
         return "ask", REF_SOURCE_MSG.format(what=f"`git remote {operands[0]}`")
@@ -4091,14 +4093,18 @@ def _workflow_script(ev: Event) -> tuple:
             return None, "a Workflow scriptPath that is not a path"
         full = os.path.join(ev.cwd, os.path.expanduser(path))
         try:  # a directory, a device, a FIFO or a huge file would raise or stall the hook: each asks
-            fd = os.open(full, os.O_RDONLY | getattr(os, "O_NONBLOCK", 0))  # a FIFO swapped in cannot block here
+            # a FIFO swapped in cannot block here, and a tty cannot become the controlling terminal
+            fd = os.open(full, os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_NOCTTY", 0))
             with os.fdopen(fd, "rb") as fh:
                 info = os.fstat(fh.fileno())  # judged on what was opened, not on the name
                 if not stat.S_ISREG(info.st_mode):
                     return None, f"the Workflow script {path} is not a regular file"
                 if info.st_size > WORKFLOW_SCRIPT_MAX:
                     return None, f"the Workflow script {path} is larger than {WORKFLOW_SCRIPT_MAX} bytes"
-                return fh.read(WORKFLOW_SCRIPT_MAX + 1).decode("utf-8", errors="replace"), None
+                data = fh.read(WORKFLOW_SCRIPT_MAX + 1)
+                if len(data) > WORKFLOW_SCRIPT_MAX:  # it grew after fstat: refuse, never judge a prefix
+                    return None, f"the Workflow script {path} is larger than {WORKFLOW_SCRIPT_MAX} bytes"
+                return data.decode("utf-8", errors="replace"), None
         except OSError as exc:
             return None, f"the Workflow script {path} could not be read ({type(exc).__name__})"
     if isinstance(ev.args.get("name"), str):

@@ -20,9 +20,10 @@ Verbs
   owner labels-sync                      create or update the label families; never deletes
   owner ready N [N ...]                  backlog|blocked -> ready after the definition of ready; freezes the body;
                                          every item is checked first, and none changes when one fails
-  owner done N [N ...] [--waive I "reason"]...
+  owner done N [N ...] [--waive I "reason"]... | --accept-all
                                          review -> done after the closing protocol; closes the issue; every item
-                                         is checked first; --waive with one number only
+                                         is checked first; --waive with one number only; --accept-all prints
+                                         each item, asks once and ticks every unchecked box
 
 Options: --repo OWNER/NAME (GitHub) or ORG/PROJECT/REPO (Azure DevOps); default: the cwd's origin
 Backend: env KZ_TRACKER_BACKEND=github|ado, else the origin host (dev.azure.com, *.visualstudio.com
@@ -541,12 +542,21 @@ def is_human() -> bool:
     return sys.stdin.isatty() and sys.stdout.isatty() and not os.environ.get("CLAUDECODE")
 
 
+def read_line() -> str:
+    """One line from stdin; EOF raises EOFError."""
+    line = sys.stdin.readline()
+    if not line:
+        raise EOFError
+    return line.rstrip("\r\n")
+
+
 class Tracker:
-    def __init__(self, backend: Backend, actor: str, out=None, cwd: Optional[str] = None):
+    def __init__(self, backend: Backend, actor: str, out=None, cwd: Optional[str] = None, ask=None):
         self.b = backend
         self.actor = actor
         self.out = out or sys.stdout
         self.cwd = cwd or os.getcwd()
+        self.ask = ask or read_line
 
     def say(self, text: str) -> None:
         self.out.write(text + "\n")
@@ -753,7 +763,7 @@ class Tracker:
         self._write_all(self._check_all("ready", numbers, self._ready_problems), self._write_ready)
         return 0
 
-    def done_checks(self, issue: Issue, waived: dict) -> tuple:
+    def done_checks(self, issue: Issue, waived: dict, accept: bool = False) -> tuple:
         """Read-only part of the closing protocol: (problems, facts)."""
         problems, facts = [], {}
         status = status_of(issue)
@@ -802,15 +812,17 @@ class Tracker:
         for k, (checked, text) in enumerate(parse_ac(issue.body), 1):
             if checked:
                 continue
-            if k in waived:
+            if k in waived or accept:  # --accept-all: the one confirmation accepts it
                 continue
             problems.append(f"acceptance criterion {k} unchecked: {text} "
                             f"(tick it in the UI or `--waive {k} \"reason\"`)")
         facts["waived"] = waived
         return problems, facts
 
-    def done(self, numbers: list, waive: Optional[list] = None) -> int:
+    def done(self, numbers: list, waive: Optional[list] = None, accept_all: bool = False) -> int:
         self._owner_only()
+        if accept_all and waive:
+            raise Refused("--accept-all and --waive exclude each other; accept every criterion or waive some")
         if waive and len(numbers) > 1:
             raise Refused("--waive takes one item (its indexes are per item); give one number with it")
         waived = {}
@@ -819,13 +831,43 @@ class Tracker:
 
         def check(issue: Issue) -> tuple:
             check_transition(status_of(issue), "done", self.actor)
-            return self.done_checks(issue, waived)
+            return self.done_checks(issue, waived, accept_all)
 
-        self._write_all(self._check_all("done", numbers, check), self._write_done)
+        items = self._check_all("done", numbers, check)
+        if not accept_all:
+            self._write_all(items, self._write_done)
+            return 0
+        for issue, facts in items:
+            self.say(f"#{issue.number} {issue.title}")
+            for k, (checked, text) in enumerate(parse_ac(issue.body), 1):
+                self.say(f"  {k}. [{'x' if checked else ' '}] {text}")
+            self.say(f"  pull request: {facts['pr']}")
+            self.say(f"  merge commit: {facts['merge_sha']}, merged by {facts['merged_by']}")
+            for c in facts["checks"]:
+                self.say(f"  {c['name']}: {c['conclusion']}")
+        count = len(items)
+        self.out.write(f'Type "accept {count}" to accept every criterion of these {count} items: ')
+        self.out.flush()
+        try:
+            answer = self.ask()
+        except EOFError:
+            answer = None
+        if answer != f"accept {count}":
+            self.say("not confirmed; nothing changed")
+            return 2
+        accepted = (f"Acceptance criteria accepted by {self.b.whoami()} in one confirmation for {count} items "
+                    f"({', '.join(f'#{i.number}' for i, _ in items)}).")
+        self._write_all(items, lambda issue, facts: self._write_done(issue, facts, accepted))
         return 0
 
-    def _write_done(self, issue: Issue, facts: dict) -> None:
+    def _write_done(self, issue: Issue, facts: dict, accepted: str = "") -> None:
         number, waived = issue.number, facts["waived"]
+        if accepted:
+            ticked = _AC_RE.sub(lambda m: m.group(0).replace("[ ]", "[x]", 1) if m.group(1) == " " else m.group(0),
+                                issue.body)
+            if ticked != issue.body:
+                self.b.set_body(number, ticked)
+            facts = {**facts, "criteria": "accepted-all"}
         me = self.b.whoami()
         lines = [mark("done", by=me, ts=utcnow(), **{k: v for k, v in facts.items() if k != "checks"}),
                  f"Done by {me}. PR {facts['pr']} merged as {facts['merge_sha']} by {facts['merged_by']}.",
@@ -835,6 +877,8 @@ class Tracker:
             lines.append("DECISIONS.md changed in this PR (decision record linked by the merge SHA).")
         for k, reason in sorted(waived.items()):
             lines.append(f"Waived acceptance criterion {k}: {reason}")
+        if accepted:
+            lines.append(accepted)
         self.b.comment(number, "\n".join(lines))
         self.set_status(issue, "done")
         self.b.close_issue(number)
@@ -889,11 +933,12 @@ def build_parser() -> argparse.ArgumentParser:
     s = osub.add_parser("done")
     s.add_argument("numbers", type=int, nargs="+")
     s.add_argument("--waive", nargs=2, action="append", metavar=("INDEX", "REASON"), default=[])
+    s.add_argument("--accept-all", action="store_true")
     return p
 
 
 def main(argv: list, backend: Optional[Backend] = None, human: Optional[bool] = None, out=None,
-         cwd: Optional[str] = None) -> int:
+         cwd: Optional[str] = None, ask=None) -> int:
     out = out or sys.stdout
     parser = build_parser()
     if not argv or argv[0] in ("help", "-h", "--help"):
@@ -911,7 +956,7 @@ def main(argv: list, backend: Optional[Backend] = None, human: Optional[bool] = 
         return 1
     actor = HUMAN if (is_human() if human is None else human) else AGENT
     try:
-        t = Tracker(backend or backend_for(ns.repo), actor, out, cwd)
+        t = Tracker(backend or backend_for(ns.repo), actor, out, cwd, ask)
         if ns.verb == "list":
             return t.list(ns.status, ns.type_, ns.all_)
         if ns.verb == "show":
@@ -932,7 +977,7 @@ def main(argv: list, backend: Optional[Backend] = None, human: Optional[bool] = 
             if ns.owner_verb == "ready":
                 return t.ready(ns.numbers)
             if ns.owner_verb == "done":
-                return t.done(ns.numbers, ns.waive)
+                return t.done(ns.numbers, ns.waive, ns.accept_all)
     except Refused as exc:
         out.write(f"tracker: refused: {exc}\n")
         return 2

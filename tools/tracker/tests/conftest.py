@@ -70,5 +70,5 @@ def box_marker(tracker, tmp_path, monkeypatch):
     """The box marker's path, inside tmp_path and absent until a test writes it: no test reads /etc (#64, D8)."""
     path = tmp_path / "agent-box" / "box.json"
     path.parent.mkdir()
-    monkeypatch.setattr(tracker, "BOX_MARKER", str(path), raising=False)
+    monkeypatch.setattr(tracker, "BOX_MARKER", str(path))  # raises if the constant is renamed
     return path

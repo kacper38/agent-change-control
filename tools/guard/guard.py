@@ -5051,6 +5051,23 @@ def run_post() -> int:
     return 0
 
 
+# The profile names where the session runs (D1 of item #65); step 1.0b adds `box`. Each entry: whether rules_off
+# counts, and what an ask becomes (None: it stays an ask). Every ask of a rule or of the guard itself passes
+# through the table where rules_off is applied: the combined ask is turned, so a deny keeps its own reasons.
+CLOUD_ASK_MSG = ("cloud session (CLAUDE_CODE_REMOTE): this would ask on the owner's machine, and nobody can answer "
+                 "here, so it is denied. {reason}")
+PROFILES = {
+    "host": {"rules_off": True, "ask": None},
+    "cloud": {"rules_off": False, "ask": CLOUD_ASK_MSG},
+}
+
+
+def profile(environ: Optional[Mapping[str, str]] = None) -> str:
+    """`cloud` when CLAUDE_CODE_REMOTE is true (the truth test of disposable_environment), else `host`."""
+    env = os.environ if environ is None else environ
+    return "cloud" if str(env.get("CLAUDE_CODE_REMOTE", "")).lower() not in ("", "0", "false") else "host"
+
+
 def run_hook(target: str, wrapper: Optional[str]) -> int:
     if target == "post":  # never blocks, so it runs without the budget
         return run_post()
@@ -5064,8 +5081,10 @@ def run_hook(target: str, wrapper: Optional[str]) -> int:
     if wrapper == "claude" and ev.harness == "copilot":
         return 0
     names = PRE_RULES if target == "pre" else [target]
-    # rules_off silences a rule's asks in an own repo; its denies stand, and any other boundary keeps everything
-    off = set(cfg["rules_off"]) if cfg.get("boundary") == "own" else set()
+    table = PROFILES[profile()]
+    # rules_off silences a rule's asks in an own repo where the profile lets it; its denies stand, and any other
+    # boundary keeps everything
+    off = set(cfg["rules_off"]) if table["rules_off"] and cfg.get("boundary") == "own" else set()
     if host_install_silent(cfg):  # its knob silences host-install under every boundary; logged as skipped below
         off.add("host-install")
     decisions: list[Decision] = []
@@ -5091,6 +5110,9 @@ def run_hook(target: str, wrapper: Optional[str]) -> int:
         decisions.append(("ask", msg.format(budget=HOOK_BUDGET_S, size=len(ev.command or ""), rules=late)))
         fired["budget"] = "ask"
     final = combine(decisions)
+    if final and final[0] == "ask" and table["ask"]:  # the profile's table; a deny keeps its own reasons
+        final = "deny", table["ask"].format(reason=final[1])
+        fired = {name: "deny" if v == "ask" else v for name, v in fired.items()}
     if final:
         log_decision(final, fired, ev, cfg)
     if skipped:
@@ -5115,6 +5137,7 @@ def log_decision(decision: Decision, fired: dict[str, str], ev: Event, cfg: dict
         "harness": ev.harness,
         "session": ev.session,
         "guard": VERSION,
+        "profile": profile(),
     }
     call = _call_id(ev)
     if call:

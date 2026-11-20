@@ -63,7 +63,9 @@ CLAUDE_TOOLS = {
 }
 # The built-in tools of a Claude Code session and how the guard treats each: `judged` (a rule reads the call, so
 # the PreToolUse matcher must name it), `cloud-launch` (it can start cloud work, D3 of item #65) or `harmless`
-# (it starts no cloud work and writes nothing a rule judges). Filled from the init message of the probe's
+# (it starts no cloud work and no rule reads it: WebFetch and WebSearch have the kind `web` in CLAUDE_TOOLS, but
+# no rule judges that kind and the matcher does not name them, so what they send out is unguarded, a named limit
+# of item #65). Filled from the init message of the probe's
 # tool-list canary (CLI 2.1.323, 2026-11-20, the box and the owner's Mac); the canary fails when the session's list
 # differs from these names.
 KNOWN_CLAUDE_TOOLS = {
@@ -84,7 +86,7 @@ KNOWN_CLAUDE_TOOLS = {
     "ScheduleWakeup": "harmless",  # local: the /loop of this session
     "SendMessage": "harmless",  # messages a running session; it starts none
     "Skill": "cloud-launch",  # the schedule skill creates cloud routines
-    "Task": "judged",  # fan-out; isolation remote is cloud-launch's
+    "Task": "judged",  # fan-out; the init list says Task, hooks get Agent: both names stay in the matcher
     "TaskStop": "harmless",
     "ToolSearch": "harmless",
     "WebFetch": "harmless",

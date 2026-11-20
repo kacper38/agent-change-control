@@ -28,3 +28,8 @@ def test_every_judged_tool_is_in_the_pre_matcher(guard):
 def test_every_judged_tool_has_a_kind(guard):
     missing = [t for t, how in guard.KNOWN_CLAUDE_TOOLS.items() if how != "harmless" and t not in guard.CLAUDE_TOOLS]
     assert missing == [], f"no kind in CLAUDE_TOOLS for {missing}"
+
+
+def test_the_fan_out_tool_is_matched_by_both_its_names():
+    # the init message lists the fan-out tool as Task, while the hook rows of the probe name it Agent
+    assert {"Agent", "Task"} <= set(_pre_matcher())

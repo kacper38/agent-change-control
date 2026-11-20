@@ -154,8 +154,14 @@ CASES = [
     ("mcp-3-one-row-missing-fails", "mcp-hook", {"run": mcp_ev(MCP_BOTH[:1], ["get_me", "merge_pull_request"])},
      "fails", "merge_pull_request and the hook has no row"),
     ("mcp-4-no-call-is-inconclusive", "mcp-hook", {"run": mcp_ev()}, "inconclusive", "did not call both tools"),
-    ("mcp-5-block-ignored-is-inconclusive", "mcp-hook", {"run": mcp_ev(MCP_BOTH, ["get_me", "merge_pull_request"])},
-     "inconclusive", "did not keep it from the server"),
+    ("mcp-5-block-ignored-fails", "mcp-hook", {"run": mcp_ev(MCP_BOTH, ["get_me", "merge_pull_request"])},
+     "fails", "reached the server all the same"),
+    ("mcp-5-unblocked-merge-reached", "mcp-hook",
+     {"run": mcp_ev(MCP_BOTH[:1] + [pre("mcp__github__merge_pull_request")], ["get_me", "merge_pull_request"])},
+     "inconclusive", "the hook did not block it"),
+    ("mcp-5-stopped-but-not-by-the-hook", "mcp-hook",
+     {"run": mcp_ev(MCP_BOTH[:1] + [pre("mcp__github__merge_pull_request")], ["get_me"])},
+     "inconclusive", "not because the hook blocked it"),
     ("mcp-6-allowed-call-missing", "mcp-hook", {"run": mcp_ev(MCP_BOTH)}, "inconclusive", "did not reach the server"),
     ("mcp-7-runner-error", "mcp-hook", {"run": mcp_ev(MCP_BOTH, ["get_me"], error="timed out after 300 s")},
      "inconclusive", "timed out"),
@@ -400,6 +406,9 @@ def test_skill_denial_shows_in_the_block_observation(probe):
 
 def test_canary_names_and_runs_match_the_table(probe):
     assert [c.name for c in probe.CANARIES] == NAMES
+    # the runs of mcp-hook and tool-list have their own argv and settings tests (item #65); every other run is here
+    special = [(c.name, r.key) for c in probe.CANARIES for r in c.runs if r.mcp or r.stream]
+    assert {name for name, _ in special} == {"mcp-hook", "tool-list"}, special
     assert [(c.name, r.key) for c in probe.CANARIES for r in c.runs if not (r.mcp or r.stream)] == list(TABLE)
     assert all(c.expect and c.backs for c in probe.CANARIES)
 

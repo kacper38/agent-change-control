@@ -548,8 +548,15 @@ def judge_mcp_hook(ev: Evidence) -> tuple:
     if "get_me" not in server_calls:
         return "inconclusive", "the allowed call did not reach the server, so a missing blocked call proves nothing", \
             observed
+    merge_blocked = any(r.get("event") == "PreToolUse" and r.get("tool") == "mcp__github__merge_pull_request"
+                        and r.get("blocked") for r in ev.hook_rows)
     if "merge_pull_request" in server_calls:
-        return "inconclusive", "the hook saw the merge call, but its exit 2 did not keep it from the server", observed
+        if merge_blocked:
+            return "fails", "the hook blocked the merge call with exit 2, and it reached the server all the same", \
+                observed
+        return "inconclusive", "the merge call reached the server and the hook did not block it", observed
+    if not merge_blocked:
+        return "inconclusive", "the merge call did not reach the server, but not because the hook blocked it", observed
     return "holds", "", observed
 
 

@@ -22,7 +22,8 @@ ABS = "/private/tmp/scratch/"  # custom subagents were seen rewriting the touch 
 DEPTH, BG = "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH", "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS"
 SUCCESS = {"type": "result", "subtype": "success", "is_error": False, "session_id": "s1"}
 NAMES = ["workflow-by-name", "denial-exits-zero", "hook-blocks-workflow-agent", "hook-blocks-nested-subagent",
-         "depth-pin", "spawn-log-workflow-agents", "workflow-background-off", "ledger-own-cost"]
+         "depth-pin", "spawn-log-workflow-agents", "workflow-background-off", "ledger-own-cost", "mcp-hook",
+         "tool-list"]
 
 
 def pre(tool, agent_type=None, command=None, subagent_type=None, blocked=False, env=None):
@@ -51,6 +52,13 @@ INNER_BLOCK = [pre("Agent", None, subagent_type="probe-outer"), start("probe-out
 CHAIN = [start("probe-l1"), start("probe-l2"), start("probe-l3")]
 BOTH = ["allowed.marker"]
 RAN_ROWS_ABS = [pre("Workflow"), start(WA), pre("Bash", WA, "touch " + ABS + "ran.marker")]
+MCP_BOTH = [pre("mcp__github__get_me"), pre("mcp__github__merge_pull_request", blocked=True)]
+
+
+def mcp_ev(rows=(), calls=(), **kw):
+    return dict(ev(rows=rows, **kw), server_rows=tuple({"tool": c} for c in calls))
+
+
 INNER_BLOCK_ABS = INNER_BLOCK[:4] + [pre("Bash", "probe-inner", "touch " + ABS + "allowed.marker"),
                                      pre("Bash", "probe-inner", "touch " + ABS + "forbidden.marker", blocked=True)]
 
@@ -139,6 +147,26 @@ CASES = [
     # the lookup itself is tested in test_find_transcript_refuses_a_session_id_in_two_project_folders
     ("ledger-3-no-transcript-reason-names-both-causes", "ledger-own-cost", {"run": ev(total_cost_usd=0.01)},
      "inconclusive", "more than one file carries its session id"),
+    # item #65, D11: is the hook called for a tool of an MCP server named github, and does its exit 2 block it
+    ("mcp-1-holds", "mcp-hook", {"run": mcp_ev(MCP_BOTH, ["get_me"])}, "holds", ""),
+    ("mcp-2-a-call-without-a-hook-row-fails", "mcp-hook", {"run": mcp_ev((), ["get_me", "merge_pull_request"])},
+     "fails", "get_me, merge_pull_request and the hook has no row"),
+    ("mcp-3-one-row-missing-fails", "mcp-hook", {"run": mcp_ev(MCP_BOTH[:1], ["get_me", "merge_pull_request"])},
+     "fails", "merge_pull_request and the hook has no row"),
+    ("mcp-4-no-call-is-inconclusive", "mcp-hook", {"run": mcp_ev()}, "inconclusive", "did not call both tools"),
+    ("mcp-5-block-ignored-is-inconclusive", "mcp-hook", {"run": mcp_ev(MCP_BOTH, ["get_me", "merge_pull_request"])},
+     "inconclusive", "did not keep it from the server"),
+    ("mcp-6-allowed-call-missing", "mcp-hook", {"run": mcp_ev(MCP_BOTH)}, "inconclusive", "did not reach the server"),
+    ("mcp-7-runner-error", "mcp-hook", {"run": mcp_ev(MCP_BOTH, ["get_me"], error="timed out after 300 s")},
+     "inconclusive", "timed out"),
+    ("mcp-8-a-blocked-run-may-end-unclean", "mcp-hook",
+     {"run": mcp_ev(MCP_BOTH, ["get_me"], exit_code=1, is_error=True)}, "holds", ""),
+    # the tool list of the init message against KNOWN_CLAUDE_TOOLS (the hold and the added name: tests below)
+    ("tools-1-no-init", "tool-list", {"run": ev()}, "inconclusive", "no init message"),
+    ("tools-2-removed", "tool-list", {"run": dict(ev(), init={"type": "system", "subtype": "init", "tools": ["Bash"]})},
+     "fails", "added none; removed CronCreate"),
+    ("tools-3-runner-error", "tool-list", {"run": ev(error="timed out after 300 s")}, "inconclusive", "timed out"),
+    ("tools-4-not-a-list", "tool-list", {"run": dict(ev(), init={"tools": "Bash"})}, "inconclusive", "no init"),
 ]
 
 
@@ -282,6 +310,79 @@ TABLE = {  # (canary, run key): (prompt start, allow rules, workflows, agents, b
 }
 
 
+def _init(tools):
+    return {"type": "system", "subtype": "init", "tools": tools}
+
+
+def test_tool_list_holds_on_the_known_names_and_leaves_mcp_tools_out(probe):
+    known = sorted(probe.load_guard().KNOWN_CLAUDE_TOOLS)
+    status, reason, observed = probe.CANARY_BY_NAME["tool-list"].judge(
+        {"run": probe.Evidence(**dict(ev(is_error=True), init=_init(known + ["mcp__github__get_me"])))})
+    assert (status, reason) == ("holds", "") and observed["tools"] == known and observed["added"] == []
+
+
+def test_tool_list_fails_naming_an_added_tool(probe):
+    known = sorted(probe.load_guard().KNOWN_CLAUDE_TOOLS)
+    status, reason, observed = probe.CANARY_BY_NAME["tool-list"].judge(
+        {"run": probe.Evidence(**dict(ev(), init=_init(known + ["RemoteTrigger"])))})
+    assert status == "fails" and "added RemoteTrigger; removed none" in reason
+    assert observed["added"] == ["RemoteTrigger"] and observed["removed"] == []
+
+
+def test_stream_messages_keep_the_first_init_and_the_last_result(probe):
+    lines = [json.dumps(_init(["Bash"])), "not json", json.dumps([1]), json.dumps(_init(["Read"])),
+             json.dumps(dict(SUCCESS, n=1)), json.dumps(dict(SUCCESS, n=2))]
+    result, init = probe.stream_messages("\n".join(lines))
+    assert init["tools"] == ["Bash"] and result["n"] == 2
+    assert probe.stream_messages("") == (None, None)
+
+
+def test_hook_blocks_the_named_tool(tmp_path):
+    call = {"hook_event_name": "PreToolUse", "tool_name": "mcp__github__merge_pull_request", "tool_input": {}}
+    r, rows = hook(tmp_path, call, "--block-tool", "mcp__github__merge_pull_request")
+    assert r.returncode == 2 and rows[-1]["blocked"] is True
+    r, rows = hook(tmp_path, dict(call, tool_name="mcp__github__get_me"), "--block-tool",
+                   "mcp__github__merge_pull_request")
+    assert r.returncode == 0 and rows[-1]["blocked"] is False and rows[-1]["tool"] == "mcp__github__get_me"
+
+
+def test_the_mcp_server_lists_its_tools_and_logs_each_call(tmp_path):
+    log = tmp_path / "mcp.jsonl"
+    msgs = [{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2025-06-18"}},
+            {"jsonrpc": "2.0", "method": "notifications/initialized"},
+            {"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
+            {"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "get_me", "arguments": {}}},
+            {"jsonrpc": "2.0", "id": 4, "method": "no/such"}]
+    r = subprocess.run([sys.executable, "-I", PROBE, "mcp-server", str(log)], capture_output=True, text=True,
+                       input="\n".join(json.dumps(m) for m in msgs) + "\nnot json\n", timeout=30)
+    replies = [json.loads(line) for line in r.stdout.splitlines()]
+    assert r.returncode == 0 and [m["id"] for m in replies] == [1, 2, 3, 4]
+    assert replies[0]["result"]["serverInfo"]["name"] == "kit-probe-github"
+    assert [t["name"] for t in replies[1]["result"]["tools"]] == ["get_me", "merge_pull_request"]
+    assert replies[2]["result"]["content"][0]["text"] == "ok" and replies[3]["error"]["code"] == -32601
+    assert [json.loads(line)["tool"] for line in log.read_text().splitlines()] == ["get_me"]
+
+
+def test_the_mcp_run_registers_the_server_and_matches_its_tools(probe, tmp_path):
+    run = probe.CANARY_BY_NAME["mcp-hook"].runs[0]
+    probe.build_scratch(str(tmp_path), run, "haiku")
+    settings = json.loads((tmp_path / ".claude" / "settings.json").read_text())
+    (group,) = settings["hooks"]["PreToolUse"]
+    assert group["matcher"] == "mcp__github__.*"
+    assert group["hooks"][0]["command"].endswith(" --block-tool mcp__github__merge_pull_request")
+    server = json.loads((tmp_path / "mcp.json").read_text())["mcpServers"]["github"]
+    assert server["command"] == sys.executable and server["args"][:3] == ["-I", PROBE, "mcp-server"]
+    argv = probe.run_argv(run, "haiku", "claude")
+    assert argv[argv.index("--allowedTools") + 1:][:2] == ["mcp__github__get_me", "mcp__github__merge_pull_request"]
+    assert argv[-5:] == ["--mcp-config", "mcp.json", "--strict-mcp-config", "--output-format", "json"]
+
+
+def test_the_tool_list_run_keeps_the_init_message(probe):
+    argv = probe.run_argv(probe.CANARY_BY_NAME["tool-list"].runs[0], "haiku", "claude")
+    assert argv[-4:] == ["--strict-mcp-config", "--output-format", "stream-json", "--verbose"]
+    assert "--mcp-config" not in argv and "--allowedTools" not in argv
+
+
 def test_every_workflow_run_allows_both_routes(probe):
     runs = [(c.name, r) for c in probe.CANARIES for r in c.runs if r.workflows]
     assert runs
@@ -299,7 +400,7 @@ def test_skill_denial_shows_in_the_block_observation(probe):
 
 def test_canary_names_and_runs_match_the_table(probe):
     assert [c.name for c in probe.CANARIES] == NAMES
-    assert [(c.name, r.key) for c in probe.CANARIES for r in c.runs] == list(TABLE)
+    assert [(c.name, r.key) for c in probe.CANARIES for r in c.runs if not (r.mcp or r.stream)] == list(TABLE)
     assert all(c.expect and c.backs for c in probe.CANARIES)
 
 
@@ -366,15 +467,15 @@ def test_success_that_does_nothing_holds_nothing(probe, tmp_path):
     data = json.loads(record.read_text())
     assert list(data) == ["schema", "cli_version", "date", "model", "models", "cost_usd", "canaries"]
     assert data["schema"] == "orchestration-probe/1" and data["cli_version"] == "9.9.9" and data["model"] == "haiku"
-    assert data["models"] == ["claude-fake-1"] and data["cost_usd"] == 0.08
+    assert data["models"] == ["claude-fake-1"] and data["cost_usd"] == 0.1
     assert list(data["canaries"]) == NAMES
-    assert [c["status"] for c in data["canaries"].values()] == ["inconclusive"] * 8
+    assert [c["status"] for c in data["canaries"].values()] == ["inconclusive"] * 10
     assert data["canaries"]["depth-pin"]["cost_usd"] == 0.02
     assert list(data["canaries"]["workflow-by-name"]) == ["status", "reason", "expect", "backs", "observed",
                                                           "cost_usd"]
     assert text.splitlines()[0] == "inconclusive  workflow-by-name              $0.0100"
     assert data["canaries"]["ledger-own-cost"]["cost_usd"] == 0.0, "a reused run is paid for once"
-    assert text.splitlines()[-1] == f"probe: CLI 9.9.9, 0 of 8 canaries hold, $0.0800; wrote {record}"
+    assert text.splitlines()[-1] == f"probe: CLI 9.9.9, 0 of 10 canaries hold, $0.1000; wrote {record}"
     assert not record.with_name("verified.json.tmp").exists()
 
 

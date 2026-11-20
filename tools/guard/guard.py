@@ -55,6 +55,34 @@ CLAUDE_TOOLS = {
     "WebFetch": "web",
     "WebSearch": "web",
 }
+# The built-in tools of a Claude Code session and how the guard treats each: `judged` (a rule reads the call, so
+# the PreToolUse matcher must name it), `cloud-launch` (it can start cloud work, D3 of item #65) or `harmless`
+# (it starts no cloud work and writes nothing a rule judges). Filled from the init message of the probe's
+# tool-list canary (CLI 2.1.323, 2026-11-20); the canary fails when the session's list differs from these names.
+KNOWN_CLAUDE_TOOLS = {
+    "Bash": "judged",
+    "CronCreate": "harmless",  # local: a prompt queued in this session (durable: .claude/scheduled_tasks.json)
+    "CronDelete": "harmless",
+    "CronList": "harmless",
+    "Edit": "judged",
+    "EnterWorktree": "harmless",  # a new worktree under .claude/worktrees/ on a new branch
+    "ExitWorktree": "harmless",  # removes only the worktree this session made, and refuses unsaved work by default
+    "ListAgents": "harmless",
+    "Monitor": "judged",  # runs a shell command, as Bash does
+    "NotebookEdit": "judged",
+    "Read": "judged",
+    "ReportFindings": "harmless",
+    "ScheduleWakeup": "harmless",  # local: the /loop of this session
+    "SendMessage": "harmless",  # messages a running session; it starts none
+    "Skill": "cloud-launch",  # the schedule skill creates cloud routines
+    "Task": "judged",  # fan-out; isolation remote is cloud-launch's
+    "TaskStop": "harmless",
+    "ToolSearch": "harmless",
+    "WebFetch": "harmless",
+    "WebSearch": "harmless",
+    "Workflow": "cloud-launch",  # a script whose agent() asks for isolation remote
+    "Write": "judged",
+}
 COPILOT_TOOLS = {
     "bash": "shell",
     "powershell": "shell",

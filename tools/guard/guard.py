@@ -2070,7 +2070,7 @@ def _git_guard_seg(seg: list[str], cwd: str, protected: set, elsewhere: bool = F
     if sub == "config" and _git_config_writes_hooks_path(rest):
         return "ask", GIT_HOOKS_PATH_MSG
     if sub != "push":
-        return None
+        return _git_ref_rewrite(sub, rest)
     if (any(t in _FORCE_FLAGS or t.startswith("--force-with-lease=") for t in rest) or "f" in shorts
             or _git_prefix(longs, _PUSH_FORCE_NAMES)):
         return "deny", GIT_MSG.format(what="force push")
@@ -2113,12 +2113,62 @@ def _git_guard_seg(seg: list[str], cwd: str, protected: set, elsewhere: bool = F
     return ("ask", GIT_ELSEWHERE_MSG.format(what="to HEAD")) if to_head else None
 
 
+# 0.10.0 (item #65, D9): the remote-tracking refs are what the guard and the tracker read as the remote's state.
+# Named limit: `git fetch . <sha>:<other ref>` forms and direct writes under .git/ match nothing.
+REF_REWRITE_MSG = ("git-guard: {what} rewrites the remote-tracking refs the guard reads (refs/remotes/); a session "
+                   "never does.")
+REF_SOURCE_MSG = ("git-guard: {what} changes where the remote-tracking refs the guard reads come from. Confirm the "
+                  "command.")
+_REMOTE_REFS = "refs/remotes/"
+_REMOTE_KEY_RE = re.compile(r"^remote\.(.+\.)?(url|pushurl|fetch)$", re.IGNORECASE)
+
+
+def _git_config_writes_remote(rest: list[str]) -> bool:
+    """`git config` sets, adds or unsets remote.<name>.url|pushurl|fetch, or drops or renames a remote's section;
+    the reads (`--get`, the name alone, `--list`) are none."""
+    for k, t in enumerate(rest[:-1]):
+        if t in ("--remove-section", "--rename-section", "remove-section", "rename-section") \
+                and rest[k + 1].lower().startswith("remote."):
+            return True
+    keys = [k for k, t in enumerate(rest) if _REMOTE_KEY_RE.match(t)]
+    if not keys:
+        return False
+    before = rest[: keys[0]]
+    if any(t in ("--unset", "--unset-all", "unset", "--add", "--replace-all") for t in before):
+        return True
+    if any(t.startswith(("--get", "--list")) or t in ("-l", "get", "list") for t in before):
+        return False
+    return any(not t.startswith("-") for t in rest[keys[0] + 1 :])
+
+
+def _git_ref_rewrite(sub: str, rest: list[str]) -> Optional[Decision]:
+    """The git-guard verdict on a call that writes the remote-tracking refs (deny) or their source (ask)."""
+    operands = [t for k, t in enumerate(rest) if not t.startswith("-") and not (k and rest[k - 1] == "-m")]
+    remote = any(t.startswith(_REMOTE_REFS) for t in operands)
+    if sub == "update-ref" and remote:
+        return "deny", REF_REWRITE_MSG.format(what="`git update-ref`")
+    if sub == "replace" and rest and rest[0] not in ("-l", "--list") and not rest[0].startswith("--format"):
+        return "deny", REF_REWRITE_MSG.format(what="`git replace` (it swaps the objects every ref reads through)")
+    if sub == "symbolic-ref" and remote and (len(operands) > 1 or "-d" in rest or "--delete" in rest):
+        return "deny", REF_REWRITE_MSG.format(what="`git symbolic-ref`")
+    if sub == "remote" and operands[:1] in (["set-url"], ["rename"], ["remove"], ["rm"]):
+        return "ask", REF_SOURCE_MSG.format(what=f"`git remote {operands[0]}`")
+    if sub == "config" and _git_config_writes_remote(rest):
+        return "ask", REF_SOURCE_MSG.format(what="`git config` of a remote's url or fetch refspec")
+    if sub == "fetch" and any(":" in t and t.rsplit(":", 1)[1].startswith(_REMOTE_REFS) for t in operands):
+        return "ask", REF_SOURCE_MSG.format(what="`git fetch` into a named remote-tracking ref")
+    return None
+
+
 def rule_git_guard(ev: Event, cfg: dict) -> Optional[Decision]:
     if ev.event != "PreToolUse" or ev.kind != "shell" or not ev.command:
         return None
     protected = protected_branches(cfg)
     command = strip_heredocs(ev.command)
     asks = []  # 0.8.0: the first pass can ask (`git config core.hooksPath`); a later deny of the line still wins
+    if _REMOTE_REFS in ev.command and any(_git_subcommand(seg)[0] == "update-ref" and "--stdin" in seg
+                                          for seg in segments(command)):  # the refs it moves come from its input
+        return "deny", REF_REWRITE_MSG.format(what="`git update-ref --stdin` with refs/remotes/ on the line")
     for seg in segments(command):
         d = _git_guard_seg(seg, ev.cwd, protected)
         if d and d[0] == "deny":

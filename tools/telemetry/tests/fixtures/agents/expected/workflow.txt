@@ -1,0 +1,10 @@
+finished  20m30s      $1.70       1  fable-5-2       session 33333333-3333-4333-8333-333333333333
+finished  19m33s      $4.41       4  opus-5-5 +1     `- workflow  demo-build
+finished  10m00s      $4.00       3  opus-5-5           |- python-engineer  build:core
+finished   9m30s      $0.41       1  haiku-5-5          `- workflow-subagent  check:facts
+total                 $6.11       5                  agents 2, running 0
+
+columns: state, duration, cost in USD, tool calls, model
+duration: first to last line of the transcript; cost: the ledger's own count
+state: inferred from the transcript's end, so a cut-off run reads as running
+a workflow line sums the agents under it; the total counts each agent once

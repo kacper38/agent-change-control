@@ -1,0 +1,6 @@
+{"type":"launched"}
+{"type":"started","key":"k1","agentId":"a3000000000000001","label":"build:core","phase":"Build"}
+{"type":"result","key":"k1","agentId":"a3000000000000001","result":{"done":["synthetic OUTPUT-MARKER"]}}
+{"type":"assistant","requestId":"req_j_01","timestamp":"2026-01-05T09:00:00.000Z","message":{"id":"msg_j_01","model":"claude-opus-5-5","content":[{"type":"tool_use","id":"toolu_j_01","name":"Bash","input":{}}],"stop_reason":"tool_use","usage":{"input_tokens":9000000,"output_tokens":9000000,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}
+{"type":"started","key":"k2","agentId":"a3000000000000002","label":"check:facts","phase":"Check"}
+{"type":"result","key":"k2","agentId":"a3000000000000002","result":{"done":["synthetic OUTPUT-MARKER"]}}

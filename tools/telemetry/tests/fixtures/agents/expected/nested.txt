@@ -1,0 +1,9 @@
+finished  40m10s      $1.40       2  fable-5-2       session 44444444-4444-4444-8444-444444444444
+finished  19m52s      $1.50       1  opus-5-5        |- general-purpose  Plan the migration
+finished  13m58s      $0.12       2  haiku-5-5       |  `- Explore  Find the callers
+finished  19m49s      $1.80       1  opus-5-5        `- python-engineer  Apply the migration
+total                 $4.82       6                  agents 3, running 0
+
+columns: state, duration, cost in USD, tool calls, model
+duration: first to last line of the transcript; cost: the ledger's own count
+state: inferred from the transcript's end, so a cut-off run reads as running

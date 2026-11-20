@@ -30,6 +30,18 @@
                                  are one candidate and become one line (recount.lines says how many);
                                  differing lines of one session are an error. A dry run unless --write; a
                                  line that fails stays as it was and the run exits 1.
+  ledger.py agents [--session ID] [--watch]
+                                 one session as a tree, read from local files and written nowhere: the session on the
+                                 first line, under it every agent it started (the agents of a workflow under the
+                                 workflow, an agent under the agent that started it where its meta file names one).
+                                 Per line: state, duration (first to last line of the transcript), cost in USD (the
+                                 ledger's own count: the lines add up to cost_usd_own), tool calls, model. The state
+                                 is inferred from the end of each transcript, Claude Code reports none: a session or
+                                 agent that was cut off still reads as running. Without --session: the session of the
+                                 current project folder whose transcript was written last; ID is a full id or a
+                                 prefix that fits one session. --watch draws the tree again every 2 s until Ctrl-C
+                                 (once when the output is no terminal). Prints no prompt, tool input or tool output.
+                                 Claude Code only.
 Telemetry dir: KZ_TELEMETRY_DIR or ~/.claude/telemetry.
 """
 import argparse
@@ -39,7 +51,10 @@ import json
 import math
 import os
 import re
+import shutil
 import sys
+import time
+import unicodedata
 from typing import Optional
 
 try:
@@ -141,7 +156,7 @@ def parse_transcript(path: str, prices: Optional[dict] = None, unpriced: Optiona
                 continue
             try:
                 d = json.loads(line)
-            except ValueError:
+            except (ValueError, RecursionError):  # no JSON, or nested deeper than Python follows
                 errors += 1
                 continue
             if not isinstance(d, dict) or d.get("type") != "assistant":
@@ -151,6 +166,8 @@ def parse_transcript(path: str, prices: Optional[dict] = None, unpriced: Optiona
             if not isinstance(usage, dict):
                 continue
             key = d.get("requestId") or msg.get("id") or d.get("uuid") or ("line", n)  # no id: count the line
+            if isinstance(key, (list, dict)):  # an id that cannot be a key is no id either
+                key = ("line", n)
             seen[key] = (str(msg.get("model") or "unknown"), usage)
     for model, usage in seen.values():
         if unpriced is not None:
@@ -161,7 +178,10 @@ def parse_transcript(path: str, prices: Optional[dict] = None, unpriced: Optiona
                     ("input_tokens", "output_tokens", "cache_read_input_tokens", "cache_creation_input_tokens")]
             split = usage.get("cache_creation")
             w1h = int(split.get("ephemeral_1h_input_tokens") or 0) if isinstance(split, dict) else 0
-        except (TypeError, ValueError):  # all or nothing: a half-counted turn is worse than a parse error
+            if any(abs(v) >= 2 ** 63 for v in vals + [w1h]):  # no real counter is that large, and usage_cost
+                raise ValueError("count out of range")  # would overflow multiplying it by a float price
+        except (TypeError, ValueError, OverflowError):  # int(Infinity) overflows; all or nothing: a half-counted
+            # turn is worse than a parse error
             errors += 1
             continue
         req = dict(zip(COUNTERS, vals + [min(w1h, vals[3]), 1]))  # no split: every write at the 5-minute rate
@@ -673,6 +693,527 @@ def recount(tdir: str, write: bool, out, now: Optional[_dt.datetime] = None) -> 
     return 1 if counts["errors"] else 0
 
 
+AGENT_END_TOOLS = ("StructuredOutput", "SubagentHandback")  # the tools an agent ends its run on
+INTERRUPTED = "[Request interrupted"
+# The one form of time the view reads: fromisoformat reads more forms on 3.11+ than on 3.9, and the same files
+# must give the same tree on every Python.
+TIME_FORM = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]"
+                       r"(\.[0-9]{3}|\.[0-9]{6})?(Z|[+-][0-9]{2}:[0-9]{2})?")
+
+
+def _when(value) -> Optional[_dt.datetime]:
+    """A transcript timestamp as an aware time (no offset reads as UTC), None for anything not of TIME_FORM."""
+    if not isinstance(value, str) or not TIME_FORM.fullmatch(value):
+        return None
+    try:
+        when = _dt.datetime.fromisoformat(value[:-1] + "+00:00" if value.endswith("Z") else value)
+    except ValueError:  # the form fits but the date does not exist (month 13): no time, the rest still counts
+        return None
+    return when if when.tzinfo else when.replace(tzinfo=_dt.timezone.utc)
+
+
+def _user_ends_agent(content, end_ids: set) -> bool:
+    """True when a user line closes an agent's run: an interruption, or the result of a call of AGENT_END_TOOLS."""
+    if isinstance(content, str):
+        return content.startswith(INTERRUPTED)
+    for block in content if isinstance(content, list) else []:
+        if not isinstance(block, dict):
+            continue
+        text, tid = block.get("text"), block.get("tool_use_id")
+        if block.get("type") == "text" and isinstance(text, str) and text.startswith(INTERRUPTED):
+            return True
+        if block.get("type") == "tool_result" and isinstance(tid, str) and tid in end_ids:
+            return True
+    return False
+
+
+def scan_transcript(path: str) -> Optional[dict]:
+    """One pass for what parse_transcript does not give: first and last time, tool calls, the inferred end state.
+    None when the file cannot be opened. Lines that are no JSON object are skipped (parse_transcript counts them)."""
+    try:
+        fh = open(path, encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    first = last = None
+    call_ids: set = set()
+    loose_calls = 0
+    end_ids: set = set()
+    agent_state, talked, cost_state_after, cost_state_any = "running", False, False, False
+    with fh:
+        for line in fh:
+            try:
+                d = json.loads(line) if line.strip() else None
+            except (ValueError, RecursionError):  # no JSON or nested too deep: parse_transcript counts it
+                continue
+            if not isinstance(d, dict):
+                continue
+            when = _when(d.get("timestamp"))
+            if when is not None:
+                first = when if first is None else first
+                last = when
+            kind = d.get("type")
+            if kind == "cost-state":
+                cost_state_after = cost_state_any = True
+            if kind not in ("assistant", "user"):  # system, attachment, last-prompt, ...: looked through
+                continue
+            talked, cost_state_after = True, False
+            msg = d.get("message") if isinstance(d.get("message"), dict) else {}
+            content = msg.get("content")
+            if kind == "user":
+                agent_state = "finished" if _user_ends_agent(content, end_ids) else "running"
+                continue
+            for block in content if isinstance(content, list) else []:
+                if not isinstance(block, dict) or block.get("type") != "tool_use":
+                    continue
+                tid = block.get("id")
+                if not isinstance(tid, str):
+                    loose_calls += 1
+                    continue
+                call_ids.add(tid)
+                if block.get("name") in AGENT_END_TOOLS:
+                    end_ids.add(tid)
+            agent_state = "running" if msg.get("stop_reason") in (None, "tool_use", "pause_turn") else "finished"
+    seconds = None if first is None else (last - first) // _dt.timedelta(seconds=1)
+    session_state = "finished" if (cost_state_after if talked else cost_state_any) else "running"
+    return {"start": first, "end": last, "seconds": seconds, "tools": len(call_ids) + loose_calls,
+            "agent_state": agent_state, "session_state": session_state}
+
+
+def _clean(text) -> str:
+    """Text from a file, safe to print: every character that is not printable becomes `?`."""
+    return "".join(c if c.isprintable() else "?" for c in str(text))
+
+
+def _cut(text: str, width: int) -> str:
+    """The text if it fits `width` characters, else its first width - 3 and `...` (widths 30 and 14)."""
+    return text if len(text) <= width else text[:width - 3] + "..."
+
+
+def _priced(per_model: dict, prices: dict) -> tuple:
+    """(models with tokens and their cost, cost or None) for one transcript's usage, as the ledger's own count."""
+    models = session_models({"main": per_model, "sub": {}}, prices)
+    return models, (own_cost(models) if models else 0.0)
+
+
+def _model_label(models: dict) -> str:
+    """The model with the most turns without `claude-`, ` +N` for N further models, cut to 14; `-` for none."""
+    if not models:
+        return "-"
+    top = sorted(models, key=lambda m: (-models[m]["turns"], m))[0]
+    name = top[len("claude-"):] if top.startswith("claude-") else top
+    return _cut(_clean(name + (f" +{len(models) - 1}" if len(models) > 1 else "")), 14)
+
+
+def _read_meta(path: str) -> tuple:
+    """(meta dict, 1 if the file exists and is unreadable or no JSON object else 0)."""
+    try:
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            meta = json.load(fh)
+    except FileNotFoundError:  # most agents have one, an older one may not: normal, nothing to count
+        return {}, 0
+    except (OSError, ValueError, RecursionError):  # there but unreadable, cut off or nested too deep: counted,
+        # the row goes on without it
+        return {}, 1
+    return (meta, 0) if isinstance(meta, dict) else ({}, 1)
+
+
+def _spawn_log(session: str, tdir: str) -> tuple:
+    """({agent id: type}, {agent id: earliest start or None}, files not read, lines not read) from the
+    SubagentStart rows of this session in <tdir>/spawns.jsonl."""
+    types: dict = {}
+    starts: dict = {}
+    try:
+        fh = open(os.path.join(tdir, "spawns.jsonl"), encoding="utf-8", errors="replace")
+    except FileNotFoundError:  # no guard installed or no agent spawned yet: normal
+        return types, starts, 0, 0
+    except OSError:  # there but unreadable: the view goes on with the transcripts, counted
+        return types, starts, 1, 0
+    bad = 0
+    try:
+        with fh:
+            for line in fh:
+                if not line.strip():
+                    continue
+                try:
+                    row = json.loads(line)
+                except (ValueError, RecursionError):  # no JSON or nested too deep: counted as a line not read
+                    bad += 1
+                    continue
+                if not isinstance(row, dict) or row.get("event") != "SubagentStart" or row.get("session") != session:
+                    continue
+                aid = row.get("agent_id")
+                if not isinstance(aid, str) or not aid:
+                    continue
+                if isinstance(row.get("agent"), str) and row["agent"]:
+                    types.setdefault(aid, row["agent"])
+                when, was = _when(row.get("ts")), starts.get(aid)
+                starts[aid] = when if was is None or (when is not None and when < was) else was
+    except OSError:  # it opened, then the read failed: one file not read, the rows read so far are kept
+        return types, starts, 1, bad
+    return types, starts, 0, bad
+
+
+def _workflow_name(session_dir: str, run: str) -> str:
+    """The name in workflows/scripts/<name>-<run>.js, found by comparing file names; else the run id."""
+    suffix = f"-{run}.js"
+    try:
+        names = sorted(os.listdir(os.path.join(session_dir, "workflows", "scripts")))
+    except OSError:  # no scripts folder: the run id is the label
+        names = []
+    for name in names:
+        if name.endswith(suffix) and len(name) > len(suffix):
+            return name[:-len(suffix)]
+    return run
+
+
+def _transcript_row(path: str, prices: dict, kind: str) -> dict:
+    """The figures of one transcript (4.3); `read` is False when the file could not be opened or read."""
+    marks: dict = {}
+    try:
+        scan = scan_transcript(path)
+        usage, errors = parse_transcript(path, prices, marks) if scan is not None else ({}, 0)
+    except OSError:  # it opened, then the read failed (a failing disk): the row of a file that does not open
+        scan = None
+    row = {"kind": kind, "path": path, "read": scan is not None, "state": "-", "seconds": None, "cost": None,
+           "tools": None, "model": None, "mark": False, "marks": {}, "usage": {}, "models": {}, "errors": 0,
+           "start": None, "end": None}
+    if scan is None:
+        return row
+    models, cost = _priced(usage, prices)
+    row.update(state=scan["session_state" if kind == "session" else "agent_state"], seconds=scan["seconds"],
+               cost=cost, tools=scan["tools"], model=_model_label(models), mark=bool(marks), marks=marks,
+               usage=usage, models=models, errors=errors, start=scan["start"], end=scan["end"])
+    return row
+
+
+def _sum_workflow(row: dict, agents: list, prices: dict) -> None:
+    """A workflow row as the subtotal of the agents shown under it at any depth."""
+    read = [a for a in agents if a["read"]]
+    if not read:  # nothing under it could be read: no figures, printed `-` (the state comes from the state file)
+        row.update(read=False, cost=None, tools=None, model=None, mark=False, start=None, seconds=None)
+        return
+    usage: dict = {}
+    for a in read:
+        merge(usage, a["usage"])
+    starts = [a["start"] for a in read if a["start"] is not None]
+    ends = [a["end"] for a in read if a["end"] is not None]
+    costs = [a["cost"] for a in read]
+    row.update(cost=None if None in costs else sum(costs, 0.0), tools=sum(a["tools"] for a in read),
+               model=_model_label(_priced(usage, prices)[0]), mark=any(a["mark"] for a in read),
+               start=min(starts) if starts else None,
+               seconds=(max(ends) - min(starts)) // _dt.timedelta(seconds=1) if starts else None)
+
+
+def read_agents(transcript: str, tdir: str, prices: dict) -> dict:
+    """One session as a tree of rows (section 4 of the agent-view brief), read from local files, printing nothing.
+    `rows` are in print order; each has kind, depth, parent (index of its parent row), label, state, seconds,
+    cost (unrounded, None without one), tools and model."""
+    session = os.path.basename(transcript)[:-len(".jsonl")]
+    session_dir = os.path.join(os.path.dirname(transcript), session)
+    sub_dir = os.path.join(session_dir, "subagents")
+    types, spawn_starts, files_bad, lines_bad = _spawn_log(session, tdir)
+    top = _transcript_row(transcript, prices, "session")
+    top["label"] = f"session {_clean(session)}"
+    agents, workflows = [], {}
+    for path, _ in agent_transcripts(sub_dir):  # os.walk of a missing folder yields nothing
+        row = _transcript_row(path, prices, "agent")
+        row["agent_id"] = os.path.basename(path)[len("agent-"):-len(".jsonl")]
+        meta, bad = _read_meta(path[:-len(".jsonl")] + ".meta.json")
+        files_bad += bad
+        atype = meta.get("agentType") if isinstance(meta.get("agentType"), str) else None
+        atype = _clean(atype or types.get(row["agent_id"]) or "agent")
+        desc = meta.get("description")
+        row["label"] = f"{atype}  {_cut(_clean(desc), 30)}" if isinstance(desc, str) and desc else atype
+        row["parent_id"] = meta.get("parentAgentId") if isinstance(meta.get("parentAgentId"), str) else None
+        parts = os.path.relpath(path, sub_dir).split(os.sep)
+        if parts[0] == "workflows" and len(parts) > 2:  # workflows/<run>/.../agent-*.jsonl
+            run = parts[1]
+            if run not in workflows:
+                done = os.path.exists(os.path.join(session_dir, "workflows", run + ".json"))
+                workflows[run] = {"kind": "workflow", "path": os.path.join(sub_dir, "workflows", run), "read": True,
+                                  "state": "finished" if done else "running",
+                                  "label": f"workflow  {_clean(_workflow_name(session_dir, run))}"}
+            row["workflow"] = workflows[run]
+        if not row["read"]:
+            files_bad += 1
+        lines_bad += row["errors"]
+        agents.append(row)
+    # where each row hangs: its parent agent (no loops), else its workflow, else the session
+    first_of: dict = {}
+    for row in agents:
+        first_of.setdefault(row["agent_id"], row)
+    parent_of: dict = {}
+    for row in agents:
+        up = first_of.get(row["parent_id"])
+        walk = up
+        while walk is not None and walk is not row:
+            walk = parent_of.get(id(walk))
+        if up is not None and walk is None:
+            parent_of[id(row)] = up
+    children: dict = {}
+    for row in agents:
+        parent = parent_of.get(id(row)) or row.get("workflow") or top
+        children.setdefault(id(parent), []).append(row)
+    for run_row in workflows.values():
+        children.setdefault(id(top), []).append(run_row)
+    seen_ids = {row["agent_id"] for row in agents}
+    for aid in sorted(set(spawn_starts) - seen_ids):
+        children.setdefault(id(top), []).append({
+            "kind": "missing", "path": aid, "agent_id": aid, "read": False, "state": "-", "seconds": None,
+            "cost": None, "tools": None, "model": None, "mark": False, "start": spawn_starts[aid],
+            "label": f"{_clean(types.get(aid) or 'agent')}  (no transcript)"})
+
+    def below(row: dict) -> list:
+        """Every row under `row`, at any depth."""
+        out = []
+        for child in children.get(id(row), []):
+            out += [child] + below(child)
+        return out
+
+    for run_row in workflows.values():
+        _sum_workflow(run_row, below(run_row), prices)
+    epoch = _dt.datetime.min.replace(tzinfo=_dt.timezone.utc)
+    rows: list = []
+
+    def place(row: dict, depth: int, parent: Optional[int]) -> None:
+        """Append `row` and, ordered by start time (none last, then by path), the rows under it."""
+        row.update(depth=depth, parent=parent)
+        rows.append(row)
+        here = len(rows) - 1
+        for child in sorted(children.get(id(row), []),
+                            key=lambda r: (r["start"] is None, r["start"] or epoch, r["path"])):
+            place(child, depth + 1, here)
+
+    place(top, 0, None)
+    counted = [r for r in rows if r["kind"] in ("session", "agent") and r["read"]]
+    costs = [r["cost"] for r in counted]
+    marks: dict = {}
+    unpriced_models: set = set()
+    for r in counted:
+        for name, n in r["marks"].items():
+            marks[name] = marks.get(name, 0) + n
+        unpriced_models.update(m for m, v in r["models"].items() if v["cost_usd"] is None)
+    agent_rows = [r for r in rows if r["kind"] in ("agent", "missing")]
+    total = {"cost": None if None in costs else sum(costs, 0.0), "tools": sum(r["tools"] for r in counted),
+             "mark": any(r["mark"] for r in counted), "agents": len(agent_rows),
+             "running": sum(r["state"] == "running" for r in agent_rows)}
+    return {"session": session, "rows": rows, "total": total, "marks": marks,
+            "unpriced_models": sorted(unpriced_models), "workflows": bool(workflows),
+            "files_not_read": files_bad + (not top["read"]), "lines_not_read": lines_bad + top["errors"]}
+
+
+def fmt_duration(seconds: Optional[int]) -> str:
+    """45s, 3m46s, 1h05m, 2d03h: two units at most, so the column stays six wide; `-` for none, and below zero
+    (times that run backwards give no duration)."""
+    if seconds is None or seconds < 0:
+        return "-"
+    if seconds < 60:
+        return f"{seconds}s"
+    if seconds < 3600:
+        return f"{seconds // 60}m{seconds % 60:02d}s"
+    if seconds < 86400:
+        return f"{seconds // 3600}h{seconds % 3600 // 60:02d}m"
+    return f"{seconds // 86400}d{seconds % 86400 // 3600:02d}h"
+
+
+def fmt_cost(cost: Optional[float], read: bool = True) -> str:
+    """`$1,234.50`; `<$0.01` for a cost above zero that rounds to nothing; `n/a` without a price, `-` unread."""
+    if cost is None:
+        return "n/a" if read else "-"
+    text = f"${cost:,.2f}"
+    return "<$0.01" if cost > 0 and text == "$0.00" else text
+
+
+def _row_line(state: str, time: str, cost: str, mark: bool, tools: str, model: str, label: str) -> str:
+    return f"{state:<8}  {time:>6}  {cost:>9}{'*' if mark else ' '}  {tools:>5}  {model:<14}  {label}".rstrip()
+
+
+AGENT_NOTES = ("columns: state, duration, cost in USD, tool calls, model",
+               "duration: first to last line of the transcript; cost: the ledger's own count",
+               "state: inferred from the transcript's end, so a cut-off run reads as running")
+
+
+def agent_lines(data: dict, folders: int = 1) -> list:
+    """The rows of read_agents() as a tree, then the notes under it; lines without line ends. `folders` is the
+    number of project folders that hold the session id (find_session)."""
+    rows = data["rows"]
+    last_child: dict = {}
+    for i, row in enumerate(rows):
+        if row["parent"] is not None:
+            last_child[row["parent"]] = i
+    lines = []
+    for i, row in enumerate(rows):
+        prefix = ""
+        if row["parent"] is not None:
+            prefix = "`- " if last_child[row["parent"]] == i else "|- "
+            up = row["parent"]
+            while rows[up]["parent"] is not None:  # each ancestor below the session, the outermost ends up first
+                prefix = ("   " if last_child[rows[up]["parent"]] == up else "|  ") + prefix
+                up = rows[up]["parent"]
+        lines.append(_row_line(row["state"], fmt_duration(row["seconds"]), fmt_cost(row["cost"], row["read"]),
+                               row["mark"], "-" if row["tools"] is None else str(row["tools"]), row["model"] or "-",
+                               prefix + row["label"]))
+    total = data["total"]
+    lines.append(_row_line("total", "", fmt_cost(total["cost"]), total["mark"], str(total["tools"]), "",
+                           f"agents {total['agents']}, running {total['running']}"))
+    lines += [""] + list(AGENT_NOTES)
+    if data["workflows"]:
+        lines.append("a workflow line sums the agents under it; the total counts each agent once")
+    if data["marks"]:
+        marks = ", ".join(f"{_clean(name)} {n}" for name, n in sorted(data["marks"].items()))
+        lines.append(f"* requests the ledger does not price ({marks}): these costs are too low")
+    if data["unpriced_models"]:
+        names = ", ".join(_clean(m) for m in data["unpriced_models"])
+        lines.append(f"n/a: no price row for {names}, so these lines and the total have no cost")
+    files, bad = data["files_not_read"], data["lines_not_read"]
+    if files + bad:
+        lines.append(f"not read: files {files}, lines {bad} (what they held is missing above)")
+    if folders > 1:
+        lines.append(f"this session id lies in {folders} project folders: shown is the transcript written last")
+    return lines
+
+
+def _encodable(text: str, stream) -> str:
+    """`text` with every character the stream cannot encode replaced, so that writing it never raises."""
+    encoding = getattr(stream, "encoding", None)
+    if not isinstance(encoding, str):  # a StringIO and its kind take any text
+        return text
+    try:
+        return text.encode(encoding, "replace").decode(encoding)
+    except LookupError:  # an encoding Python does not know: let the stream decide
+        return text
+
+
+def _mtime(path: str) -> int:
+    """The modification time in ns, -1 for a file gone since it was listed (it then loses every comparison)."""
+    try:
+        return os.stat(path).st_mtime_ns
+    except OSError:
+        return -1
+
+
+def find_session(text: Optional[str], cwd: Optional[str]) -> tuple:
+    """(transcript, None, folders) or (None, error line, 0): the session `--session TEXT` names, or without it the
+    session of the project folder of `cwd` whose transcript was written last. `folders` counts the project folders
+    that hold the chosen id: a session continued from another folder has a transcript in each."""
+    root = os.path.expanduser(os.environ.get("CLAUDE_CONFIG_DIR") or "~/.claude")
+    projects = os.path.join(root, "projects")
+    if text is not None:
+        if not re.fullmatch(r"[A-Za-z0-9_-]+", text):
+            return None, "ledger agents: a session id holds only letters, digits, - and _", 0
+        by_id: dict = {}
+        for hit in glob.glob(os.path.join(glob.escape(projects), "*", text + "*.jsonl")):
+            by_id.setdefault(os.path.basename(hit)[:-len(".jsonl")], []).append(hit)
+        if not by_id:
+            return None, f"ledger agents: no session fits {text} under {projects}", 0
+        if len(by_id) == 1:
+            files = next(iter(by_id.values()))
+        elif text in by_id:
+            files = by_id[text]
+        else:
+            return None, f"ledger agents: {text} fits {len(by_id)} sessions, give more of the id", 0
+        return max(files, key=lambda p: (_mtime(p), p)), None, len(files)
+    folder = os.path.join(projects, re.sub(r"[^A-Za-z0-9]", "-", cwd or ""))
+    try:
+        names = os.listdir(folder)
+    except OSError:  # no project folder: the same answer as a folder without sessions
+        names = []
+    newest = None
+    for name in names:
+        path = os.path.join(folder, name)
+        if not name.endswith(".jsonl") or not os.path.isfile(path):
+            continue
+        try:
+            key = (os.stat(path).st_mtime_ns, name)
+        except OSError:  # gone since the listing: not a candidate
+            continue
+        newest = key if newest is None or key > newest else newest
+    if newest is None:
+        return None, f"ledger agents: no session of this folder under {folder}; name one with --session", 0
+    return os.path.join(folder, newest[1]), None, 1
+
+
+WATCH_ENTER = "\x1b[?1049h\x1b[?25l"  # the alternate screen, cursor hidden
+WATCH_LEAVE = "\x1b[?25h\x1b[?1049l"  # cursor shown, the screen as it was
+WATCH_LAST = "watching: redrawn every 2 s, Ctrl-C ends"
+
+
+def _columns(char: str) -> int:
+    """Screen columns of one character: two for East Asian wide and fullwidth ones, else one."""
+    return 2 if unicodedata.east_asian_width(char) in ("W", "F") else 1
+
+
+def _cut_columns(text: str, width: int) -> str:
+    """_cut by screen columns: the text if it takes at most `width` columns, else as much of it as fits in
+    width - 3 and `...` (a plain cut below 3), so a line of wide characters cannot wrap."""
+    if sum(_columns(c) for c in text) <= width:
+        return text
+    room = width - 3 if width >= 3 else max(width, 0)
+    kept, used = [], 0
+    for char in text:
+        if used + _columns(char) > room:
+            break
+        kept.append(char)
+        used += _columns(char)
+    return "".join(kept) + ("..." if width >= 3 else "")
+
+
+def watch_frame(lines: list, width: int, height: int) -> str:
+    """One screen: the lines and WATCH_LAST, each cut to width - 1 columns and ended by erase-to-end-of-line; a
+    frame taller than the window keeps its first lines and says how many it leaves out, and a window below two
+    lines gets WATCH_LAST alone."""
+    if height < 2:
+        lines = []
+    elif len(lines) + 1 > height:
+        keep = height - 2
+        lines = lines[:keep] + [f"... {len(lines) - keep} more lines (a larger window shows them)"]
+    return "\n".join(_cut_columns(line, width - 1) + "\x1b[K" for line in lines + [WATCH_LAST])
+
+
+def watch_agents(transcript: str, out, tdir: str, prices: dict, sleep, size, folders: int = 1) -> int:
+    """Draw the tree on the alternate screen every 2 s, only when it changed, until Ctrl-C; the terminal is
+    restored on every way out, an error included."""
+    shown = None
+    try:
+        out.write(WATCH_ENTER)
+        out.flush()
+        while True:
+            width, height = size()
+            frame = watch_frame(agent_lines(read_agents(transcript, tdir, prices), folders), width, height)
+            if frame != shown:
+                out.write(_encodable("\x1b[H" + frame + "\x1b[J", out))
+                out.flush()
+                shown = frame
+            sleep(2)
+    except KeyboardInterrupt:  # Ctrl-C is how a watch ends
+        return 0
+    finally:
+        out.write(WATCH_LEAVE)
+        out.flush()
+
+
+def cmd_agents(session: Optional[str], out, err, tdir: str, prices: dict, cwd: Optional[str] = None,
+               watch: bool = False, sleep=time.sleep, size=shutil.get_terminal_size) -> int:
+    """The `agents` verb: one session as a tree on `out`; an error is one line on `err` and exit 1. With `watch`
+    on a terminal the tree is redrawn (sleep and size are parameters so a test runs the loop without either)."""
+    if session is None and cwd is None:  # only without --session is the folder asked for
+        try:
+            cwd = os.getcwd()
+        except FileNotFoundError:  # the folder was removed under the shell (a worktree gone): ask for an id
+            err.write("ledger agents: the current folder is gone; name a session with --session\n")
+            return 1
+    transcript, problem, folders = find_session(session, cwd)
+    if problem:
+        err.write(_encodable(_clean(problem) + "\n", err))
+        return 1
+    isatty = getattr(out, "isatty", None)
+    if watch and callable(isatty) and isatty():
+        return watch_agents(transcript, out, tdir, prices, sleep, size, folders)
+    lines = agent_lines(read_agents(transcript, tdir, prices), folders)
+    out.write(_encodable("".join(line + "\n" for line in lines), out))
+    return 0
+
+
 def main(argv: list, stdin=None, out=None, err=None) -> int:
     stdin, out, err = stdin or sys.stdin, out or sys.stdout, err or sys.stderr
     ap = argparse.ArgumentParser(prog="ledger", add_help=False)
@@ -682,6 +1223,9 @@ def main(argv: list, stdin=None, out=None, err=None) -> int:
     s.add_argument("--days", type=int, default=7)
     r = sub.add_parser("recount")
     r.add_argument("--write", action="store_true")
+    g = sub.add_parser("agents")
+    g.add_argument("--session")
+    g.add_argument("--watch", action="store_true")
     if not argv or argv[0] in ("help", "-h", "--help"):
         out.write(__doc__.strip() + "\n")
         return 0
@@ -695,6 +1239,8 @@ def main(argv: list, stdin=None, out=None, err=None) -> int:
         return cost_report(telemetry_dir(), ns.days, out)
     if ns.verb == "recount":
         return recount(telemetry_dir(), ns.write, out)
+    if ns.verb == "agents":
+        return cmd_agents(ns.session, out, err, telemetry_dir(), load_prices(), watch=ns.watch)
     out.write(__doc__.strip() + "\n")
     return 1
 

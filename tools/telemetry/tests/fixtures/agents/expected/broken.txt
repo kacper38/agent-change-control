@@ -1,0 +1,11 @@
+finished  10m30s      $1.20       4  fable-5-2       session 66666666-6666-4666-8666-666666666666
+finished   9m44s      $1.10       1  opus-5-5        |- python-engineer  Repair the importer
+-              -          -       -  -               |- code-reviewer  (no transcript)
+finished     30s      $0.15       0  haiku-5-5       |- python-engineer
+finished     40s      $0.20       0  opus-5-5        `- agent
+total                 $2.65       5                  agents 4, running 0
+
+columns: state, duration, cost in USD, tool calls, model
+duration: first to last line of the transcript; cost: the ledger's own count
+state: inferred from the transcript's end, so a cut-off run reads as running
+not read: files 1, lines 2 (what they held is missing above)

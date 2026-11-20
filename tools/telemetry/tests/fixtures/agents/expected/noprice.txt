@@ -1,0 +1,7 @@
+finished     42s        n/a       0  next-9          session 11111111-9999-4999-8999-999999999999
+total                   n/a       0                  agents 0, running 0
+
+columns: state, duration, cost in USD, tool calls, model
+duration: first to last line of the transcript; cost: the ledger's own count
+state: inferred from the transcript's end, so a cut-off run reads as running
+n/a: no price row for claude-next-9, so these lines and the total have no cost

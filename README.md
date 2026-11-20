@@ -383,6 +383,23 @@ Anti-over-engineering (the lazy family):
   run; `--write` applies it) is a one-off for lines written before the cost
   basis existed: it rebuilds each from its transcript and keeps the old
   figures in the line, or labels it when the transcript is gone.
+- `tools/telemetry/ledger.py agents` prints one session as a tree in the
+  terminal: the session on the first line, under it every agent it started
+  (the agents of a workflow under the workflow, an agent under the agent that
+  started it), with state, duration, cost, tool calls and model per line, and
+  a total. `--session <id or prefix>` names a session, also one that has
+  ended; without it the view takes the session of the current project folder
+  whose transcript was written last. `--watch` draws the tree again every two
+  seconds until Ctrl-C. What it is not: it reads Claude Code's local files
+  only (no Copilot), writes nothing, and prints no prompt, tool input or tool
+  output. The state is inferred from the end of each transcript, so a session
+  or agent that was cut off still reads as running, and the duration runs
+  from the first to the last line of a transcript, not until now. The cost is
+  the ledger's own count at list prices: the lines add up to `cost_usd_own`,
+  not to Claude Code's own figure, and a model without a price row gives
+  `n/a` for its line and for the total. The type and the short description
+  of each agent are text from the session: the tree of a client session
+  stays where that session's data may be.
 - Nothing from here is installed at work: no memory, telemetry, tokens or
   transcripts cross the boundary, and memory push stays off until
   `KZ_MEMORY_PUSH` names a project.

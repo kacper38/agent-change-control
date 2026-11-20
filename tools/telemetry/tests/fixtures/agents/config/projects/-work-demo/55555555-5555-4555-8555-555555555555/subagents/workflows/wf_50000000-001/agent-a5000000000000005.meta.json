@@ -1,0 +1,1 @@
+{"agentType":"workflow-subagent","description":"review:diff","isBuiltIn":true,"requestNonInteractive":true,"requestShape":"background","spawnDepth":1,"workflowPhase":"Review"}

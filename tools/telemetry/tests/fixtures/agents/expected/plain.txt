@@ -1,0 +1,6 @@
+finished   4m05s      $6.00       1  fable-5-2       session 11111111-1111-4111-8111-111111111111
+total                 $6.00       1                  agents 0, running 0
+
+columns: state, duration, cost in USD, tool calls, model
+duration: first to last line of the transcript; cost: the ledger's own count
+state: inferred from the transcript's end, so a cut-off run reads as running

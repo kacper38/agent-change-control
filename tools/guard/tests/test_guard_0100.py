@@ -5,8 +5,9 @@ get the verdict of their twin. These rows were written before the code (D1 to D9
 commands are data, nothing runs.
 
 Row ids: C cloud-launch, W guard-config shell writes, K stored credentials, G refs, P an approval, T a tool call
-of cloud-launch, H a GitHub tool. A trailing `s` marks a silent neighbour, `l` a named limit (silent on purpose),
-`c` broken input (ask or deny, never silent, never a traceback).
+of cloud-launch, H a GitHub tool, M a tool the host classed after the first run (Monitor, ExitWorktree,
+DesignSync). A trailing `s` marks a silent neighbour, `l` a named limit (silent on purpose), `c` broken input
+(ask or deny, never silent, never a traceback).
 """
 import io
 import json
@@ -250,6 +251,16 @@ Tc | Skill | cloud-launch | ask | {}
 Tc | Workflow | cloud-launch | ask | {"script": 5}
 Tc | Workflow | cloud-launch | ask | {"scriptPath": "/nonexistent-scratch/x.js"}
 Tc | Workflow | cloud-launch | ask | {"scriptPath": 7}
+# --- the host's answers to the first run: Monitor is judged as Bash, ExitWorktree remove asks, DesignSync asks
+M1 | Monitor | delete-guard | ask | {"command": "rm -rf build", "description": "d"}
+M1 | Monitor | git-guard | deny | {"command": "git push --force origin feat/x", "description": "d"}
+Ms | Monitor | delete-guard | silent | {"command": "tail -f /tmp/build.log", "description": "d"}
+M2 | ExitWorktree | delete-guard | ask | {"action": "remove"}
+M2 | ExitWorktree | delete-guard | ask | {"action": "remove", "discard_changes": true}
+Mc | ExitWorktree | delete-guard | ask | {"action": 5}
+Ms | ExitWorktree | delete-guard | silent | {"action": "keep"}
+M3 | DesignSync | cloud-launch | ask | {}
+M3 | DesignSync | cloud-launch | ask | {"action": "push", "files": ["a.png"]}
 # --- D5: the harness's GitHub tools, by what they do
 H1 | mcp__github__get_me | github-tools | silent | {}
 H1 | mcp__github__get_pull_request | github-tools | silent | {"owner": "o", "repo": "r", "pullNumber": 3}
@@ -775,7 +786,7 @@ def test_the_matchers_name_the_new_tools():
     for event, target in (("PreToolUse", "pre"), ("PostToolUse", "post"), ("PostToolUseFailure", "post")):
         (matcher,) = _guard_matchers(s, event, target)
         parts = matcher.split("|")
-        for name in ("Skill", "Workflow", "RemoteTrigger", "mcp__github__.*"):
+        for name in ("Skill", "Workflow", "RemoteTrigger", "DesignSync", "Monitor", "ExitWorktree", "mcp__github__.*"):
             assert name in parts, (event, matcher)
 
 

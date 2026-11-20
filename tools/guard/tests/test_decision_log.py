@@ -180,7 +180,8 @@ def test_settings_wire_post_for_both_post_events():
     for event in ("PostToolUse", "PostToolUseFailure"):
         groups = [g for g in settings["hooks"].get(event, []) if any(h["command"] == command for h in g["hooks"])]
         assert len(groups) == 1, event
-        assert groups[0]["matcher"] == "Bash|Write|Edit|MultiEdit|NotebookEdit|Read|Agent|Task"
+        assert groups[0]["matcher"] == ("Bash|Write|Edit|MultiEdit|NotebookEdit|Read|Agent|Task|Monitor|ExitWorktree"
+                                        "|Skill|Workflow|RemoteTrigger|DesignSync|mcp__github__.*")  # 0.10.0
         (hook,) = groups[0]["hooks"]
         assert hook == {"type": "command", "command": command, "timeout": 5, "statusMessage": "guard"}
 

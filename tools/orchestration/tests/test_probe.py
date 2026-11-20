@@ -324,9 +324,9 @@ def test_tool_list_holds_on_the_known_names_and_leaves_mcp_tools_out(probe):
 def test_tool_list_fails_naming_an_added_tool(probe):
     known = sorted(probe.load_guard().KNOWN_CLAUDE_TOOLS)
     status, reason, observed = probe.CANARY_BY_NAME["tool-list"].judge(
-        {"run": probe.Evidence(**dict(ev(), init=_init(known + ["RemoteTrigger"])))})
-    assert status == "fails" and "added RemoteTrigger; removed none" in reason
-    assert observed["added"] == ["RemoteTrigger"] and observed["removed"] == []
+        {"run": probe.Evidence(**dict(ev(), init=_init(known + ["NewTool"])))})
+    assert status == "fails" and "added NewTool; removed none" in reason
+    assert observed["added"] == ["NewTool"] and observed["removed"] == []
 
 
 def test_stream_messages_keep_the_first_init_and_the_last_result(probe):

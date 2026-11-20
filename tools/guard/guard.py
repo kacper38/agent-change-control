@@ -54,26 +54,32 @@ CLAUDE_TOOLS = {
     "Grep": "search",
     "WebFetch": "web",
     "WebSearch": "web",
+    "Monitor": "shell",  # runs a shell command, judged as Bash's
+    "ExitWorktree": "worktree",
     "Skill": "skill",
     "Workflow": "workflow",
     "RemoteTrigger": "cloud",
+    "DesignSync": "design",
 }
 # The built-in tools of a Claude Code session and how the guard treats each: `judged` (a rule reads the call, so
 # the PreToolUse matcher must name it), `cloud-launch` (it can start cloud work, D3 of item #65) or `harmless`
 # (it starts no cloud work and writes nothing a rule judges). Filled from the init message of the probe's
-# tool-list canary (CLI 2.1.323, 2026-11-20); the canary fails when the session's list differs from these names.
+# tool-list canary (CLI 2.1.323, 2026-11-20, the box and the owner's Mac); the canary fails when the session's list
+# differs from these names.
 KNOWN_CLAUDE_TOOLS = {
     "Bash": "judged",
     "CronCreate": "harmless",  # local: a prompt queued in this session (durable: .claude/scheduled_tasks.json)
     "CronDelete": "harmless",
     "CronList": "harmless",
+    "DesignSync": "cloud-launch",  # sends material to a service of the account: every call asks
     "Edit": "judged",
     "EnterWorktree": "harmless",  # a new worktree under .claude/worktrees/ on a new branch
-    "ExitWorktree": "harmless",  # removes only the worktree this session made, and refuses unsaved work by default
+    "ExitWorktree": "judged",  # action remove deletes the worktree and its branch: delete-guard asks
     "ListAgents": "harmless",
     "Monitor": "judged",  # runs a shell command, as Bash does
     "NotebookEdit": "judged",
     "Read": "judged",
+    "RemoteTrigger": "cloud-launch",  # manages and runs the account's cloud routines: every call denied
     "ReportFindings": "harmless",
     "ScheduleWakeup": "harmless",  # local: the /loop of this session
     "SendMessage": "harmless",  # messages a running session; it starts none
@@ -691,6 +697,13 @@ def _delete_judge(ev: Event) -> Optional[str]:
 
 
 def rule_delete_guard(ev: Event, cfg: dict) -> Optional[Decision]:
+    if ev.event == "PreToolUse" and ev.kind == "worktree":  # 0.10.0: ExitWorktree with action remove
+        action = ev.args.get("action")
+        if action == "keep":
+            return None
+        what = ("`ExitWorktree` removes the worktree and its branch" if action == "remove"
+                else "`ExitWorktree` with an action the guard cannot read")
+        return "ask", DELETE_MSG.format(what=what)
     if ev.event != "PreToolUse" or ev.kind != "shell" or not ev.command:
         return None
     pipe = None
@@ -4011,6 +4024,8 @@ def rule_host_install(ev: Event, cfg: dict) -> Optional[Decision]:
 CLOUD_LAUNCH_MSG = ("cloud-launch: {what} starts work in the cloud, outside the boundary this session runs in; a "
                     "session never starts it (plan rev 3, row 1.7). The owner starts cloud work.")
 CLOUD_UNREAD_MSG = "cloud-launch: {what}; the guard could not read whether it starts cloud work. Confirm the call."
+DESIGN_SYNC_MSG = ("cloud-launch: `{tool}` sends material to a service of the account, and the guard cannot read "
+                   "what; confirm the call.")
 _CLOUD_CLIS = frozenset({"claude"})
 _CLOUD_FLAGS = ("--cloud", "--remote")
 _REMOTE_ISOLATION_RE = re.compile(r"isolation\s*:\s*[\"'`]remote[\"'`]")
@@ -4060,6 +4075,8 @@ def rule_cloud_launch(ev: Event, cfg: dict) -> Optional[Decision]:
         return reader_pass(ev.command, _cloud_seg, "cloud-launch")
     if ev.kind == "cloud":
         return "deny", CLOUD_LAUNCH_MSG.format(what=f"`{ev.tool}`")
+    if ev.kind == "design":
+        return "ask", DESIGN_SYNC_MSG.format(tool=ev.tool)
     if ev.kind == "spawn" and "isolation" in ev.args:
         iso = ev.args["isolation"]
         if not isinstance(iso, str):

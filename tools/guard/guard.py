@@ -29,6 +29,7 @@ import select
 import shlex
 import signal
 import socket
+import stat
 import subprocess
 import sys
 import time
@@ -2159,6 +2160,17 @@ def _git_config_writes_remote(rest: list[str]) -> bool:
     return any(not t.startswith("-") for t in rest[keys[0] + 1 :])
 
 
+def _git_local_remote(word: str) -> bool:
+    """A push target that names a repository on this machine: a path (`.`, `..`, `.git`, `sub/repo`, `~/x`,
+    `$PWD`, `file:…`), not a URL, an scp-like `host:path` or a configured remote's bare name. Fails closed: a word
+    with a slash and no host part counts as a path."""
+    if word.startswith(("file:", "$", "~", ".", "/")):
+        return True
+    if "://" in word or re.match(r"^[^/]+:", word):
+        return False
+    return "/" in word
+
+
 def _git_ref_rewrite(sub: str, rest: list[str]) -> Optional[Decision]:
     """The git-guard verdict on a call that writes the remote-tracking refs (deny) or their source (ask)."""
     operands = [t for k, t in enumerate(rest) if not t.startswith("-") and not (k and rest[k - 1] == "-m")]
@@ -2167,12 +2179,12 @@ def _git_ref_rewrite(sub: str, rest: list[str]) -> Optional[Decision]:
         return "deny", REF_REWRITE_MSG.format(what="`git update-ref`")
     if sub == "push" and operands:
         dests = [t.rsplit(":", 1)[1] if ":" in t else t.lstrip("+") for t in operands[1:]]
-        if any(d.startswith((_REMOTE_REFS, "remotes/")) for d in dests):
+        if any(d.lower().startswith((_REMOTE_REFS, "remotes/")) for d in dests):
             return "deny", REF_REWRITE_MSG.format(what="`git push` into a remote-tracking ref")
         # a push into this repository (or another local one) resolves a short name like `origin/main` against
         # its refs, remote-tracking ones included: only refs/heads/ and refs/tags/ written out stay open
-        if operands[0] == "." or operands[0].startswith(("/", "./", "../", "~", "file:")):
-            if "--delete" in rest or "-d" in rest or any(not d.startswith(("refs/heads/", "refs/tags/"))
+        if _git_local_remote(operands[0]):
+            if "--delete" in rest or "-d" in rest or any(not d.lower().startswith(("refs/heads/", "refs/tags/"))
                                                           for d in dests if d):
                 return "deny", REF_REWRITE_MSG.format(
                     what="`git push` into a local repository with a short or deleted destination")
@@ -4079,12 +4091,14 @@ def _workflow_script(ev: Event) -> tuple:
             return None, "a Workflow scriptPath that is not a path"
         full = os.path.join(ev.cwd, os.path.expanduser(path))
         try:  # a directory, a device, a FIFO or a huge file would raise or stall the hook: each asks
-            if not os.path.isfile(full):
-                return None, f"the Workflow script {path} is not a regular file"
-            if os.path.getsize(full) > WORKFLOW_SCRIPT_MAX:
-                return None, f"the Workflow script {path} is larger than {WORKFLOW_SCRIPT_MAX} bytes"
-            with open(full, encoding="utf-8", errors="replace") as fh:
-                return fh.read(), None
+            fd = os.open(full, os.O_RDONLY | getattr(os, "O_NONBLOCK", 0))  # a FIFO swapped in cannot block here
+            with os.fdopen(fd, "rb") as fh:
+                info = os.fstat(fh.fileno())  # judged on what was opened, not on the name
+                if not stat.S_ISREG(info.st_mode):
+                    return None, f"the Workflow script {path} is not a regular file"
+                if info.st_size > WORKFLOW_SCRIPT_MAX:
+                    return None, f"the Workflow script {path} is larger than {WORKFLOW_SCRIPT_MAX} bytes"
+                return fh.read(WORKFLOW_SCRIPT_MAX + 1).decode("utf-8", errors="replace"), None
         except OSError as exc:
             return None, f"the Workflow script {path} could not be read ({type(exc).__name__})"
     if isinstance(ev.args.get("name"), str):

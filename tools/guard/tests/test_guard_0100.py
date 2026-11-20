@@ -184,6 +184,11 @@ G1 | feat/x | git-guard | deny | git push . abc123:remotes/origin/main
 G1 | feat/x | git-guard | deny | git push . --delete refs/remotes/origin/main
 G1 | feat/x | git-guard | deny | git push . --delete origin/main
 G1 | feat/x | git-guard | deny | git push origin --delete remotes/origin/x
+G1 | feat/x | git-guard | deny | git push .git abc123:origin/main
+G1 | feat/x | git-guard | deny | git push .. abc123:origin/main
+G1 | feat/x | git-guard | deny | git push "$PWD" abc123:origin/main
+G1 | feat/x | git-guard | deny | git push sub/repo abc123:origin/main
+G1 | feat/x | git-guard | deny | git push .git abc123:refs/Remotes/origin/main
 G1 | feat/x | git-guard | deny | git branch -d -r origin/main
 G1 | feat/x | git-guard | deny | git branch -dr origin/main
 G1 | feat/x | git-guard | deny | git branch --delete --remotes origin/main
@@ -225,6 +230,8 @@ Gs | feat/x | git-guard | silent | git branch -d feat/old
 Gs | feat/x | git-guard | silent | git push origin feat/x
 Gs | feat/x | git-guard | silent | git push . abc123:refs/heads/tmp
 Gs | feat/x | git-guard | silent | git push origin --delete feat/old
+Gs | feat/x | git-guard | silent | git push git@github.com:o/r.git feat/x
+Gs | feat/x | git-guard | silent | git push https://github.com/o/r.git feat/x
 Gs | feat/x | git-guard | silent | git config --get url.x.insteadof
 Gl | feat/x | git-guard | silent | git fetch . abc123:refs/heads/other
 Gl | feat/x | git-guard | silent | echo abc123 > .git/refs/remotes/origin/main

@@ -63,3 +63,12 @@ def ado_fake(ado, fake_ado, monkeypatch):
         return ado.AdoBackend(f"{fake.org}/{fake.project}/{fake.repo}", transport=fake, mode=mode), fake
 
     return make
+
+
+@pytest.fixture(autouse=True)
+def box_marker(tracker, tmp_path, monkeypatch):
+    """The box marker's path, inside tmp_path and absent until a test writes it: no test reads /etc (#64, D8)."""
+    path = tmp_path / "agent-box" / "box.json"
+    path.parent.mkdir()
+    monkeypatch.setattr(tracker, "BOX_MARKER", str(path))  # raises if the constant is renamed
+    return path

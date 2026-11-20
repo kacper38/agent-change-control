@@ -60,14 +60,25 @@ close.
 | State | Moved by | Verb | What is checked |
 |---|---|---|---|
 | backlog | agent | `tracker new` | title, acceptance criteria, scope, scope limit, source |
-| ready | human | `tracker owner ready N` | definition of ready; the body is frozen from here |
-| in-progress | agent | `tracker claim N --branch B` | one item in progress per actor; the branch is recorded |
+| ready | human | `tracker owner ready N [N ...]` | definition of ready; the body is frozen from here |
+| in-progress | agent | `tracker claim N --branch B` | one item in progress per login and seat (a box's seat, or the host); the branch is recorded |
 | blocked | agent | `tracker block N --question "…"` | the question names a path or a field |
 | review | agent | `tracker review N --pr URL` | PR head is the claimed branch; the body carries `Refs #N` |
-| done | human | `tracker owner done N` | merged by a human, green checks on the merge commit, every box ticked or waived |
+| done | human | `tracker owner done N [N ...]` | merged by a human, green checks on the merge commit, every box ticked or waived |
 
 Also `tracker list`, `show N`, `note N "…"` (no status change) and
 `owner labels-sync`. Owner verbs refuse without a terminal.
+
+For a phase, the owner runs two lines. When the phase's plan is approved:
+`tracker owner ready 61 62 63`. When every pull request of the phase is
+merged: `tracker owner done 61 62 63 --accept-all`, which prints per item the
+title, the criteria, the pull request, the merge commit and the checks, asks
+once for `accept 3`, ticks the boxes and writes into each done mark that the
+criteria were accepted in one confirmation. Both verbs check every item
+first and change none when one fails. Both refuse in an agent session and
+inside a box (`/etc/agent-box/box.json` exists), even at a terminal. A claim
+made in a box carries the box's seat from that marker, so the host and each
+box hold one item in progress each.
 
 PR bodies say `Refs #N`, never `Fixes` or `Closes`: closing is the owner's
 protocol, not the forge's. Before the PR, `bin/fresh-review` sends the diff to

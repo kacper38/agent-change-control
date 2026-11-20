@@ -18,8 +18,11 @@ Verbs
   review N --pr URL|NUMBER               in-progress -> review; PR head = claimed branch, body has `Refs #N`
   note N TEXT                            comment on an issue, no status change
   owner labels-sync                      create or update the label families; never deletes
-  owner ready N                          backlog|blocked -> ready after the definition of ready; freezes the body
-  owner done N [--waive I "reason"]...   review -> done after the closing protocol; closes the issue
+  owner ready N [N ...]                  backlog|blocked -> ready after the definition of ready; freezes the body;
+                                         every item is checked first, and none changes when one fails
+  owner done N [N ...] [--waive I "reason"]...
+                                         review -> done after the closing protocol; closes the issue; every item
+                                         is checked first; --waive with one number only
 
 Options: --repo OWNER/NAME (GitHub) or ORG/PROJECT/REPO (Azure DevOps); default: the cwd's origin
 Backend: env KZ_TRACKER_BACKEND=github|ado, else the origin host (dev.azure.com, *.visualstudio.com
@@ -699,20 +702,55 @@ class Tracker:
         self.say(f"labels: {counts['created']} created, {counts['updated']} updated, 0 deleted (never)")
         return 0
 
-    def ready(self, number: int) -> int:
-        self._owner_only()
-        issue = self.b.get_issue(number)
-        status = status_of(issue)
-        check_transition(status, "ready", self.actor)
-        missing = definition_of_ready(issue.body)
-        if missing:
-            raise Refused("definition of ready not met; missing: " + "; ".join(missing))
+    def _check_all(self, verb: str, numbers: list, check) -> list:
+        """Check phase: read every item, write nothing; refuse naming each failing item. [(issue, facts)]."""
+        twice = sorted({n for n in numbers if numbers.count(n) > 1})
+        if twice:
+            raise Refused(f"{', '.join(f'#{n}' for n in twice)} given twice; give each number once")
+        items, failing = [], []
+        for n in numbers:
+            issue = self.b.get_issue(n)
+            try:
+                problems, facts = check(issue)
+            except Refused as exc:
+                problems, facts = [str(exc)], {}
+            if problems:
+                failing.append(f"#{n}: " + "; ".join(problems))
+            items.append((issue, facts))
+        if failing:
+            raise Refused(f"`owner {verb}`: {len(failing)} of {len(items)} items fail; nothing changed:\n  "
+                          + "\n  ".join(failing))
+        return items
+
+    def _write_all(self, items: list, write) -> None:
+        """Write phase, per item in order; a forge error stops it and names what was written and what not."""
+        written = []
+        for k, (issue, facts) in enumerate(items):
+            try:
+                write(issue, facts)
+            except TrackerError as exc:
+                rest = [f"#{i.number}" for i, _ in items[k + 1 :]]
+                raise TrackerError(f"#{issue.number}: {exc}; stopped there (#{issue.number} may be partly written); "
+                                   f"written: {', '.join(f'#{n}' for n in written) or 'none'}; "
+                                   f"not touched: {', '.join(rest) or 'none'}") from exc
+            written.append(issue.number)
+
+    def _ready_problems(self, issue: Issue) -> tuple:
+        check_transition(status_of(issue), "ready", self.actor)
+        return ["definition of ready not met, missing " + m for m in definition_of_ready(issue.body)], {}
+
+    def _write_ready(self, issue: Issue, facts: dict) -> None:
+        number = issue.number
         me = self.b.whoami()
         sha = body_hash(issue.body)
         self.b.comment(number, mark("ready", by=me, body_sha256=sha, ts=utcnow())
                        + f"\nReady. Body frozen at sha256 {sha}; edits after this point fail `owner done`.")
         self.set_status(issue, "ready")
         self.say(f"#{number} ready (body {sha})")
+
+    def ready(self, numbers: list) -> int:
+        self._owner_only()
+        self._write_all(self._check_all("ready", numbers, self._ready_problems), self._write_ready)
         return 0
 
     def done_checks(self, issue: Issue, waived: dict) -> tuple:
@@ -771,16 +809,23 @@ class Tracker:
         facts["waived"] = waived
         return problems, facts
 
-    def done(self, number: int, waive: Optional[list] = None) -> int:
+    def done(self, numbers: list, waive: Optional[list] = None) -> int:
         self._owner_only()
-        issue = self.b.get_issue(number)
+        if waive and len(numbers) > 1:
+            raise Refused("--waive takes one item (its indexes are per item); give one number with it")
         waived = {}
         for idx, reason in waive or []:
             waived[int(idx)] = reason
-        check_transition(status_of(issue), "done", self.actor)
-        problems, facts = self.done_checks(issue, waived)
-        if problems:
-            raise Refused("closing protocol not met:\n  - " + "\n  - ".join(problems))
+
+        def check(issue: Issue) -> tuple:
+            check_transition(status_of(issue), "done", self.actor)
+            return self.done_checks(issue, waived)
+
+        self._write_all(self._check_all("done", numbers, check), self._write_done)
+        return 0
+
+    def _write_done(self, issue: Issue, facts: dict) -> None:
+        number, waived = issue.number, facts["waived"]
         me = self.b.whoami()
         lines = [mark("done", by=me, ts=utcnow(), **{k: v for k, v in facts.items() if k != "checks"}),
                  f"Done by {me}. PR {facts['pr']} merged as {facts['merge_sha']} by {facts['merged_by']}.",
@@ -794,7 +839,6 @@ class Tracker:
         self.set_status(issue, "done")
         self.b.close_issue(number)
         self.say(f"#{number} done and closed ({facts['merge_sha'][:10]})")
-        return 0
 
 
 def bot_logins() -> set:
@@ -841,9 +885,9 @@ def build_parser() -> argparse.ArgumentParser:
     osub = o.add_subparsers(dest="owner_verb")
     osub.add_parser("labels-sync")
     s = osub.add_parser("ready")
-    s.add_argument("number", type=int)
+    s.add_argument("numbers", type=int, nargs="+")
     s = osub.add_parser("done")
-    s.add_argument("number", type=int)
+    s.add_argument("numbers", type=int, nargs="+")
     s.add_argument("--waive", nargs=2, action="append", metavar=("INDEX", "REASON"), default=[])
     return p
 
@@ -886,9 +930,9 @@ def main(argv: list, backend: Optional[Backend] = None, human: Optional[bool] = 
             if ns.owner_verb == "labels-sync":
                 return t.labels_sync()
             if ns.owner_verb == "ready":
-                return t.ready(ns.number)
+                return t.ready(ns.numbers)
             if ns.owner_verb == "done":
-                return t.done(ns.number, ns.waive)
+                return t.done(ns.numbers, ns.waive)
     except Refused as exc:
         out.write(f"tracker: refused: {exc}\n")
         return 2

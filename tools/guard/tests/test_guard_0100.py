@@ -177,6 +177,12 @@ G1 | feat/x | git-guard | deny | git replace --edit abc123
 G1 | feat/x | git-guard | deny | git replace --graft abc123
 G1 | feat/x | git-guard | deny | git symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/other
 G1 | feat/x | git-guard | deny | git symbolic-ref -d refs/remotes/origin/HEAD
+G1 | feat/x | git-guard | deny | git push . abc123:refs/remotes/origin/main
+G1 | feat/x | git-guard | deny | git push origin +HEAD:refs/remotes/origin/main
+G1 | feat/x | git-guard | deny | git branch -d -r origin/main
+G1 | feat/x | git-guard | deny | git branch -dr origin/main
+G1 | feat/x | git-guard | deny | git branch --delete --remotes origin/main
+G1 | feat/x | git-guard | deny | git branch -r -m origin/a origin/b
 G2 | feat/x | git-guard | ask | git remote set-url origin https://example.org/x.git
 G2 | feat/x | git-guard | ask | git remote set-url --push origin https://example.org/x.git
 G2 | feat/x | git-guard | ask | git remote rename origin old
@@ -189,6 +195,10 @@ G2 | feat/x | git-guard | ask | git config --unset remote.origin.url
 G2 | feat/x | git-guard | ask | git config --remove-section remote.origin
 G2 | feat/x | git-guard | ask | git fetch origin main:refs/remotes/origin/main
 G2 | feat/x | git-guard | ask | git fetch origin +refs/heads/*:refs/remotes/origin/*
+G2 | feat/x | git-guard | ask | git remote set-branches origin main
+G2 | feat/x | git-guard | ask | git remote set-head origin -a
+G2 | feat/x | git-guard | ask | git config url.https://example.org/.insteadOf https://github.com/
+G2 | feat/x | git-guard | ask | git config --global url.x.pushInsteadOf y
 Gs | feat/x | shell | silent | git fetch
 Gs | feat/x | shell | silent | git fetch origin
 Gs | feat/x | shell | silent | git fetch origin main
@@ -204,6 +214,10 @@ Gs | feat/x | shell | silent | git symbolic-ref --short refs/remotes/origin/HEAD
 Gs | feat/x | shell | silent | git config --get remote.origin.url
 Gs | feat/x | shell | silent | git config remote.origin.url
 Gs | feat/x | shell | silent | git update-ref refs/heads/feat abc123
+Gs | feat/x | git-guard | silent | git branch -r
+Gs | feat/x | git-guard | silent | git branch -d feat/old
+Gs | feat/x | git-guard | silent | git push origin feat/x
+Gs | feat/x | git-guard | silent | git config --get url.x.insteadof
 Gl | feat/x | git-guard | silent | git fetch . abc123:refs/heads/other
 Gl | feat/x | git-guard | silent | echo abc123 > .git/refs/remotes/origin/main
 # --- D6: an approval counts as a person's
@@ -230,6 +244,8 @@ T1 | Skill | cloud-launch | deny | {"skill": "some-plugin:schedule"}
 T1 | Workflow | cloud-launch | deny | {"script": "export const meta = {name: 'x'}\nawait agent('go', { isolation: 'remote' })"}
 T1 | Workflow | cloud-launch | deny | {"script": "await agent('go', {isolation:\"remote\"})"}
 T1 | Workflow | cloud-launch | deny | {"script": "await agent('go', {isolation : `remote`})"}
+T1 | Workflow | cloud-launch | deny | {"script": "await agent('go', {\"isolation\": \"remote\"})"}
+T1 | Workflow | cloud-launch | deny | {"script": "await agent('go', {'isolation': 'Remote'})"}
 T1 | RemoteTrigger | cloud-launch | deny | {"action": "list"}
 T1 | RemoteTrigger | cloud-launch | deny | {"action": "run", "trigger_id": "t1"}
 T1 | RemoteTrigger | cloud-launch | deny | {}

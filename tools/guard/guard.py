@@ -2083,8 +2083,9 @@ def _git_guard_seg(seg: list[str], cwd: str, protected: set, elsewhere: bool = F
         return "deny", GIT_MSG.format(what=f"`git {sub}` sets core.hooksPath for the call and skips the hooks")
     if sub == "config" and _git_config_writes_hooks_path(rest):
         return "ask", GIT_HOOKS_PATH_MSG
-    if sub != "push":
-        return _git_ref_rewrite(sub, rest)
+    rewrite = _git_ref_rewrite(sub, rest)
+    if sub != "push" or rewrite:
+        return rewrite
     if (any(t in _FORCE_FLAGS or t.startswith("--force-with-lease=") for t in rest) or "f" in shorts
             or _git_prefix(longs, _PUSH_FORCE_NAMES)):
         return "deny", GIT_MSG.format(what="force push")
@@ -2134,7 +2135,7 @@ REF_REWRITE_MSG = ("git-guard: {what} rewrites the remote-tracking refs the guar
 REF_SOURCE_MSG = ("git-guard: {what} changes where the remote-tracking refs the guard reads come from. Confirm the "
                   "command.")
 _REMOTE_REFS = "refs/remotes/"
-_REMOTE_KEY_RE = re.compile(r"^remote\.(.+\.)?(url|pushurl|fetch)$", re.IGNORECASE)
+_REMOTE_KEY_RE = re.compile(r"^(remote\.(.+\.)?(url|pushurl|fetch)|url\..+\.(push)?insteadof)$", re.IGNORECASE)
 
 
 def _git_config_writes_remote(rest: list[str]) -> bool:
@@ -2161,11 +2162,21 @@ def _git_ref_rewrite(sub: str, rest: list[str]) -> Optional[Decision]:
     remote = any(t.startswith(_REMOTE_REFS) for t in operands)
     if sub == "update-ref" and remote:
         return "deny", REF_REWRITE_MSG.format(what="`git update-ref`")
+    if sub == "push" and any(":" in t and t.rsplit(":", 1)[1].startswith(_REMOTE_REFS) for t in operands):
+        return "deny", REF_REWRITE_MSG.format(
+            what="`git push` into a remote-tracking ref (`git push . <sha>:refs/remotes/…`)")
+    if sub == "branch":
+        longs, shorts = _git_options(sub, rest)
+        if ("r" in shorts or _git_prefix(longs, ("remotes",))) and (
+                shorts & set("dDmMcC") or _git_prefix(longs, ("delete", "move", "copy"))):
+            return "deny", REF_REWRITE_MSG.format(
+                what="`git branch -r` deleting, renaming or copying a remote-tracking ref")
     if sub == "replace" and rest and rest[0] not in ("-l", "--list") and not rest[0].startswith("--format"):
         return "deny", REF_REWRITE_MSG.format(what="`git replace` (it swaps the objects every ref reads through)")
     if sub == "symbolic-ref" and remote and (len(operands) > 1 or "-d" in rest or "--delete" in rest):
         return "deny", REF_REWRITE_MSG.format(what="`git symbolic-ref`")
-    if sub == "remote" and operands[:1] in (["set-url"], ["rename"], ["remove"], ["rm"]):
+    if sub == "remote" and operands[:1] in (["set-url"], ["rename"], ["remove"], ["rm"], ["set-branches"],
+                                            ["set-head"]):
         return "ask", REF_SOURCE_MSG.format(what=f"`git remote {operands[0]}`")
     if sub == "config" and _git_config_writes_remote(rest):
         return "ask", REF_SOURCE_MSG.format(what="`git config` of a remote's url or fetch refspec")
@@ -4028,7 +4039,7 @@ DESIGN_SYNC_MSG = ("cloud-launch: `{tool}` sends material to a service of the ac
                    "what; confirm the call.")
 _CLOUD_CLIS = frozenset({"claude"})
 _CLOUD_FLAGS = ("--cloud", "--remote")
-_REMOTE_ISOLATION_RE = re.compile(r"isolation\s*:\s*[\"'`]remote[\"'`]")
+_REMOTE_ISOLATION_RE = re.compile(r"[\"'`]?isolation[\"'`]?\s*:\s*[\"'`]remote[\"'`]", re.IGNORECASE)
 
 
 def _cloud_seg(seg: list[str]) -> Optional[Decision]:

@@ -51,6 +51,12 @@ VALID = {"dockerenv": True, "marker_exists": True, "marker": {"schema": "agent-b
          "marker_uid": 0, "marker_writable": False, "marker_dir_writable": False, "guard_writable": False,
          "euid": 1000}
 NO_MARKER = dict(VALID, marker_exists=False, marker=None, marker_uid=None)
+# the guard root of the corpus run in a box: the inputs' own configuration, the defaults with host_install `ask`
+# (the corpus runs with KZ_HOST_INSTALL=ask, which a box ignores; D3)
+_CORPUS_ROOT = tempfile.TemporaryDirectory(prefix="box-corpus-root-")
+os.makedirs(os.path.join(_CORPUS_ROOT.name, ".claude"))
+with open(os.path.join(_CORPUS_ROOT.name, ".claude", "guard.json"), "w", encoding="utf-8") as _fh:
+    json.dump({"host_install": "ask"}, _fh)
 
 
 def _load(name: str, path: pathlib.Path):
@@ -94,9 +100,9 @@ def _event(inp: dict) -> tuple:
 
 
 def answers(guard, inp: dict, facts=None) -> tuple:
-    """(pre, rule) as guard answers for one input; with `facts`, box_facts gives them and the guard root is the
-    input's own folder (no committed guard.json there: the defaults, as without a marker). `pre` is `logged`
-    when the hook stayed silent and wrote a `logged` line."""
+    """(pre, rule) as guard answers for one input; with `facts`, box_facts gives them and the guard root holds
+    the input's own configuration (_CORPUS_ROOT). `pre` is `logged` when the hook stayed silent and wrote a
+    `logged` line."""
     raw, branch, boundary, rule, extra = _event(inp)
     seen: list = []
     logged: list = []
@@ -120,7 +126,7 @@ def answers(guard, inp: dict, facts=None) -> tuple:
                    ("respond", lambda final, name: seen.append(final) or 0),
                    ("log_decision", log)]
         if facts is not None:  # created when missing: guard 0.10.0 has neither, and answers as without a marker
-            patches += [("box_facts", lambda: dict(facts)), ("guard_root", lambda: SCRATCH)]
+            patches += [("box_facts", lambda: dict(facts)), ("guard_root", lambda: _CORPUS_ROOT.name)]
         for name, value in patches:
             stack.enter_context(mock.patch.object(guard, name, value, create=True))
         guard.run_hook("pre", None)
@@ -177,11 +183,14 @@ def test_the_copy_under_test_is_no_box_on_this_machine(guard):
 
 def test_in_a_box_no_deny_changes_and_no_ask_remains(guard):
     """D8 (b): with a valid marker every 0.10.0 deny stays a deny, every ask becomes a deny or a logged run, and
-    every silent input stays silent (it writes no line either)."""
+    every silent input stays silent (it writes no line either). An input whose boundary is client gets no box
+    profile (criterion 2): it answers as 0.10.0, its asks stay asks."""
     bad = []
     for row in _baseline():
         pre, _rule = answers(guard, row["in"], VALID)
         allowed = {"deny": ("deny",), "ask": ("deny", "logged"), "silent": ("silent",)}[row["pre"]]
+        if _event(row["in"])[2] != "own":
+            allowed = (row["pre"],)
         if pre not in allowed:
             bad.append(f"{row['id']}: 0.10.0 {row['pre']}, in a box {pre} {json.dumps(row['in'])}")
     assert bad == [], "\n".join(bad[:40])

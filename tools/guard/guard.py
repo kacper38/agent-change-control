@@ -3474,6 +3474,103 @@ def rule_tracker_guard(ev: Event, cfg: dict) -> Optional[Decision]:
                            if d])
 
 
+# 0.11.0 (item #66, D7): the one merge a box runs. Named limits: the receipt is a file in the box's own clone, which
+# the session could write itself, so this stops a forgotten review and not a hostile session (plan section 6,
+# decision 7); GitHub enforces --match-head-commit, the guard does not compare the pull request's head itself.
+BOX_MERGE_MSG = ("box session: this merge is denied: {failed}. A box merges only as `gh pr merge N "
+                 "--match-head-commit SHA` (one simple command, a full hash, at most one of --merge, --squash, "
+                 "--rebase) with a fresh-review receipt for that head whose verdict is APPROVE or COMMENT. {reason}")
+_MERGE_SHELL_MARKS = (";", "&", "|", "`", "$(", "<", ">", "\n")
+_MERGE_STYLES = frozenset({"--merge", "--squash", "--rebase"})
+_MERGE_HEAD = "--match-head-commit"
+_FULL_SHA_RE = re.compile(r"[0-9a-f]{40}")
+_PR_NUMBER_RE = re.compile(r"[0-9]+")
+RECEIPT_VERDICTS = ("APPROVE", "COMMENT")
+_RECEIPT_MAX = 1024 * 1024
+
+
+def _box_merge_failed(ev: Event) -> Optional[str]:
+    """None when the call is the merge a box runs (D7), else the first condition that failed, in words."""
+    if ev.tool != "Bash" or not ev.command:
+        return "only a Bash command can merge"
+    text = ev.command.strip()
+    if any(mark in text for mark in _MERGE_SHELL_MARKS):
+        return "the command is not one simple command"
+    try:
+        words = shlex.split(text, posix=True)
+    except ValueError:  # an open quote
+        return "the command could not be split into words"
+    if words[:3] != ["gh", "pr", "merge"]:
+        return "the command does not start with `gh pr merge`"
+    if len(words) < 4 or not _PR_NUMBER_RE.fullmatch(words[3]):
+        return "`gh pr merge` is not followed by a pull request number"
+    sha = style = None
+    rest = words[4:]
+    i = 0
+    while i < len(rest):
+        word = rest[i]
+        if word == _MERGE_HEAD or word.startswith(_MERGE_HEAD + "="):
+            if sha is not None:
+                return f"`{_MERGE_HEAD}` is given twice"
+            if word == _MERGE_HEAD:
+                if i + 1 == len(rest):
+                    return f"`{_MERGE_HEAD}` has no value"
+                i += 1
+                sha = rest[i]
+            else:
+                sha = word.split("=", 1)[1]
+        elif word in _MERGE_STYLES:
+            if style is not None:
+                return "more than one of --merge, --squash, --rebase is given"
+            style = word
+        else:
+            return f"`{word}` is not a word a merge in a box takes"
+        i += 1
+    if sha is None:
+        return f"`{_MERGE_HEAD} SHA` is missing"
+    if not _FULL_SHA_RE.fullmatch(sha):
+        return "the head is not a full 40-character lower-case hash"
+    return _receipt_failed(ev.cwd, sha)
+
+
+def _receipt_failed(cwd: str, sha: str) -> Optional[str]:
+    """None when the newest fresh-review receipt for `sha` approves or comments, else what is wrong. The receipts
+    are where bin/fresh-review writes them: <git dir>/fresh-review/<sha>.json, then <sha>.2.json, <sha>.3.json …
+    (tools/review/fresh_review.py); the highest number is the newest, the bare file is number 1."""
+    try:
+        r = subprocess.run(["git", "rev-parse", "--git-dir"], cwd=cwd, capture_output=True, text=True, timeout=3,
+                           stdin=subprocess.DEVNULL)
+    except (OSError, subprocess.SubprocessError, ValueError):  # no git, no folder, a timeout
+        return "the guard found no git repository at the call's folder"
+    git_dir = r.stdout.strip()
+    if r.returncode != 0 or not git_dir:
+        return "the guard found no git repository at the call's folder"
+    folder = os.path.join(git_dir if os.path.isabs(git_dir) else os.path.join(cwd, git_dir), "fresh-review")
+    try:
+        names = os.listdir(folder)
+    except OSError:  # no receipt folder yet
+        names = []
+    numbered = []
+    for name in names:
+        m = re.fullmatch(re.escape(sha) + r"(?:\.([0-9]+))?\.json", name)
+        if m and (m.group(1) is None or int(m.group(1)) >= 2):
+            numbered.append((int(m.group(1) or 1), name))
+    if not numbered:
+        return f"no fresh-review receipt exists for {sha} (bin/fresh-review writes one)"
+    name = max(numbered)[1]
+    try:
+        with open(os.path.join(folder, name), encoding="utf-8") as fh:
+            body = fh.read(_RECEIPT_MAX + 1)
+        data = json.loads(body) if len(body) <= _RECEIPT_MAX else None
+    except (OSError, ValueError, RecursionError):  # unreadable or no JSON
+        data = None
+    if not isinstance(data, dict) or data.get("sha") != sha:
+        return f"the newest receipt {name} is no receipt for {sha}"
+    if data.get("verdict") not in RECEIPT_VERDICTS:
+        return f"the newest receipt {name} has the verdict {data.get('verdict')!r}, not APPROVE or COMMENT"
+    return None
+
+
 def _gh_words(seg: list[str]) -> list[int]:
     """The indexes of the first two plain words of a gh call (the command group and the verb). gh accepts
     `-R`/`--repo` before the group and between group and verb (`gh -R o/r issue close 3`, `gh issue --repo o/r

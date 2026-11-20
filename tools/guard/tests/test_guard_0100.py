@@ -609,7 +609,7 @@ def test_one_function_names_the_profile(guard, value, expected):
 
 
 def test_the_profile_table_has_one_entry_per_profile(guard):
-    assert set(guard.PROFILES) == {"host", "cloud"}
+    assert set(guard.PROFILES) == {"host", "cloud", "box"}  # 0.11.0 (item #66) adds box
 
 
 def _bash(cwd, command):
@@ -849,7 +849,8 @@ def test_the_matchers_name_the_new_tools():
 
 
 def test_the_version_is_0_10_0(guard):
-    assert guard.VERSION == "0.10.0"
+    """The rows of this module hold from 0.10.0 on; test_box_profile.py pins the version of today."""
+    assert tuple(int(p) for p in guard.VERSION.split(".")) >= (0, 10, 0)
 
 
 def test_the_copilot_hook_reaches_every_tool():

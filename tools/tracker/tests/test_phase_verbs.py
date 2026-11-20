@@ -232,7 +232,7 @@ def at_terminal(monkeypatch):
     monkeypatch.delenv("CLAUDECODE", raising=False)
 
 
-def test_inside_a_box_a_monkeypatch_is_no_human(tracker, fb, monkeypatch, box_marker):
+def test_inside_a_box_a_terminal_is_no_human(tracker, fb, monkeypatch, box_marker):
     at_terminal(monkeypatch)
     assert tracker.is_human() is True, "a terminal outside a box"
     seat(box_marker, "s1")

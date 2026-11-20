@@ -13,7 +13,8 @@ Verbs
   show N                                 title, labels, acceptance criteria, tracker comments
   new --title X --ac A [--ac A2 ...] --scope S --scope-limit L --source SRC [--type T]
                                          create in status/backlog (type: todo|bug|handoff|decision|agent-note)
-  claim N [--branch B]                   ready -> in-progress; one in-progress per actor
+  claim N [--branch B]                   ready -> in-progress; one in-progress per login and seat (the box
+                                         marker's `seat`; none on the host)
   block N --question Q                   in-progress -> blocked; Q must name a path or a field
   review N --pr URL|NUMBER               in-progress -> review; PR head = claimed branch, body has `Refs #N`
   note N TEXT                            comment on an issue, no status change
@@ -43,6 +44,8 @@ import sys
 from typing import Optional
 
 VERSION = "0.1.0"
+BOX_MARKER = "/etc/agent-box/box.json"  # tools/box/marker.py: root-owned, 0444, written once by the box's entrypoint
+_SEAT_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}")  # marker.py's plain token
 
 # ----------------------------------------------------------------------------
 # Data model (step 2.4): label families and the transition table
@@ -538,8 +541,24 @@ _PATHLIKE_RE = re.compile(r"[\w-]+(?:[./:][\w-]+)+")
 
 
 def is_human() -> bool:
-    """A terminal on both ends and not inside an agent session."""
-    return sys.stdin.isatty() and sys.stdout.isatty() and not os.environ.get("CLAUDECODE")
+    """A terminal on both ends, not inside an agent session and not inside a box (the marker exists, even broken)."""
+    return (sys.stdin.isatty() and sys.stdout.isatty() and not os.environ.get("CLAUDECODE")
+            and not os.path.lexists(BOX_MARKER))
+
+
+def seat_of() -> Optional[str]:
+    """The box's seat from its marker; None on the host. No environment variable counts (BOX_SEAT included)."""
+    if not os.path.lexists(BOX_MARKER):
+        return None
+    try:
+        with open(BOX_MARKER, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError) as exc:
+        raise Refused(f"the box marker {BOX_MARKER} cannot be read ({exc}); no claim without a seat") from exc
+    seat = data.get("seat") if isinstance(data, dict) else None
+    if not isinstance(seat, str) or not _SEAT_RE.fullmatch(seat):
+        raise Refused(f"the box marker {BOX_MARKER} has no plain-token `seat`; no claim without a seat")
+    return seat
 
 
 def read_line() -> str:
@@ -635,17 +654,19 @@ class Tracker:
                           f"a human promotes it with `tracker owner ready {number}`")
         check_transition(status, "in-progress", self.actor)
         me = self.b.whoami()
+        seat = seat_of()
         for listed in self.b.list_issues([STATUS_PREFIX + "in-progress"]):
             other = self.b.get_issue(listed.number)  # listings carry no or partial comments; few items, one GET each
-            claims = [m for m in marks(other, "claim") if m.get("by") == me]
-            if claims:
-                raise Refused(f"{me} already has #{other.number} in progress; finish it (`tracker review`) "
-                              f"or block it (`tracker block`) first")
+            claims = marks(other, "claim")
+            if claims and claims[-1].get("by") == me and claims[-1].get("seat") == seat:
+                raise Refused(f"{me} ({'seat ' + seat if seat else 'host'}) already has #{other.number} in progress; "
+                              f"finish it (`tracker review`) or block it (`tracker block`) first")
         branch = branch or self._git("branch", "--show-current") or "(no branch)"
         worktree = self._git("rev-parse", "--show-toplevel") or self.cwd
         ts = utcnow()
-        body = mark("claim", by=me, branch=branch, worktree=worktree, ts=ts) + (
-            f"\nClaimed by {me} at {ts} on branch `{branch}` (worktree `{worktree}`)."
+        body = mark("claim", by=me, seat=seat, branch=branch, worktree=worktree, ts=ts) + (
+            f"\nClaimed by {me}{f' (seat `{seat}`)' if seat else ''} at {ts} on branch `{branch}` "
+            f"(worktree `{worktree}`)."
         )
         self.b.comment(number, body)
         self.set_status(issue, "in-progress")
@@ -702,7 +723,8 @@ class Tracker:
 
     def _owner_only(self) -> None:
         if self.actor != HUMAN:
-            raise Refused("owner verbs need a human at a terminal (no TTY here); ask the owner to run it")
+            raise Refused("owner verbs need a human at a terminal outside a box (no TTY here, or a box marker); "
+                          "ask the owner to run it")
 
     def labels_sync(self) -> int:
         self._owner_only()

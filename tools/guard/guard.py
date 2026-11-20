@@ -2802,12 +2802,124 @@ def _guard_config_as_written(path: str, home_claude: str) -> Optional[str]:
 
 
 def rule_guard_config(ev: Event, cfg: dict) -> Optional[Decision]:
-    if ev.event != "PreToolUse" or ev.kind not in ("write", "edit"):
+    if ev.event != "PreToolUse":
+        return None
+    if ev.kind == "shell" and ev.command:
+        return _guard_config_shell(ev)
+    if ev.kind not in ("write", "edit"):
         return None
     what = guard_config_class(ev.abspath())
     if what is None:
         return None
     return "ask", GUARD_CONFIG_MSG.format(path=ev.path, what=what)
+
+
+# 0.10.0 (item #65, D7): shell writes to the same paths ask, as Write and Edit do. Named limits: a branch switch,
+# merge, pull, rebase or stash that changes these files; a patch whose target is not on the line; obfuscated code.
+GUARD_CONFIG_SHELL_MSG = (
+    "Guard-the-guard: `{head}` writes {path}, which is {what}; it polices this very session, so a human confirms "
+    "every change (and AGENTS.md rule 4 wants the why in DECISIONS.md)."
+)
+_GC_REDIRECT_RE = re.compile(r"(?<![<>])>{1,2}\|?\s*([^\s;&|]+)")
+_GC_DIFF_HEADER_RE = re.compile(r"^(?:\+\+\+|---) (?:[ab]/)?(\S+)", re.MULTILINE)
+_GC_INLINE = {"python": "-c", "node": "-e", "perl": "-e", "ruby": "-e"}
+_GC_WRITE_WORDS = ("'w'", '"w"', "'a'", '"a"', "write", "rename", "replace", "unlink", "remove", "copy", "move",
+                   "symlink", "chmod")
+_GC_PATH_RE = re.compile(r"[\w.~/$-]+")
+
+
+def _gc_class(path: str, cwd: str, below: bool = False) -> Optional[str]:
+    """guard_config_class of a word as the shell names a file; `below`: a directory a file is written into."""
+    full = _expand(path.strip("\"'`,;)"), cwd)
+    return guard_config_class(full) or (guard_config_class(os.path.join(full, "x")) if below else None)
+
+
+def _gc_operands(args: list[str]) -> list[str]:
+    return [t for t in args if not t.startswith("-") and t != "--"]
+
+
+def _gc_targets(seg: list[str]) -> list[tuple]:
+    """(word, below) for each file one simple command writes, as far as its words say."""
+    head = tool_name(seg[0])
+    args = seg[1:]
+    ops = _gc_operands(args)
+    if head in _WRITERS_LAST:
+        for k, t in enumerate(args):
+            if t in ("-t", "--target-directory") and k + 1 < len(args):
+                return [(args[k + 1], True)]
+            if t.startswith("--target-directory="):
+                return [(t.split("=", 1)[1], True)]
+        return [(ops[-1], True)] if len(ops) > 1 else []
+    if head in _WRITERS_ALL:
+        return [(t, False) for t in ops]
+    if head == "dd":
+        return [(t[3:], False) for t in args if t.startswith("of=")]
+    if head == "sed" and any(t.startswith("-i") or t.startswith("--in-place") for t in args):
+        return [(t, False) for t in ops]
+    if head == "perl" and any(re.match(r"^-[a-zA-Z]*i", t) for t in args):
+        return [(t, False) for t in ops]
+    if head in ("curl", "wget"):
+        names = ("-o", "--output") if head == "curl" else ("-O", "--output-document")
+        out = []
+        for k, t in enumerate(args):
+            if t in names and k + 1 < len(args):
+                out.append((args[k + 1], False))
+            elif t.startswith(tuple(n + "=" for n in names[1:])):
+                out.append((t.split("=", 1)[1], False))
+            elif t.startswith(names[0]) and len(t) > 2 and not t.startswith("--"):
+                out.append((t[2:], False))
+        return out
+    if head == "patch":
+        return [(t, False) for t in ops]
+    if head == "git":
+        sub, rest = _git_subcommand(seg)
+        if sub == "apply":
+            return [(t, False) for t in _gc_operands(rest)]
+        if sub == "checkout" and "--" in rest:
+            return [(t, True) for t in rest[rest.index("--") + 1 :]]
+        if sub == "restore" and not _restore_index_only(rest):
+            out = []
+            for k, t in enumerate(rest):
+                if t.startswith("-") or t == "--" or (k and rest[k - 1] in ("-s", "--source")):
+                    continue
+                out.append((t, True))
+            return out
+    key = "python" if _PYTHON_RE.match(head) else head
+    if key in _GC_INLINE:
+        opt = _GC_INLINE[key]
+        for k, t in enumerate(args[:-1]):
+            code = args[k + 1]
+            if t == opt and any(w in code for w in _GC_WRITE_WORDS):
+                return [(p, False) for p in _GC_PATH_RE.findall(code) if "/" in p]
+    return []
+
+
+def _guard_config_shell(ev: Event) -> Optional[Decision]:
+    hits: list[tuple] = []  # (path, class, head)
+    command = strip_heredocs(ev.command)
+    for target in _GC_REDIRECT_RE.findall(command.replace("\\\n", "")):
+        what = _gc_class(target, ev.cwd)
+        if what:
+            hits.append((target.strip("\"'`,;)"), what, ">"))
+
+    def judge(seg: list[str]) -> Optional[Decision]:
+        head = tool_name(seg[0])
+        for word, below in _gc_targets(seg):
+            what = _gc_class(word, ev.cwd, below)
+            if what:
+                hits.append((word, what, head))
+        if head == "patch" or (head == "git" and _git_subcommand(seg)[0] == "apply"):
+            for word in _GC_DIFF_HEADER_RE.findall(ev.command):  # the patch in a here-document
+                what = _gc_class(word, ev.cwd)
+                if what:
+                    hits.append((word, what, head))
+        return None
+
+    failed = reader_pass(ev.command, judge, "guard-config")
+    if hits:
+        path, what, head = hits[0]
+        return "ask", GUARD_CONFIG_SHELL_MSG.format(head=head, path=path, what=what)
+    return failed
 
 
 # ----------------------------------------------------------------------------
@@ -4914,7 +5026,7 @@ RULES: dict[str, Rule] = {
     "scratch-md": rule_scratch_md,
     "protected-branch": judged_twice("protected-branch", rule_protected_branch),
     "fan-out": rule_fan_out,
-    "guard-config": rule_guard_config,
+    "guard-config": judged_twice("guard-config", rule_guard_config),
     "tracker-guard": judged_twice("tracker-guard", rule_tracker_guard),
     "host-install": judged_twice("host-install", rule_host_install),
     "cloud-launch": judged_twice("cloud-launch", rule_cloud_launch),

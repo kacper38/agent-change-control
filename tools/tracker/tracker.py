@@ -43,7 +43,7 @@ import subprocess
 import sys
 from typing import Optional
 
-VERSION = "0.1.0"
+VERSION = "0.2.0"
 BOX_MARKER = "/etc/agent-box/box.json"  # tools/box/marker.py: root-owned, 0444, written once by the box's entrypoint
 _SEAT_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}")  # marker.py's plain token
 

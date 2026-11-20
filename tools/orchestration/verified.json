@@ -134,5 +134,117 @@
       },
       "cost_usd": 0.0
     }
+  },
+  "box": {
+    "schema": "box-probe/1",
+    "date": "2026-11-20",
+    "cli_version": "2.1.323",
+    "runtime": "Docker Engine - Community 29.8.2 linux/arm64 (context orbstack)",
+    "image": "agent-box:51520801aa67c32be45c36c92a5b176f17b79301",
+    "model": "haiku",
+    "cost_usd": 0,
+    "questions": {
+      "permission-flag-non-root": {
+        "status": "holds",
+        "reason": "",
+        "expect": "--dangerously-skip-permissions is accepted for the box's user (uid 1000) and refused for root",
+        "observed": {
+          "user": {
+            "uid": 1000,
+            "exit": 1,
+            "said": "Not logged in \u00b7 Please run /login"
+          },
+          "root": {
+            "exit": 1,
+            "said": "--dangerously-skip-permissions cannot be used with root/sudo privileges for security reasons"
+          }
+        }
+      },
+      "dockerenv": {
+        "status": "holds",
+        "reason": "",
+        "expect": "/.dockerenv exists in a box under this container runtime",
+        "observed": {
+          "dockerenv": true
+        }
+      },
+      "marker": {
+        "status": "holds",
+        "reason": "",
+        "expect": "the entrypoint writes /etc/agent-box/box.json owned by root, not writable by the session's user, and the session runs as that user",
+        "observed": {
+          "marker": {
+            "dir_writable": false,
+            "exists": true,
+            "mode": "0o444",
+            "schema": "agent-box/1",
+            "uid": 0,
+            "writable": false
+          },
+          "uid": 1000
+        }
+      },
+      "firewall": {
+        "status": "holds",
+        "reason": "",
+        "expect": "the entrypoint's firewall leaves the model API and GitHub reachable and example.com not, the user has no capabilities, and a box without NET_ADMIN starts no session",
+        "observed": {
+          "net": {
+            "api.anthropic.com": true,
+            "example.com": false,
+            "github.com": true
+          },
+          "cap_eff": "0000000000000000",
+          "no_new_privs": "1",
+          "iptables_as_user_exit": 4,
+          "without_net_admin": {
+            "exit": 70,
+            "session_started": false
+          }
+        }
+      },
+      "headless-token": {
+        "status": "not_run",
+        "reason": "not run: --no-token",
+        "expect": "a headless run as the box's user works with the token variable and permission checks off",
+        "observed": {}
+      },
+      "hook-deny-checks-off": {
+        "status": "not_run",
+        "reason": "not run: --no-token",
+        "expect": "a PreToolUse hook's deny blocks the call with permission checks off",
+        "observed": {}
+      },
+      "hook-ask-checks-off": {
+        "status": "not_run",
+        "reason": "not run: --no-token",
+        "expect": "a PreToolUse hook's ask does not let the call run unanswered with permission checks off",
+        "observed": {}
+      },
+      "managed-hooks": {
+        "status": "not_run",
+        "reason": "not run: --no-token",
+        "expect": "a hook from /etc/claude-code/managed-settings.json fires, and with allowManagedHooksOnly a project hook does not",
+        "observed": {}
+      },
+      "cli-hosts": {
+        "status": "not_run",
+        "reason": "not run: --no-token",
+        "expect": "every host the CLI asks for in a headless run is on tools/box/allowlist",
+        "observed": {}
+      },
+      "connectors": {
+        "status": "not_run",
+        "reason": "not run: --no-token",
+        "expect": "no account connector (claude.ai MCP server) loads in the box with the token",
+        "observed": {}
+      },
+      "config-dir": {
+        "status": "not_run",
+        "reason": "not run: --no-token",
+        "expect": "transcripts go under CLAUDE_CONFIG_DIR and none under the user's home",
+        "observed": {}
+      }
+    }
   }
 }

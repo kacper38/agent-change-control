@@ -202,14 +202,17 @@ DEFAULTS = {
 BOUNDARIES = ("own", "client")
 
 
-def load_config(start: str) -> dict:
+def load_config(start: str, facts: Optional[dict] = None) -> dict:
     """Merge DEFAULTS <- nearest .claude/guard.json (walking up) <- its sibling guard.local.json <- KZ_* env.
 
     guard.local.json is the owner's uncommitted override (gitignored): only its `rules_off` is read, so a
     session can silence rules without a diff in the reviewable policy and nothing else moves. rules_off is
     dropped unless guard.json sits beside `.git` and says `boundary: own` itself (not the default) and the
     effective boundary is own. The boundary only tightens (0.10.0): an unknown value counts as client, and
-    KZ_BOUNDARY=own leaves a committed client in force."""
+    KZ_BOUNDARY=own leaves a committed client in force. In a box (0.11.0, `in_box` of the facts, read when none
+    are handed in) the configuration is _box_config's instead."""
+    if in_box(box_facts() if facts is None else facts):
+        return _box_config(start)
     cfg = dict(DEFAULTS)
     d = os.path.abspath(start)
     relaxable = False  # rules_off counts only under a repo root whose committed guard.json says boundary own
@@ -245,16 +248,7 @@ def load_config(start: str) -> dict:
     env = os.environ.get("KZ_PROTECTED_BRANCHES")
     if env:
         cfg["protected_branches"] = [b.strip() for b in env.split(",") if b.strip()]
-    env = os.environ.get("KZ_BOUNDARY")
-    if env:  # it can only tighten: client sets client, own changes nothing, anything else counts as client
-        env = env.strip()
-        if env == "own" and cfg["boundary"] != "own":
-            print("guard: KZ_BOUNDARY=own does not loosen the committed boundary client", file=sys.stderr)
-        elif env != "own":
-            if env != "client":
-                print(f"guard: KZ_BOUNDARY {env!r} is no boundary (own or client); it counts as client",
-                      file=sys.stderr)
-            cfg["boundary"] = "client"
+    _env_boundary(cfg)
     relaxable = relaxable and cfg["boundary"] == "own"
     env = os.environ.get("KZ_SCRATCH_MD")
     if env:
@@ -276,6 +270,78 @@ def load_config(start: str) -> dict:
     else:
         for name in sorted(set(off) - set(RULES)):
             print(f"guard: rules_off names no rule {name!r}", file=sys.stderr)
+    return cfg
+
+
+def _env_boundary(cfg: dict) -> None:
+    """KZ_BOUNDARY can only tighten: client sets client, own changes nothing, anything else counts as client."""
+    env = os.environ.get("KZ_BOUNDARY")
+    if env:
+        env = env.strip()
+        if env == "own" and cfg["boundary"] != "own":
+            print("guard: KZ_BOUNDARY=own does not loosen the committed boundary client", file=sys.stderr)
+        elif env != "own":
+            if env != "client":
+                print(f"guard: KZ_BOUNDARY {env!r} is no boundary (own or client); it counts as client",
+                      file=sys.stderr)
+            cfg["boundary"] = "client"
+
+
+# the environment knobs that can loosen; a box ignores each (D3 of item #66) and says so
+BOX_IGNORED_ENV = ("KZ_RULES_OFF", "KZ_PROTECTED_BRANCHES", "KZ_SCRATCH_MD", "KZ_HOST_INSTALL")
+
+
+def _read_policy(path: str) -> Optional[dict]:
+    """A guard.json as a dict; None when it is missing, and, with a note, when it is unreadable or no object."""
+    if not os.path.isfile(path):
+        return None
+    try:
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError, RecursionError) as exc:  # a broken config must not silently vanish
+        print(f"guard: ignoring unreadable {path}: {exc}", file=sys.stderr)
+        return None
+    if not isinstance(data, dict):
+        print(f"guard: ignoring {path}: not a JSON object", file=sys.stderr)
+        return None
+    return data
+
+
+def _box_config(start: str) -> dict:
+    """The configuration in a box (D3), valid marker or not, since all of it only tightens: DEFAULTS <- the
+    committed guard.json beside the guard (<guard root>/.claude/guard.json, never its guard.local.json, never its
+    rules_off) <- client when the nearest guard.json above `start` (the work clone's) names any boundary but own
+    <- KZ_BOUNDARY (only tightens) and KZ_TELEMETRY_DIR. rules_off is always empty; the knobs that can loosen
+    (BOX_IGNORED_ENV) are ignored, each with a note."""
+    cfg = dict(DEFAULTS)
+    path = os.path.join(guard_root(), ".claude", "guard.json")
+    data = _read_policy(path)
+    if data:
+        cfg.update({k: v for k, v in data.items() if k != "rules_off"})
+        if cfg["boundary"] not in BOUNDARIES:  # an unknown value tightens
+            print(f"guard: boundary {cfg['boundary']!r} in {path} is not own or client; it counts as client",
+                  file=sys.stderr)
+            cfg["boundary"] = "client"
+    d = os.path.abspath(start)
+    while True:
+        candidate = os.path.join(d, ".claude", "guard.json")
+        if os.path.isfile(candidate):
+            data = _read_policy(candidate)
+            if data and "boundary" in data and data["boundary"] != "own":  # a tightening, believed from anywhere
+                cfg["boundary"] = "client"
+            break
+        parent = os.path.dirname(d)
+        if parent == d:
+            break
+        d = parent
+    env = os.environ.get("KZ_TELEMETRY_DIR")
+    if env:
+        cfg["telemetry_dir"] = env
+    for name in BOX_IGNORED_ENV:
+        if name in os.environ:
+            print(f"guard: {name} is ignored in a box", file=sys.stderr)
+    _env_boundary(cfg)
+    cfg["rules_off"] = []
     return cfg
 
 

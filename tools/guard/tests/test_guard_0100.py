@@ -215,6 +215,12 @@ G2 | feat/x | git-guard | ask | git remote add self /tmp/other-repo
 G2 | feat/x | git-guard | ask | git remote add -t main self .
 G2 | feat/x | git-guard | ask | git remote add --master main -f self repo2
 G2 | feat/x | git-guard | ask | git remote add self file:///tmp/r
+G2 | feat/x | git-guard | ask | git remote add -m main self .
+G2 | feat/x | git-guard | ask | git remote add --track main self .
+G2 | feat/x | git-guard | ask | git remote add self ssh://localhost/tmp/r
+G2 | feat/x | git-guard | ask | git remote add self ssh://git@127.0.0.1:2222/tmp/r
+G2 | feat/x | git-guard | ask | git remote add self localhost:/tmp/r
+G2 | feat/x | git-guard | ask | git remote add self "[::1]:/tmp/r"
 G2 | feat/x | git-guard | ask | git remote set-branches origin main
 G2 | feat/x | git-guard | ask | git remote set-head origin -a
 G2 | feat/x | git-guard | ask | git config url.https://example.org/.insteadOf https://github.com/
@@ -899,8 +905,10 @@ def test_a_workflow_file_that_grows_after_fstat_asks(guard, monkeypatch, tmp_pat
 def test_the_workflow_file_is_opened_without_blocking_or_a_terminal(guard, monkeypatch, tmp_path):
     script = tmp_path / "w.js"
     script.write_text("await agent('go')\n")
-    flags = []
+    opened = []
     real = os.open
-    monkeypatch.setattr(guard.os, "open", lambda path, f, *a: flags.append(f) or real(path, f, *a))
-    _tool_answer(guard, monkeypatch, "Workflow", "cloud-launch", json.dumps({"scriptPath": str(script)}))
-    assert flags and flags[0] & os.O_NONBLOCK and flags[0] & os.O_NOCTTY
+    monkeypatch.setattr(guard.os, "open", lambda path, f, *a: opened.append((str(path), f)) or real(path, f, *a))
+    _ev, got = _tool_answer(guard, monkeypatch, "Workflow", "cloud-launch", json.dumps({"scriptPath": str(script)}))
+    assert got is None
+    flags = [f for path, f in opened if path == str(script)]
+    assert len(flags) == 1 and flags[0] & os.O_NONBLOCK and flags[0] & os.O_NOCTTY, opened

@@ -2171,6 +2171,9 @@ def _git_local_remote(word: str) -> bool:
     return "/" in word
 
 
+_LOOPBACK_HOSTS = frozenset(("localhost", "127.0.0.1", "::1"))
+
+
 def _git_remote_add_local(rest: list[str]) -> bool:
     """`git remote add [-t <branch>] [-m <master>] [-f] … <name> <url>` with a url on this machine: anything but a
     URL with `://` or an scp-like `host:path` (a bare word is a relative path to git here, not a remote name)."""
@@ -2185,7 +2188,13 @@ def _git_remote_add_local(rest: list[str]) -> bool:
     if len(words) < 2:
         return False
     url = words[1]
-    return url.startswith("file:") or ("://" not in url and not re.match(r"^[^/]+:", url))
+    if url.startswith("file:"):
+        return True
+    m = re.match(r"^[a-z][a-z0-9+.-]*://(?:[^@/]*@)?(\[[^\]]*\]|[^:/]*)", url, re.IGNORECASE) \
+        or re.match(r"^(?:[^@/:]*@)?(\[[^\]]*\]|[^:/]+):", url)
+    if not m:
+        return True  # no host part: a path
+    return m.group(1).lower().strip("[]") in _LOOPBACK_HOSTS  # ssh://localhost/…, 127.0.0.1:/…: this machine
 
 
 def _git_ref_rewrite(sub: str, rest: list[str]) -> Optional[Decision]:

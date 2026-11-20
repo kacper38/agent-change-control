@@ -27,7 +27,10 @@ It is:
 - CI gates (tests, commit messages, test-tampering, image tags) on GitHub
   Actions and on Azure Pipelines, with the same results;
 - an evidence export that turns merged PRs, reviews, checks and tracker
-  records into one JSON pack for a release.
+  records into one JSON pack for a release;
+- for this repository only, a box (`bin/box`, a skeleton): a local
+  container in which a session builds with permission checks off, behind
+  an egress list, with the hooks of a read-only copy of `main`.
 
 It is not:
 
@@ -300,6 +303,35 @@ variables (`KZ_TRACKER_REPO`, `KZ_TRACKER_AREA`, `KZ_TRACKER_ADO_MODE`,
   `.git/fresh-review/<sha>.json`; `/pr-prep` pastes the verdict. At work the
   same prompt is `.github/instructions/review.instructions.md` for Copilot code
   review, on GitHub and on Azure Repos.
+
+### Box (this repository only; Phase 1 step 1.0a, a skeleton)
+
+- `bin/box run NAME` opens a terminal session in box NAME; `bin/box run NAME
+  --brief FILE` runs one headless session on FILE and prints the path of its
+  `result.json`; `bin/box doctor` starts a box without tokens and shows each
+  check (uid not 0, every version at its pin, `https://example.com`
+  unreachable, no Docker socket, no host home, the marker root's) and then
+  `ruff check tools` and both `pytest` runs inside it; `bin/box build` builds
+  `agent-box:<git SHA>` from `tools/box/pins.env`.
+- Inside: the CLI with `--dangerously-skip-permissions` as uid 1000, no
+  capabilities, TCP 443 to the model API and GitHub only (DNS open), the
+  model pinned to Opus. The hooks that run are those of `main` as fetched at
+  the start, exported read-only to `~/.agent-box/judge/<SHA>/` and loaded as
+  managed settings with `allowManagedHooksOnly`, so the work clone cannot
+  change them. The guard still denies; until step 1.0b the wrapper sets
+  `KZ_RULES_OFF` for `delete-guard`, `guard-config`, `scratch-md`, `fan-out`
+  and `tracker-guard` (plan section 5, row 1).
+- Before the first start the owner stores two tokens (plan section 7):
+  `agent-box-claude` (from `claude setup-token`) and `agent-box-github` (a
+  fine-grained token for this repository: Contents, Pull requests and Issues
+  read and write, 30 days), each with `security add-generic-password -U -a
+  "$USER" -s <name> -w`. A missing, expired or revoked token stops the start
+  with its name; nothing falls back to the owner's own login.
+- It is not: an image in a registry, a scanned image, a box for a client or
+  secret repository (the wrapper refuses one whose committed `guard.json`
+  does not say `boundary: own`), or a place where the tokens are hidden from
+  the session. What the probe found is the `box` key of
+  `tools/orchestration/verified.json` (`python3 tools/box/box_probe.py`).
 
 ### Evidence pack
 

@@ -2164,9 +2164,17 @@ def _git_ref_rewrite(sub: str, rest: list[str]) -> Optional[Decision]:
     remote = any(t.startswith(_REMOTE_REFS) for t in operands)
     if sub == "update-ref" and remote:
         return "deny", REF_REWRITE_MSG.format(what="`git update-ref`")
-    if sub == "push" and any(":" in t and t.rsplit(":", 1)[1].startswith(_REMOTE_REFS) for t in operands):
-        return "deny", REF_REWRITE_MSG.format(
-            what="`git push` into a remote-tracking ref (`git push . <sha>:refs/remotes/…`)")
+    if sub == "push" and operands:
+        dests = [t.rsplit(":", 1)[1] if ":" in t else t.lstrip("+") for t in operands[1:]]
+        if any(d.startswith((_REMOTE_REFS, "remotes/")) for d in dests):
+            return "deny", REF_REWRITE_MSG.format(what="`git push` into a remote-tracking ref")
+        # a push into this repository (or another local one) resolves a short name like `origin/main` against
+        # its refs, remote-tracking ones included: only refs/heads/ and refs/tags/ written out stay open
+        if operands[0] == "." or operands[0].startswith(("/", "./", "../", "~", "file:")):
+            if "--delete" in rest or "-d" in rest or any(not d.startswith(("refs/heads/", "refs/tags/"))
+                                                          for d in dests if d):
+                return "deny", REF_REWRITE_MSG.format(
+                    what="`git push` into a local repository with a short or deleted destination")
     if sub == "branch":
         longs, shorts = _git_options(sub, rest)
         if ("r" in shorts or _git_prefix(longs, ("remotes",))) and (
@@ -4041,7 +4049,7 @@ DESIGN_SYNC_MSG = ("cloud-launch: `{tool}` sends material to a service of the ac
                    "what; confirm the call.")
 _CLOUD_CLIS = frozenset({"claude"})
 _CLOUD_FLAGS = ("--cloud", "--remote")
-_REMOTE_ISOLATION_RE = re.compile(r"[\"'`]?isolation[\"'`]?\s*:\s*[\"'`]remote[\"'`]", re.IGNORECASE)
+_REMOTE_ISOLATION_RE = re.compile(r"\[?[\"'`]?isolation[\"'`]?\]?\s*:\s*[\"'`]remote[\"'`]", re.IGNORECASE)
 
 
 def _cloud_seg(seg: list[str]) -> Optional[Decision]:

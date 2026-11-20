@@ -179,6 +179,11 @@ G1 | feat/x | git-guard | deny | git symbolic-ref refs/remotes/origin/HEAD refs/
 G1 | feat/x | git-guard | deny | git symbolic-ref -d refs/remotes/origin/HEAD
 G1 | feat/x | git-guard | deny | git push . abc123:refs/remotes/origin/main
 G1 | feat/x | git-guard | deny | git push origin +HEAD:refs/remotes/origin/main
+G1 | feat/x | git-guard | deny | git push . abc123:origin/main
+G1 | feat/x | git-guard | deny | git push . abc123:remotes/origin/main
+G1 | feat/x | git-guard | deny | git push . --delete refs/remotes/origin/main
+G1 | feat/x | git-guard | deny | git push . --delete origin/main
+G1 | feat/x | git-guard | deny | git push origin --delete remotes/origin/x
 G1 | feat/x | git-guard | deny | git branch -d -r origin/main
 G1 | feat/x | git-guard | deny | git branch -dr origin/main
 G1 | feat/x | git-guard | deny | git branch --delete --remotes origin/main
@@ -217,6 +222,8 @@ Gs | feat/x | shell | silent | git update-ref refs/heads/feat abc123
 Gs | feat/x | git-guard | silent | git branch -r
 Gs | feat/x | git-guard | silent | git branch -d feat/old
 Gs | feat/x | git-guard | silent | git push origin feat/x
+Gs | feat/x | git-guard | silent | git push . abc123:refs/heads/tmp
+Gs | feat/x | git-guard | silent | git push origin --delete feat/old
 Gs | feat/x | git-guard | silent | git config --get url.x.insteadof
 Gl | feat/x | git-guard | silent | git fetch . abc123:refs/heads/other
 Gl | feat/x | git-guard | silent | echo abc123 > .git/refs/remotes/origin/main
@@ -246,6 +253,7 @@ T1 | Workflow | cloud-launch | deny | {"script": "await agent('go', {isolation:\
 T1 | Workflow | cloud-launch | deny | {"script": "await agent('go', {isolation : `remote`})"}
 T1 | Workflow | cloud-launch | deny | {"script": "await agent('go', {\"isolation\": \"remote\"})"}
 T1 | Workflow | cloud-launch | deny | {"script": "await agent('go', {'isolation': 'Remote'})"}
+T1 | Workflow | cloud-launch | deny | {"script": "await agent('go', {['isolation']: 'remote'})"}
 T1 | RemoteTrigger | cloud-launch | deny | {"action": "list"}
 T1 | RemoteTrigger | cloud-launch | deny | {"action": "run", "trigger_id": "t1"}
 T1 | RemoteTrigger | cloud-launch | deny | {}

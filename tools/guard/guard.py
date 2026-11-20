@@ -35,7 +35,7 @@ import time
 from collections.abc import Mapping
 from typing import Callable, Optional
 
-VERSION = "0.9.0"
+VERSION = "0.10.0"
 
 # ----------------------------------------------------------------------------
 # Harness normalization

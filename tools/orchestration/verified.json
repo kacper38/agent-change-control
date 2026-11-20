@@ -1,12 +1,12 @@
 {
   "schema": "orchestration-probe/1",
   "cli_version": "2.1.323",
-  "date": "2026-11-15",
+  "date": "2026-11-20",
   "model": "haiku",
   "models": [
     "claude-haiku-5-5"
   ],
-  "cost_usd": 0.0398,
+  "cost_usd": 0.0396,
   "canaries": {
     "workflow-by-name": {
       "status": "holds",
@@ -37,7 +37,7 @@
         ],
         "workflow_agents_started": 0
       },
-      "cost_usd": 0.0028
+      "cost_usd": 0.0024
     },
     "hook-blocks-workflow-agent": {
       "status": "holds",
@@ -53,7 +53,7 @@
         "spawned_from_parent": null,
         "denied_tools": []
       },
-      "cost_usd": 0.0057
+      "cost_usd": 0.005
     },
     "hook-blocks-nested-subagent": {
       "status": "holds",
@@ -67,11 +67,9 @@
         "forbidden_attempts": 1,
         "blocked_rows": 1,
         "spawned_from_parent": true,
-        "denied_tools": [
-          "Bash"
-        ]
+        "denied_tools": []
       },
-      "cost_usd": 0.0046
+      "cost_usd": 0.0051
     },
     "depth-pin": {
       "status": "holds",
@@ -86,7 +84,7 @@
         "control_env": "3",
         "pinned_env": "2"
       },
-      "cost_usd": 0.0087
+      "cost_usd": 0.0082
     },
     "spawn-log-workflow-agents": {
       "status": "holds",
@@ -101,7 +99,7 @@
         "same_session": true,
         "marker": true
       },
-      "cost_usd": 0.0053
+      "cost_usd": 0.0046
     },
     "workflow-background-off": {
       "status": "holds",
@@ -116,7 +114,7 @@
         "marker": true,
         "result_messages": 2
       },
-      "cost_usd": 0.0073
+      "cost_usd": 0.0053
     },
     "ledger-own-cost": {
       "status": "holds",
@@ -128,11 +126,70 @@
         "agent_transcripts": 1,
         "workflow_transcripts": 1,
         "parse_errors": 0,
-        "own_micro_usd": 5357,
-        "run_micro_usd": 5357,
+        "own_micro_usd": 5422,
+        "run_micro_usd": 5422,
         "diff_bp": 1
       },
       "cost_usd": 0.0
+    },
+    "mcp-hook": {
+      "status": "holds",
+      "reason": "",
+      "expect": "a PreToolUse hook whose matcher is mcp__github__.* is called for each tool of an MCP server registered as github, and its exit 2 keeps the call from the server",
+      "backs": "step 1.7 (#65), D4 and D5",
+      "observed": {
+        "hook_tools": [
+          "mcp__github__get_me",
+          "mcp__github__merge_pull_request"
+        ],
+        "server_calls": [
+          "get_me"
+        ],
+        "denied_tools": [
+          "mcp__github__merge_pull_request"
+        ]
+      },
+      "cost_usd": 0.0022
+    },
+    "tool-list": {
+      "status": "fails",
+      "reason": "the session's tools changed: added DesignSync, RemoteTrigger; removed none; decide for each how the guard treats it (KNOWN_CLAUDE_TOOLS)",
+      "expect": "the built-in tools of the session's init message are the names of KNOWN_CLAUDE_TOOLS in guard.py",
+      "backs": "step 1.7 (#65), criterion 11",
+      "observed": {
+        "tools": [
+          "Bash",
+          "CronCreate",
+          "CronDelete",
+          "CronList",
+          "DesignSync",
+          "Edit",
+          "EnterWorktree",
+          "ExitWorktree",
+          "ListAgents",
+          "Monitor",
+          "NotebookEdit",
+          "Read",
+          "RemoteTrigger",
+          "ReportFindings",
+          "ScheduleWakeup",
+          "SendMessage",
+          "Skill",
+          "Task",
+          "TaskStop",
+          "ToolSearch",
+          "WebFetch",
+          "WebSearch",
+          "Workflow",
+          "Write"
+        ],
+        "added": [
+          "DesignSync",
+          "RemoteTrigger"
+        ],
+        "removed": []
+      },
+      "cost_usd": 0.0014
     }
   },
   "box": {

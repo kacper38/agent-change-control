@@ -878,6 +878,8 @@ def rule_secret_write(ev: Event, cfg: dict) -> Optional[Decision]:
 def rule_secret_read(ev: Event, cfg: dict) -> Optional[Decision]:
     if ev.event != "PreToolUse" or ev.kind != "read":
         return None
+    if github_login_file(ev.abspath()):
+        return "deny", GITHUB_LOGIN_MSG.format(rule="secret-read", what=f"`{ev.tool}` of {ev.path}")
     if secret_class(ev.abspath()) == "secret":
         return "ask", SECRET_READ_MSG.format(path=ev.path)
     return None
@@ -1137,9 +1139,12 @@ def _secret_reader_seg(seg: list[str], cwd: str, writes: list[str], reads: list[
     _secret_seg([t for m, t in enumerate(seg) if m not in drop], cwd, writes, reads)
 
 
-def _secret_verdict(writes: list[str], reads: list[str]) -> Optional[Decision]:
+def _secret_verdict(writes: list[str], reads: list[str], cwd: str = "/") -> Optional[Decision]:
     if writes:
         return "deny", SECRET_WRITE_MSG.format(path=", ".join(dict.fromkeys(writes)))
+    login = [p for p in reads if github_login_file(_expand(p, cwd))]
+    if login:
+        return "deny", GITHUB_LOGIN_MSG.format(rule="secret-shell", what=f"a read of {', '.join(dict.fromkeys(login))}")
     if reads:
         return "ask", SECRET_READ_MSG.format(path=", ".join(dict.fromkeys(reads)))
     return None
@@ -1300,6 +1305,67 @@ def secret_store_what(seg: list[str]) -> Optional[str]:
         if _leading(args, words) and (cond is None or cond(args)):
             shown = " ".join(w for w in words if isinstance(w, str))
             return f"`{head} {shown}` prints a stored secret"
+    return None
+
+
+# 0.10.0 (item #65, D8): the owner's stored GitHub login is read by no session; these deny (some asked at 0.9.0)
+GITHUB_LOGIN_MSG = "{rule}: {what} reads the owner's stored GitHub credentials; a session never does (plan rev 3, D6)."
+_GITHUB_LOGIN_SUFFIXES = ("/.config/gh/hosts.yml", "/.git-credentials")
+_GITHUB_TOKEN_VARS = frozenset({"GH_TOKEN", "GITHUB_TOKEN"})
+_EMPTY_TOKEN_RE = re.compile(
+    r"(?:^|[;&|(`\n])\s*(?:export\s+|env\s+(?:-\S+\s+)*)?(?:[A-Za-z_]\w*=\S*\s+)*(GH_TOKEN|GITHUB_TOKEN)="
+    r"(?:\"\"|''|)(?=[\s;&|)]|$)")
+
+
+def github_login_file(path: Optional[str]) -> bool:
+    """The file of the owner's stored GitHub login (gh's hosts.yml, git's store helper), matched by its end."""
+    return bool(path) and ("/" + path.replace("\\", "/").lower().lstrip("/")).endswith(_GITHUB_LOGIN_SUFFIXES)
+
+
+def _env_runs(args: list[str]) -> list[str]:
+    """The command `env` runs: its arguments past options and assignments."""
+    k = 0
+    while k < len(args) and (args[k].startswith("-") or _ASSIGN_RE.match(args[k])):
+        k += 2 if args[k] in ("-u", "--unset", "-C", "--chdir", "-S", "--split-string") else 1
+    return args[k:]
+
+
+def github_login_what(seg: list[str]) -> Optional[str]:
+    """The call when one simple command reads or drops the owner's stored GitHub login, or None."""
+    head = tool_name(seg[0])
+    args = drop_redirections(seg[1:])
+    if head == "gh" and "--help" not in args:
+        if _leading(args, ("auth", "token")):
+            return "`gh auth token`"
+        if _leading(args, ("auth", "status")) and _has("--show-token", "-t")(args):
+            return "`gh auth status --show-token`"
+    if head == "git":
+        sub, rest = _git_subcommand(seg)
+        if sub == "credential" and ("fill" in rest or "approve" in rest):
+            return "`git credential " + ("fill`" if "fill" in rest else "approve`")
+        if sub and sub.startswith("credential-") and "get" in rest:
+            return f"`git {sub} get`"
+    if head == "security":
+        if _leading(args, ("dump-keychain",)):
+            return "`security dump-keychain`"
+        for verb in ("find-generic-password", "find-internet-password"):
+            if _leading(args, (verb,)) and _short_has("wg")(args):
+                return f"`security {verb}` with the secret shown"
+    if head == "unset" and _GITHUB_TOKEN_VARS.intersection(args):
+        return "`unset GH_TOKEN` (the session's own login gone, gh falls back to the stored one)"
+    if head == "env":
+        for k, t in enumerate(args):
+            name = args[k + 1] if t in ("-u", "--unset") and k + 1 < len(args) else (
+                t.split("=", 1)[1] if t.startswith("--unset=") else t[2:] if t.startswith("-u") else "")
+            if name in _GITHUB_TOKEN_VARS:
+                return f"`env -u {name}` (gh and git fall back to the stored login)"
+        if any(t in ("-i", "--ignore-environment", "-") for t in args):
+            run = _env_runs(args)
+            names = [os.path.basename(run[0])] if run else []
+            if run and os.path.basename(run[0]) in _NC_SHELLS and "-c" in run[1:-1]:
+                names = [os.path.basename(s[0]) for s in segments(run[run.index("-c", 1) + 1])]
+            if any(n in ("gh", "git") for n in names):
+                return "`env -i` in front of gh or git (they fall back to the stored login)"
     return None
 
 
@@ -1708,28 +1774,38 @@ def rule_secret_shell(ev: Event, cfg: dict) -> Optional[Decision]:
         target = target.strip("\"'`,;)")
         if secret_class(_expand(target, ev.cwd)) == "secret":
             writes.append(target)
+    if _EMPTY_TOKEN_RE.search(command):
+        return "deny", GITHUB_LOGIN_MSG.format(rule="secret-shell", what="an empty GH_TOKEN (gh and git fall back to "
+                                                                       "the stored login)")
     quiet = _quiet_reports(ev.command)
     first_quiet = collections.Counter(quiet)
     for seg in segments(command):
+        what = github_login_what(seg)
+        if what:
+            return "deny", GITHUB_LOGIN_MSG.format(rule="secret-shell", what=what)
         if _take_quiet(first_quiet, seg):
             continue
         # 0.9.0 (K3): the first pass leaves a search tool's pattern out as the reader pass does
         _secret_reader_seg(seg, ev.cwd, writes, reads)
     if writes:
-        return _secret_verdict(writes, reads)
+        return _secret_verdict(writes, reads, ev.cwd)
     # the reader pass adds to the same lists, so one message names every file of both passes; the reader gets
     # the here-documents and reads a body only where a shell runs it (0.8.0)
     stored: list[Decision] = []
 
     reader_quiet = collections.Counter(quiet)
 
-    def judge(seg: list[str]) -> None:
+    def judge(seg: list[str]) -> Optional[Decision]:
+        what = github_login_what(seg)
+        if what:
+            return "deny", GITHUB_LOGIN_MSG.format(rule="secret-shell", what=what)
         if _take_quiet(reader_quiet, seg):
-            return
+            return None
         _secret_reader_seg(seg, ev.cwd, writes, reads)
         what = secret_store_what(seg)  # 0.9.0: a stored secret printed (decision af)
         if what:
             stored.append(("ask", SECRET_STORE_MSG.format(what=what)))
+        return None
 
     read: list[bool] = []
     failed = reader_pass(ev.command, judge, "secret-shell", read=read)
@@ -1737,7 +1813,9 @@ def rule_secret_shell(ev: Event, cfg: dict) -> Optional[Decision]:
     # unread pipe, a crash of the judge); a line the reader could not read leaves `read` empty
     if read:
         reads.extend(p for p in nested_inputs(ev.command) if secret_class(_expand(p, ev.cwd)) == "secret")
-    return combine([d for d in (_secret_verdict(writes, reads), failed, *stored) if d])
+    if failed and failed[0] == "deny":
+        return failed
+    return combine([d for d in (_secret_verdict(writes, reads, ev.cwd), failed, *stored) if d])
 
 
 # ----------------------------------------------------------------------------

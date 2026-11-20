@@ -2760,6 +2760,9 @@ def rule_fan_out(ev: Event, cfg: dict) -> Optional[Decision]:
 # ----------------------------------------------------------------------------
 
 _SETTINGS_RE = re.compile(r"^settings(\..+)?\.json$")
+# the files below tools/ that enforce a rule (0.10.0: the commit gate, the test guard, the tag scan, the tracker)
+_GUARDED_TOOLS = {"guard": "the guard itself", "testguard": "the test guard", "scan": "the tag scan",
+                  "tracker": "the tracker", "commit_msg.py": "the commit message gate"}
 GUARD_CONFIG_MSG = (
     "Guard-the-guard: {path} is {what}; it polices this very session, so a human confirms every change "
     "(and AGENTS.md rule 4 wants the why in DECISIONS.md)."
@@ -2791,8 +2794,10 @@ def _guard_config_as_written(path: str, home_claude: str) -> Optional[str]:
             return "the repo's hook configuration"
         if part == ".github" and nxt == "hooks":
             return "the repo's Copilot hook configuration"
-        if part == "tools" and nxt == "guard":
-            return "the guard itself"
+        if part == ".github" and nxt == "workflows" and not last:
+            return "a CI workflow"
+        if part == "tools" and nxt in _GUARDED_TOOLS and (nxt != "commit_msg.py" or last):
+            return _GUARDED_TOOLS[nxt]
     return None
 
 

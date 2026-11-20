@@ -465,9 +465,10 @@ def test_a_shell_write_names_the_path_the_class_and_the_command(guard, monkeypat
     ("TOOLS/Tracker/tracker.py", "the tracker"),
 ])
 def test_the_wider_paths_of_guard_config(guard, path, what):
-    """D7: the class names what the file enforces. The wording of the class is the rows' choice."""
+    """D7: the class names what the file enforces. The wording of the class is the rows' choice. Matched by path
+    parts, as tools/guard is: a `tools/scan` below `docs/` asks too (the row first said silent; D7 settles it)."""
     assert guard.guard_config_class(os.path.join("/r", path)) == what
-    for other in ("tools/commit_msg.py.bak", "docs/tools/scan/x.md", ".github/workflow/ci.yml", "tools/scanner/x"):
+    for other in ("tools/commit_msg.py.bak", "docs/scan/x.md", ".github/workflow/ci.yml", "tools/scanner/x"):
         assert guard.guard_config_class(os.path.join("/r", other)) is None, other
 
 

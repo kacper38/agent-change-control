@@ -5726,9 +5726,16 @@ Verdicts = list  # [(rule name, Optional[Decision])] in the order the rules ran
 _PIPE_DECODER = json.JSONDecoder()  # its own instance: the child's lines are ours, whatever replaces json.loads
 
 
+def _rule_verdict(name: str, ev: Event, cfg: dict) -> Optional[Decision]:
+    """One rule's decision; in the box profile (run_hook names it in cfg) after the box table, so the checks of
+    D6 and D7 run in the child, inside the budget."""
+    d = RULES[name](ev, cfg)
+    return box_turn(name, d, ev) if d and cfg.get("profile") == "box" else d
+
+
 def _rules_in_process(names: list, ev: Event, cfg: dict) -> Verdicts:
     """Run the rules in this process, without a budget: the path where there is no fork."""
-    return [(name, RULES[name](ev, cfg)) for name in names]
+    return [(name, _rule_verdict(name, ev, cfg)) for name in names]
 
 
 def _rules_child(names: list, ev: Event, cfg: dict, wfd: int) -> None:
@@ -5738,7 +5745,7 @@ def _rules_child(names: list, ev: Event, cfg: dict, wfd: int) -> None:
         with os.fdopen(wfd, "w", encoding="utf-8") as out:
             try:
                 for name in names:
-                    out.write(json.dumps({"rule": name, "decision": RULES[name](ev, cfg)}) + "\n")
+                    out.write(json.dumps({"rule": name, "decision": _rule_verdict(name, ev, cfg)}) + "\n")
                     out.flush()
                 out.write(json.dumps({"done": True}) + "\n")
             except Exception as exc:  # the parent raises it, so main prints the same `guard: error` as before
@@ -5869,13 +5876,14 @@ def run_post() -> int:
     call = _call_id(ev)
     if call is None:  # without the id the ask cannot be tied to this call; guessing would invent evidence
         return 0
-    cfg = load_config(str(raw.get("cwd") or os.getcwd()))
+    facts = box_facts()
+    cfg = load_config(str(raw.get("cwd") or os.getcwd()), facts)
     try:
         rules = _asked_rules(os.path.join(telemetry_dir(cfg), "decisions.jsonl"), ev.session, call)
     except OSError:  # no log yet, or not readable: nothing was asked that this hook could find
         return 0
     if rules:
-        log_decision(("ran", ""), rules, ev, cfg)
+        log_decision(("ran", ""), rules, ev, cfg, facts)
     return 0
 
 
@@ -5953,26 +5961,84 @@ def guard_root() -> str:
 
 # The profile names where the session runs (D1 of item #65); step 1.0b adds `box`. Each entry: whether rules_off
 # counts, and what an ask becomes (None: it stays an ask). Every ask of a rule or of the guard itself passes
-# through the table where rules_off is applied: the combined ask is turned, so a deny keeps its own reasons.
+# through the table where rules_off is applied: the combined ask is turned, so a deny keeps its own reasons. The
+# box turns each rule's ask on its own, by its entry in BOX_TABLE (item #66, D5).
 CLOUD_ASK_MSG = ("cloud session (CLAUDE_CODE_REMOTE): this would ask on the owner's machine, and nobody can answer "
                  "here, so it is denied. {reason}")
+BOX_ASK_MSG = "box session: no one answers an ask here, so it is denied. {reason}"
+# One entry per ask class: the rules and the guard's own asks. `log`: the call runs and a `logged` line records it;
+# `merge`: logged only as the merge of D7, else denied; `deny`. A class with no entry is a deny.
+BOX_TABLE = {
+    "delete-guard": "log",  # local deletes only (_box_local_delete); every other delete is a deny
+    "secret-write": "deny",
+    "secret-read": "deny",
+    "secret-shell": "deny",
+    "git-guard": "deny",
+    "deploy-ask": "deny",
+    "egress-guard": "deny",
+    "scratch-md": "log",
+    "protected-branch": "deny",
+    "fan-out": "log",
+    "guard-config": "log",
+    "tracker-guard": "merge",
+    "host-install": "deny",
+    "cloud-launch": "deny",
+    "github-tools": "deny",  # the harness's merge tool too: it carries no head hash this check reads
+    "unreadable-args": "deny",
+    "budget": "deny",
+}
 PROFILES = {
     "host": {"rules_off": True, "ask": None},
     "cloud": {"rules_off": False, "ask": CLOUD_ASK_MSG},
+    "box": {"rules_off": False, "ask": None, "table": BOX_TABLE},
 }
+# what the asks a rule gives when it could not read the call are built from (READER_MSG, the pipe, the reader's
+# stops, a crash): such an ask is no act the box table can log
+_READER_MARKS = (READER_MSG.split("{what}", 1)[1], _PIPE_NOT_READ, _TOO_MANY_TOOLS, _TOO_MANY_WORDS, _HI_NOT_READ,
+                 "could not be read (")
 
 
-def profile(environ: Optional[Mapping[str, str]] = None) -> str:
-    """`cloud` when CLAUDE_CODE_REMOTE is true (the truth test of disposable_environment), else `host`."""
+def _is_reader_reason(reason: str) -> bool:
+    return any(mark in reason for mark in _READER_MARKS)
+
+
+def box_turn(name: str, decision: Decision, ev: Event) -> Decision:
+    """A decision after the box table (D5): a deny stays as it is; an ask becomes ("logged", "") when its class
+    logs (and, for delete-guard, the delete is local) or it is the merge of D7, and a deny otherwise. An ask a
+    rule gives because it could not read the call is a deny whatever the class."""
+    verdict, reason = decision
+    if verdict != "ask":
+        return decision
+    entry = BOX_TABLE.get(name, "deny")
+    if not _is_reader_reason(reason):
+        if entry == "log" and (name != "delete-guard" or _box_local_delete(ev)):
+            return "logged", ""
+        if entry == "merge":
+            failed = _box_merge_failed(ev)
+            return ("logged", "") if failed is None else ("deny", BOX_MERGE_MSG.format(failed=failed, reason=reason))
+    return "deny", BOX_ASK_MSG.format(reason=reason)
+
+
+def profile(environ: Optional[Mapping[str, str]] = None, facts: Optional[dict] = None,
+            cfg: Optional[dict] = None) -> str:
+    """`cloud` when CLAUDE_CODE_REMOTE is true (the truth test of disposable_environment; it wins), else `box` when
+    box_valid holds for the facts (read when none are handed in) and the configuration (loaded from the cwd when
+    none is handed in), else `host`."""
     env = os.environ if environ is None else environ
-    return "cloud" if str(env.get("CLAUDE_CODE_REMOTE", "")).lower() not in ("", "0", "false") else "host"
+    if str(env.get("CLAUDE_CODE_REMOTE", "")).lower() not in ("", "0", "false"):
+        return "cloud"
+    facts = box_facts() if facts is None else facts
+    if in_box(facts) and box_valid(facts, load_config(os.getcwd(), facts) if cfg is None else cfg):
+        return "box"
+    return "host"
 
 
 def run_hook(target: str, wrapper: Optional[str]) -> int:
     if target == "post":  # never blocks, so it runs without the budget
         return run_post()
     raw = _read_event()
-    cfg = load_config(str(raw.get("cwd") or os.getcwd()))
+    facts = box_facts()  # once per hook call (D1)
+    cfg = load_config(str(raw.get("cwd") or os.getcwd()), facts)
     if target == "capture":  # never blocks, so it runs without the budget
         return capture(raw, cfg)
     ev = Event(raw)
@@ -5981,19 +6047,23 @@ def run_hook(target: str, wrapper: Optional[str]) -> int:
     if wrapper == "claude" and ev.harness == "copilot":
         return 0
     names = PRE_RULES if target == "pre" else [target]
-    table = PROFILES[profile()]
+    cfg["profile"] = profile(None, facts, cfg)  # set here, after the configuration: no guard.json can name it
+    table = PROFILES[cfg["profile"]]
+    box = "table" in table  # each ask is turned by the box table (D5): in the rules' child, and below for the guard's
     # rules_off silences a rule's asks in an own repo where the profile lets it; its denies stand, and any other
     # boundary keeps everything
     off = set(cfg["rules_off"]) if table["rules_off"] and cfg.get("boundary") == "own" else set()
-    if host_install_silent(cfg):  # its knob silences host-install under every boundary; logged as skipped below
-        off.add("host-install")
+    if host_install_silent(cfg) and not box:  # its knob silences host-install under every boundary but in a box;
+        off.add("host-install")  # logged as skipped below
     decisions: list[Decision] = []
     fired: dict[str, str] = {}
     skipped: dict[str, str] = {}
     if target == "pre" and ev.unreadable:
-        decisions.append(("ask", "guard: the tool arguments arrived as a string that is not JSON; no rule could read "
-                                 "this call. Confirm it, and capture the event shape for the fixtures."))
-        fired["unreadable-args"] = "ask"
+        d = ("ask", "guard: the tool arguments arrived as a string that is not JSON; no rule could read this call. "
+                    "Confirm it, and capture the event shape for the fixtures.")
+        d = box_turn("unreadable-args", d, ev) if box else d
+        decisions.append(d)
+        fired["unreadable-args"] = d[0]
     for name in names:
         if name not in RULES:
             raise ValueError(f"unknown rule: {name}")
@@ -6001,32 +6071,40 @@ def run_hook(target: str, wrapper: Optional[str]) -> int:
     for name, d in verdicts:
         if d and name in off and d[0] == "ask":  # the rule still runs, so the log shows how often it was silenced
             skipped[name] = "skipped"
+        elif d and d[0] == "logged":  # the box let it run: on the line, not in the answer
+            fired[name] = "logged"
         elif d:
             decisions.append(d)
             fired[name] = d[0]
     if outcome != "done":  # the verdicts that arrived stand; a deny among them still wins in combine()
         late = ", ".join(names[len(verdicts):])
         msg = BUDGET_MSG if outcome == "budget" else STOPPED_MSG
-        decisions.append(("ask", msg.format(budget=HOOK_BUDGET_S, size=len(ev.command or ""), rules=late)))
-        fired["budget"] = "ask"
+        d = ("ask", msg.format(budget=HOOK_BUDGET_S, size=len(ev.command or ""), rules=late))
+        d = box_turn("budget", d, ev) if box else d
+        decisions.append(d)
+        fired["budget"] = d[0]
     final = combine(decisions)
     if final and final[0] == "ask" and table["ask"]:  # the profile's table; a deny keeps its own reasons
         final = "deny", table["ask"].format(reason=final[1])
         fired = {name: "deny" if v == "ask" else v for name, v in fired.items()}
     if final:
-        log_decision(final, fired, ev, cfg)
+        log_decision(final, fired, ev, cfg, facts)
+    elif fired:  # only a box gets here: every rule that spoke was logged, and the guard stays silent
+        log_decision(("logged", ""), fired, ev, cfg, facts)
     if skipped:
-        log_decision(("skipped", "rules_off"), skipped, ev, cfg)
+        log_decision(("skipped", "rules_off"), skipped, ev, cfg, facts)
     return respond(final, ev.event or "PreToolUse")
 
 
-def log_decision(decision: Decision, fired: dict[str, str], ev: Event, cfg: dict) -> None:
+def log_decision(decision: Decision, fired: dict[str, str], ev: Event, cfg: dict,
+                 facts: Optional[dict] = None) -> None:
     """One line per ask/deny in <telemetry>/decisions.jsonl, so `ledger.py cost` can show prompt fatigue per rule.
     `rules` maps each rule that spoke to its own verdict; `verdict` is the combined one. A rule that would have
     spoken but is in `rules_off`, or host-install silenced by its knob (`off`, or `auto` in a disposable
     environment), is logged as `skipped` (its own line), so a month-long override stays visible.
     `guard` names the version that judged; `call` is the harness's tool_use_id when it sends one, and the post
     hook's `ran` line carries the same id, so an ask can be tied to the call that went ahead.
+    In a box (0.11.0) a call the table let run gets a `logged` line, its rules mapped to `logged`.
     No command text or paths: the rule names and the tool are enough to tune thresholds."""
     entry = {
         "ts": _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -6037,7 +6115,7 @@ def log_decision(decision: Decision, fired: dict[str, str], ev: Event, cfg: dict
         "harness": ev.harness,
         "session": ev.session,
         "guard": VERSION,
-        "profile": profile(),
+        "profile": profile(None, facts, cfg),
     }
     call = _call_id(ev)
     if call:

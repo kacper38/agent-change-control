@@ -54,6 +54,9 @@ CLAUDE_TOOLS = {
     "Grep": "search",
     "WebFetch": "web",
     "WebSearch": "web",
+    "Skill": "skill",
+    "Workflow": "workflow",
+    "RemoteTrigger": "cloud",
 }
 # The built-in tools of a Claude Code session and how the guard treats each: `judged` (a rule reads the call, so
 # the PreToolUse matcher must name it), `cloud-launch` (it can start cloud work, D3 of item #65) or `harmless`
@@ -3752,6 +3755,84 @@ def rule_host_install(ev: Event, cfg: dict) -> Optional[Decision]:
 
 
 # ----------------------------------------------------------------------------
+# cloud-launch: no session starts work in the cloud (item #65, plan rev 3 row 1.7)
+# ----------------------------------------------------------------------------
+
+CLOUD_LAUNCH_MSG = ("cloud-launch: {what} starts work in the cloud, outside the boundary this session runs in; a "
+                    "session never starts it (plan rev 3, row 1.7). The owner starts cloud work.")
+CLOUD_UNREAD_MSG = "cloud-launch: {what}; the guard could not read whether it starts cloud work. Confirm the call."
+_CLOUD_CLIS = frozenset({"claude"})
+_CLOUD_FLAGS = ("--cloud", "--remote")
+_REMOTE_ISOLATION_RE = re.compile(r"isolation\s*:\s*[\"'`]remote[\"'`]")
+
+
+def _cloud_seg(seg: list[str]) -> Optional[Decision]:
+    """The words from one command word: `claude` with --cloud/--remote, or an argument that runs /autofix-pr."""
+    if os.path.basename(seg[0]) not in _CLOUD_CLIS:
+        return None
+    for a in seg[1:]:
+        if a in _CLOUD_FLAGS or a.startswith(tuple(f + "=" for f in _CLOUD_FLAGS)):
+            return "deny", CLOUD_LAUNCH_MSG.format(what=f"`claude {a}`")
+        if a.lstrip(" \t\n'\"`").startswith("/autofix-pr"):
+            return "deny", CLOUD_LAUNCH_MSG.format(what="`claude /autofix-pr`")
+    return None
+
+
+def _workflow_script(ev: Event) -> tuple:
+    """(script text or None, what could not be read or None) of a Workflow call; a `name` is not resolved."""
+    if "script" in ev.args:
+        script = ev.args["script"]
+        return (script, None) if isinstance(script, str) else (None, "a Workflow script that is not text")
+    if "scriptPath" in ev.args:
+        path = ev.args["scriptPath"]
+        if not isinstance(path, str) or not path:
+            return None, "a Workflow scriptPath that is not a path"
+        try:
+            with open(os.path.join(ev.cwd, os.path.expanduser(path)), encoding="utf-8", errors="replace") as fh:
+                return fh.read(), None
+        except OSError as exc:
+            return None, f"the Workflow script {path} could not be read ({type(exc).__name__})"
+    if isinstance(ev.args.get("name"), str):
+        return None, None  # a named workflow: step 1.2 reads it (named limit)
+    return None, "a Workflow call with no script, scriptPath or name"
+
+
+def rule_cloud_launch(ev: Event, cfg: dict) -> Optional[Decision]:
+    if ev.event != "PreToolUse":
+        return None
+    if ev.kind == "shell":
+        if not ev.command:
+            return None
+        for seg in segments(strip_heredocs(ev.command)):  # first: also a line the reader cannot read
+            d = _cloud_seg(seg)
+            if d:
+                return d
+        return reader_pass(ev.command, _cloud_seg, "cloud-launch")
+    if ev.kind == "cloud":
+        return "deny", CLOUD_LAUNCH_MSG.format(what=f"`{ev.tool}`")
+    if ev.kind == "spawn" and "isolation" in ev.args:
+        iso = ev.args["isolation"]
+        if not isinstance(iso, str):
+            return "ask", CLOUD_UNREAD_MSG.format(what=f"`{ev.tool}` with an isolation that is not text")
+        return ("deny", CLOUD_LAUNCH_MSG.format(what=f"`{ev.tool}` with isolation remote")) if (
+            iso.lower() == "remote") else None
+    if ev.kind == "skill":
+        name = ev.args.get("skill")
+        if not isinstance(name, str) or not name:
+            return "ask", CLOUD_UNREAD_MSG.format(what="a Skill call without a skill name")
+        if name.rsplit(":", 1)[-1].lstrip("/").lower() == "schedule":
+            return "deny", CLOUD_LAUNCH_MSG.format(what="the `schedule` skill (cloud routines)")
+        return None
+    if ev.kind == "workflow":
+        script, unread = _workflow_script(ev)
+        if unread:
+            return "ask", CLOUD_UNREAD_MSG.format(what=unread)
+        if script and _REMOTE_ISOLATION_RE.search(script):
+            return "deny", CLOUD_LAUNCH_MSG.format(what="a Workflow whose agent asks for isolation remote")
+    return None
+
+
+# ----------------------------------------------------------------------------
 # Command reader for deploy-ask and delete-guard (0.6.1): every simple command the shell would run, nested
 # scripts included, as tokens, so a variable, wrapper, option or nesting in front of a verb no longer hides it.
 # Built on the host-install lexer; segments() stays as it is for the git, tracker, secret and egress rules.
@@ -4741,7 +4822,7 @@ _FOLD_NAMES = frozenset(
         _OTHER_LLM_CLIS, _HI_TABLE, _HI_PAIRS, _HI_PAIRS_ONLY, _HI_BARE, _HI_SELF_FETCH, _HI_SHELLS, _HI_DOWNLOADERS,
         _HI_WRAPPERS, _HI_REMOTE, _NC_SHELLS, _NC_WRAPPERS, _NC_SUB_WRAPPERS, _NC_OPTION_RUNNERS, _NC_SCRIPT_OPTIONS,
         _NC_FD, _NC_ELSEWHERE, _NC_SCRIPT_WORDS, _NC_STDIN_SHELLS, _NC_AFTER_OPTION, _GNU_G_NAMES, _SECRET_STORES,
-        _NAMES_IN_CODE,
+        _NAMES_IN_CODE, _CLOUD_CLIS,
     ) for k in table if k == k.lower()
 )
 _FOLD_RUN_RE = re.compile(r"[^\s;|&()<>`]+")  # a candidate: a run of characters between the shell's separators
@@ -4831,6 +4912,7 @@ RULES: dict[str, Rule] = {
     "guard-config": rule_guard_config,
     "tracker-guard": judged_twice("tracker-guard", rule_tracker_guard),
     "host-install": judged_twice("host-install", rule_host_install),
+    "cloud-launch": judged_twice("cloud-launch", rule_cloud_launch),
 }
 PRE_RULES = list(RULES)
 

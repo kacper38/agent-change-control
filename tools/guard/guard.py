@@ -2171,6 +2171,23 @@ def _git_local_remote(word: str) -> bool:
     return "/" in word
 
 
+def _git_remote_add_local(rest: list[str]) -> bool:
+    """`git remote add [-t <branch>] [-m <master>] [-f] … <name> <url>` with a url on this machine: anything but a
+    URL with `://` or an scp-like `host:path` (a bare word is a relative path to git here, not a remote name)."""
+    words, skip = [], False
+    for t in rest[rest.index("add") + 1:]:
+        if skip:
+            skip = False
+        elif t in ("-t", "--track", "-m", "--master"):
+            skip = True
+        elif not t.startswith("-"):
+            words.append(t)
+    if len(words) < 2:
+        return False
+    url = words[1]
+    return url.startswith("file:") or ("://" not in url and not re.match(r"^[^/]+:", url))
+
+
 def _git_ref_rewrite(sub: str, rest: list[str]) -> Optional[Decision]:
     """The git-guard verdict on a call that writes the remote-tracking refs (deny) or their source (ask)."""
     operands = [t for k, t in enumerate(rest) if not t.startswith("-") and not (k and rest[k - 1] == "-m")]
@@ -2198,7 +2215,7 @@ def _git_ref_rewrite(sub: str, rest: list[str]) -> Optional[Decision]:
         return "deny", REF_REWRITE_MSG.format(what="`git replace` (it swaps the objects every ref reads through)")
     if sub == "symbolic-ref" and remote and (len(operands) > 1 or "-d" in rest or "--delete" in rest):
         return "deny", REF_REWRITE_MSG.format(what="`git symbolic-ref`")
-    if sub == "remote" and operands[:1] == ["add"] and len(operands) >= 3 and _git_local_remote(operands[2]):
+    if sub == "remote" and operands[:1] == ["add"] and _git_remote_add_local(rest):
         return "ask", REF_SOURCE_MSG.format(what="`git remote add` of a repository on this machine")
     if sub == "remote" and operands[:1] in (["set-url"], ["rename"], ["remove"], ["rm"], ["set-branches"],
                                             ["set-head"]):

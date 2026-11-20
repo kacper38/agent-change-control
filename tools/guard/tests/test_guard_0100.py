@@ -212,6 +212,9 @@ G2 | feat/x | git-guard | ask | git fetch origin +refs/heads/*:refs/remotes/orig
 G2 | feat/x | git-guard | ask | git fetch . abc123:refs/remotes/origin/main
 G2 | feat/x | git-guard | ask | git remote add self .
 G2 | feat/x | git-guard | ask | git remote add self /tmp/other-repo
+G2 | feat/x | git-guard | ask | git remote add -t main self .
+G2 | feat/x | git-guard | ask | git remote add --master main -f self repo2
+G2 | feat/x | git-guard | ask | git remote add self file:///tmp/r
 G2 | feat/x | git-guard | ask | git remote set-branches origin main
 G2 | feat/x | git-guard | ask | git remote set-head origin -a
 G2 | feat/x | git-guard | ask | git config url.https://example.org/.insteadOf https://github.com/
@@ -239,6 +242,7 @@ Gs | feat/x | git-guard | silent | git push origin --delete feat/old
 Gs | feat/x | git-guard | silent | git push git@github.com:o/r.git feat/x
 Gs | feat/x | git-guard | silent | git push https://github.com/o/r.git feat/x
 Gs | feat/x | git-guard | silent | git remote add upstream https://github.com/o/r.git
+Gs | feat/x | git-guard | silent | git remote add -t main up git@github.com:o/r.git
 Gs | feat/x | git-guard | silent | git config --get url.x.insteadof
 Gl | feat/x | git-guard | silent | git fetch . abc123:refs/heads/other
 Gl | feat/x | git-guard | silent | echo abc123 > .git/refs/remotes/origin/main
@@ -875,3 +879,28 @@ def test_a_workflow_path_that_is_no_small_regular_file_asks(guard, monkeypatch, 
         path = str(big)
     _ev, got = _tool_answer(guard, monkeypatch, "Workflow", "cloud-launch", json.dumps({"scriptPath": path}))
     assert got is not None and got[0] == "ask", got
+
+
+def test_a_workflow_file_that_grows_after_fstat_asks(guard, monkeypatch, tmp_path):
+    """D3: the length read is checked too, so a file that grew past the cap after fstat asks."""
+    big = tmp_path / "grows.js"
+    big.write_text("x" * (guard.WORKFLOW_SCRIPT_MAX + 10))
+    real = os.fstat
+
+    def small(fd):
+        r = real(fd)
+        return os.stat_result((r.st_mode, r.st_ino, r.st_dev, r.st_nlink, r.st_uid, r.st_gid, 1, int(r.st_atime),
+                               int(r.st_mtime), int(r.st_ctime)))
+    monkeypatch.setattr(guard.os, "fstat", small)
+    _ev, got = _tool_answer(guard, monkeypatch, "Workflow", "cloud-launch", json.dumps({"scriptPath": str(big)}))
+    assert got is not None and got[0] == "ask" and "larger than" in got[1], got
+
+
+def test_the_workflow_file_is_opened_without_blocking_or_a_terminal(guard, monkeypatch, tmp_path):
+    script = tmp_path / "w.js"
+    script.write_text("await agent('go')\n")
+    flags = []
+    real = os.open
+    monkeypatch.setattr(guard.os, "open", lambda path, f, *a: flags.append(f) or real(path, f, *a))
+    _tool_answer(guard, monkeypatch, "Workflow", "cloud-launch", json.dumps({"scriptPath": str(script)}))
+    assert flags and flags[0] & os.O_NONBLOCK and flags[0] & os.O_NOCTTY

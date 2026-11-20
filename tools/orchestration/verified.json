@@ -6,7 +6,7 @@
   "models": [
     "claude-haiku-5-5"
   ],
-  "cost_usd": 0.0396,
+  "cost_usd": 0.0407,
   "canaries": {
     "workflow-by-name": {
       "status": "holds",
@@ -21,7 +21,7 @@
         "marker": true,
         "result_messages": 2
       },
-      "cost_usd": 0.0054
+      "cost_usd": 0.0048
     },
     "denial-exits-zero": {
       "status": "holds",
@@ -37,7 +37,7 @@
         ],
         "workflow_agents_started": 0
       },
-      "cost_usd": 0.0024
+      "cost_usd": 0.0025
     },
     "hook-blocks-workflow-agent": {
       "status": "holds",
@@ -53,7 +53,7 @@
         "spawned_from_parent": null,
         "denied_tools": []
       },
-      "cost_usd": 0.005
+      "cost_usd": 0.0059
     },
     "hook-blocks-nested-subagent": {
       "status": "holds",
@@ -69,7 +69,7 @@
         "spawned_from_parent": true,
         "denied_tools": []
       },
-      "cost_usd": 0.0051
+      "cost_usd": 0.005
     },
     "depth-pin": {
       "status": "holds",
@@ -84,7 +84,7 @@
         "control_env": "3",
         "pinned_env": "2"
       },
-      "cost_usd": 0.0082
+      "cost_usd": 0.0086
     },
     "spawn-log-workflow-agents": {
       "status": "holds",
@@ -99,7 +99,7 @@
         "same_session": true,
         "marker": true
       },
-      "cost_usd": 0.0046
+      "cost_usd": 0.0048
     },
     "workflow-background-off": {
       "status": "holds",
@@ -126,9 +126,9 @@
         "agent_transcripts": 1,
         "workflow_transcripts": 1,
         "parse_errors": 0,
-        "own_micro_usd": 5422,
-        "run_micro_usd": 5422,
-        "diff_bp": 1
+        "own_micro_usd": 4815,
+        "run_micro_usd": 4815,
+        "diff_bp": 0
       },
       "cost_usd": 0.0
     },
@@ -149,11 +149,11 @@
           "mcp__github__merge_pull_request"
         ]
       },
-      "cost_usd": 0.0022
+      "cost_usd": 0.0024
     },
     "tool-list": {
-      "status": "fails",
-      "reason": "the session's tools changed: added DesignSync, RemoteTrigger; removed none; decide for each how the guard treats it (KNOWN_CLAUDE_TOOLS)",
+      "status": "holds",
+      "reason": "",
       "expect": "the built-in tools of the session's init message are the names of KNOWN_CLAUDE_TOOLS in guard.py",
       "backs": "step 1.7 (#65), criterion 11",
       "observed": {
@@ -183,10 +183,7 @@
           "Workflow",
           "Write"
         ],
-        "added": [
-          "DesignSync",
-          "RemoteTrigger"
-        ],
+        "added": [],
         "removed": []
       },
       "cost_usd": 0.0014

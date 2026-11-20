@@ -7,7 +7,8 @@ The method is the vendor's dev-container firewall (iptables with an ipset, defau
 start), written anew for two reasons: the box allows only the model API and GitHub, where the vendor's list also
 allows npm, error reporting, feature flags and an editor marketplace; and a copy would bring the vendor's
 licence terms into this repository, which were not checked. Rules, in order: loopback; replies to connections
-already open; DNS to any address (a named skeleton gap: DNS stays open); TCP 443 to the allowed set; everything
+already open; port 53 to the nameservers of /etc/resolv.conf only (a named skeleton gap: names resolve freely,
+so a lookup can still carry data out through that resolver); TCP 443 to the allowed set; everything
 else is rejected, so a refused call fails at once instead of hanging. IPv6 is closed entirely when the kernel
 has it. After the rules are in, the script checks itself: a host off the list must be unreachable and the first
 host on the list reachable; any failure exits non-zero, and the entrypoint then starts no session.
@@ -67,7 +68,23 @@ def github_ranges(meta: dict) -> set:
     return out
 
 
-def rules(nets: list) -> list:
+def nameservers(text: str) -> list:
+    """The IPv4 nameservers of a resolv.conf, in order. Port 53 is open to these alone, so DNS is the only thing
+    that leaves on it; one on loopback (Docker's embedded resolver) is covered by the loopback rule."""
+    out = []
+    for line in text.splitlines():
+        parts = line.split()
+        if len(parts) >= 2 and parts[0] == "nameserver":
+            try:
+                addr = ipaddress.ip_address(parts[1])
+            except ValueError:
+                continue
+            if addr.version == 4 and str(addr) not in out:
+                out.append(str(addr))
+    return out
+
+
+def rules(nets: list, resolvers: list) -> list:
     """The commands that set the egress list, in order, as argv lists. Pure, so the tests read it."""
     cmds = [["ipset", "create", SET, "hash:net", "-exist"], ["ipset", "flush", SET]]
     cmds += [["ipset", "add", SET, net, "-exist"] for net in sorted(nets)]
@@ -78,8 +95,11 @@ def rules(nets: list) -> list:
         ["iptables", "-A", "OUTPUT", "-o", "lo", "-j", "ACCEPT"],
         ["iptables", "-A", "INPUT", "-m", "conntrack", "--ctstate", "ESTABLISHED,RELATED", "-j", "ACCEPT"],
         ["iptables", "-A", "OUTPUT", "-m", "conntrack", "--ctstate", "ESTABLISHED,RELATED", "-j", "ACCEPT"],
-        ["iptables", "-A", "OUTPUT", "-p", "udp", "--dport", "53", "-j", "ACCEPT"],
-        ["iptables", "-A", "OUTPUT", "-p", "tcp", "--dport", "53", "-j", "ACCEPT"],
+    ]
+    for ns in resolvers:
+        for proto in ("udp", "tcp"):
+            cmds.append(["iptables", "-A", "OUTPUT", "-p", proto, "-d", f"{ns}/32", "--dport", "53", "-j", "ACCEPT"])
+    cmds += [
         ["iptables", "-A", "OUTPUT", "-p", "tcp", "--dport", "443", "-m", "set", "--match-set", SET, "dst",
          "-j", "ACCEPT"],
         ["iptables", "-A", "OUTPUT", "-j", "REJECT", "--reject-with", "icmp-admin-prohibited"],
@@ -121,6 +141,7 @@ def run(cmd: list) -> None:
 def main(argv: list) -> int:
     ap = argparse.ArgumentParser(prog="firewall")
     ap.add_argument("--allowlist", default=os.path.join(HERE, "allowlist"))
+    ap.add_argument("--resolv-conf", default="/etc/resolv.conf")
     ns = ap.parse_args(argv)
     try:
         hosts = read_allowlist(ns.allowlist)
@@ -132,7 +153,11 @@ def main(argv: list) -> int:
             nets |= {f"{ip}/32" for ip in found}
         with urllib.request.urlopen(GITHUB_META, timeout=15) as resp:  # read before the list is closed
             nets |= github_ranges(json.load(resp))
-        for cmd in rules(sorted(nets)) + (ipv6_rules() if has_ipv6() else []):
+        with open(ns.resolv_conf, encoding="utf-8") as fh:
+            resolvers = nameservers(fh.read())
+        if not resolvers:
+            raise RuntimeError(f"{ns.resolv_conf} names no IPv4 nameserver")
+        for cmd in rules(sorted(nets), resolvers) + (ipv6_rules() if has_ipv6() else []):
             run(cmd)
         if reachable(*OFF_LIST_PROBE):
             raise RuntimeError(f"self-check: {OFF_LIST_PROBE[0]} is still reachable")

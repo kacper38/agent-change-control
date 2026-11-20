@@ -94,7 +94,7 @@ def inner_facts() -> dict:
             "cap_eff": proc_status("CapEff"), "no_new_privs": proc_status("NoNewPrivs"),
             "iptables_as_user_exit": ipt.returncode,
             "net": {"example.com": reachable("example.com"), "api.anthropic.com": reachable("api.anthropic.com"),
-                    "github.com": reachable("github.com")}}
+                    "github.com": reachable("github.com"), "1.1.1.1:53": reachable("1.1.1.1", 53)}}
 
 
 def inner_flag() -> dict:
@@ -377,6 +377,7 @@ def j_firewall(f: Facts, closed: Facts) -> tuple:
                 "iptables_as_user_exit": facts.get("iptables_as_user_exit"),
                 "without_net_admin": {"exit": closed.exit_code, "session_started": closed.facts is not None}}
     wrong = [w for w, bad in (("example.com is reachable", net.get("example.com") is not False),
+                              ("port 53 off the resolver is reachable", net.get("1.1.1.1:53") is not False),
                               ("api.anthropic.com is not reachable", net.get("api.anthropic.com") is not True),
                               ("github.com is not reachable", net.get("github.com") is not True),
                               ("the user keeps capabilities", facts.get("cap_eff") != "0000000000000000"),

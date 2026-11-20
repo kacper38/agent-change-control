@@ -62,8 +62,8 @@ def test_check_github_names_the_keychain_entry_on_refusal(box, code, fragment):
         raise urllib.error.HTTPError(req.full_url, code, "x", {}, io.BytesIO(b""))
 
     with pytest.raises(box.BoxError, match=fragment) as exc:
-        box.check_github("t", "o/r", opener=opener)
-    assert "agent-box-github" in str(exc.value) and "t" != str(exc.value)
+        box.check_github("ghp_distinctive_value_9f3a", "o/r", opener=opener)
+    assert "agent-box-github" in str(exc.value) and "ghp_distinctive_value_9f3a" not in str(exc.value)
 
 
 def test_check_github_fails_closed_offline(box):
@@ -156,7 +156,9 @@ def test_docker_argv_passes_tokens_by_name_and_pins_the_model(box, tmp_path):
     assert "-e BOX_SEAT=s1" in joined and "-e BOX_JUDGE=def" in joined and "-e CLAUDE_CONFIG_DIR=/box-home" in joined
     assert "docker.sock" not in joined and "--privileged" not in joined
     assert "dst=/judge,readonly" in joined
-    assert f"--model {box.MODEL} " in box.HEADLESS and "--dangerously-skip-permissions" in box.HEADLESS
+    h = box.HEADLESS
+    assert h[h.index("--model") + 1] == box.MODEL and "--dangerously-skip-permissions" in h
+    assert not [a for a in h if ">" in a or "<" in a], "no shell redirect: the host captures the output"
 
 
 def test_rules_off_names_only_rules_the_guard_has(box, box_dir):
@@ -184,3 +186,80 @@ def test_prepare_refuses_bad_names_before_reading_any_token(box, monkeypatch, na
     monkeypatch.setattr(box, "keychain", lambda s: pytest.fail("a token was read"))
     with pytest.raises(box.BoxError, match=fragment):
         box.prepare(name, seat)
+
+
+def gate_record(tmp_path, cli="2.1.323", status="holds"):
+    path = tmp_path / "verified.json"
+    path.write_text(json.dumps({"canaries": {}, "box": {"cli_version": cli, "questions": {
+        "hook-deny-checks-off": {"status": status}}}}), encoding="utf-8")
+    return str(path)
+
+
+def test_probe_gate_passes_only_on_a_hold_for_the_pinned_cli(box, tmp_path):
+    pins = {"CLAUDE_CODE": "2.1.323"}
+    box.probe_gate(pins, gate_record(tmp_path))
+    for cli, status in (("2.1.323", "not_run"), ("2.1.323", "fails"), ("2.1.323", "inconclusive"),
+                        ("2.1.300", "holds")):
+        with pytest.raises(box.BoxError, match="has not shown that a hook's deny holds"):
+            box.probe_gate(pins, gate_record(tmp_path, cli, status))
+    with pytest.raises(box.BoxError, match="no probe record"):
+        box.probe_gate(pins, str(tmp_path / "missing.json"))
+
+
+def test_the_committed_record_gates_today(box):
+    """Until the token questions have run, the committed record must stop every session."""
+    record = json.loads(open(box.VERIFIED, encoding="utf-8").read())["box"]["questions"][box.GATE]["status"]
+    if record != "holds":
+        with pytest.raises(box.BoxError):
+            box.probe_gate(box.read_pins())
+
+
+def test_prepare_checks_the_gate_before_any_token(box, monkeypatch):
+    monkeypatch.setattr(box, "keychain", lambda s: pytest.fail("a token was read"))
+    monkeypatch.setattr(box, "probe_gate", lambda pins: (_ for _ in ()).throw(box.BoxError("gate")))
+    with pytest.raises(box.BoxError, match="gate"):
+        box.prepare("b1", "b1")
+
+
+def test_parse_clone_facts(box):
+    sha = "a" * 40
+    facts = box.parse_clone_facts(0, f"{sha}\nfeat/x\n{{\"boundary\": \"own\"}}\n")
+    assert facts == {"head": sha, "branch": "feat/x", "boundary": "own"}
+    assert box.parse_clone_facts(0, f"{sha}\nmain\n")["boundary"] == ""
+    for code, out in ((1, f"{sha}\nmain\n"), (0, "not a sha\nmain\n"), (0, "")):
+        with pytest.raises(box.BoxError, match="cannot read the box's clone"):
+            box.parse_clone_facts(code, out)
+
+
+def test_clone_facts_never_runs_the_owners_git_in_the_clone(box, monkeypatch):
+    seen = []
+
+    def fake_run(argv, **kw):
+        seen.append(argv)
+        return subprocess.CompletedProcess(argv, 0, "a" * 40 + "\nmain\n{}\n", "")
+
+    monkeypatch.setattr(box.subprocess, "run", fake_run)
+    box.clone_facts("agent-box:abc", "/c")
+    (argv,) = seen
+    assert argv[:2] == ["docker", "run"] and "--network" in argv and argv[argv.index("--network") + 1] == "none"
+    assert "type=bind,src=/c,dst=/work,readonly" in argv
+
+
+def test_write_new_never_replaces_or_follows(box, tmp_path):
+    path = tmp_path / "result.json"
+    box.write_new(str(path), {"a": 1})
+    assert json.loads(path.read_text(encoding="utf-8")) == {"a": 1}
+    with pytest.raises(FileExistsError):
+        box.write_new(str(path), {"a": 2})
+    target = tmp_path / "elsewhere"
+    target.write_text("keep", encoding="utf-8")
+    link = tmp_path / "link.json"
+    link.symlink_to(target)
+    with pytest.raises(OSError):
+        box.write_new(str(link), {"a": 3})
+    assert target.read_text(encoding="utf-8") == "keep"
+
+
+def test_no_results_folder_reaches_the_container(box, tmp_path):
+    m = box.mounts(str(tmp_path), "b1", "/j", "/m.json")
+    assert not [dst for _, dst, _ in m if "result" in dst]

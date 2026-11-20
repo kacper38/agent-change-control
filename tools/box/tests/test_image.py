@@ -100,16 +100,24 @@ def test_github_ranges_keep_ipv4_of_web_api_git_only(firewall):
 
 
 def test_rules_allow_443_to_the_set_only_and_end_closed(firewall):
-    cmds = [" ".join(c) for c in firewall.rules(["1.2.3.4/32", "5.6.7.0/24"])]
+    cmds = [" ".join(c) for c in firewall.rules(["1.2.3.4/32", "5.6.7.0/24"], ["0.250.250.200"])]
     assert "ipset add box-allow 1.2.3.4/32 -exist" in cmds and "ipset add box-allow 5.6.7.0/24 -exist" in cmds
     allow = next(i for i, c in enumerate(cmds) if "--dport 443" in c)
     reject = next(i for i, c in enumerate(cmds) if "-j REJECT" in c)
     assert "--match-set box-allow dst" in cmds[allow] and allow < reject
     assert cmds[-3:] == ["iptables -P INPUT DROP", "iptables -P FORWARD DROP", "iptables -P OUTPUT DROP"]
     accepts = [c for c in cmds if c.startswith("iptables -A OUTPUT") and c.endswith("-j ACCEPT")]
-    # loopback, open connections, DNS twice, 443 to the set: nothing else leaves the box
-    assert len(accepts) == 5 and all(("-o lo" in c or "ESTABLISHED" in c or "--dport 53" in c
-                                      or "--match-set" in c) for c in accepts)
+    # loopback, open connections, DNS twice to the resolver, 443 to the set: nothing else leaves the box
+    assert len(accepts) == 5 and all(("-o lo" in c or "ESTABLISHED" in c or "--match-set" in c
+                                      or ("--dport 53" in c and "-d 0.250.250.200/32" in c)) for c in accepts)
+    assert not [c for c in cmds if "--dport 53" in c and " -d " not in c], "port 53 must name its address"
+
+
+def test_nameservers_keep_ipv4_in_order(firewall):
+    text = ("# comment\nnameserver 0.250.250.200\nnameserver ::1\nnameserver 10.0.0.2\nnameserver bad\n"
+            "nameserver 0.250.250.200\nsearch x\n")
+    assert firewall.nameservers(text) == ["0.250.250.200", "10.0.0.2"]
+    assert firewall.nameservers("search x\n") == []
 
 
 def test_ipv6_is_closed_entirely(firewall):

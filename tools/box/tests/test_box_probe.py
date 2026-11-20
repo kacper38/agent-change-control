@@ -9,7 +9,7 @@ USER_FACTS = {"uid": 1000, "euid": 1000, "dockerenv": True, "docker_sock": False
               "no_new_privs": "1", "iptables_as_user_exit": 4,
               "marker": {"exists": True, "uid": 0, "mode": "0o444", "writable": False, "dir_writable": False,
                          "schema": "agent-box/1"},
-              "net": {"example.com": False, "api.anthropic.com": True, "github.com": True}}
+              "net": {"example.com": False, "api.anthropic.com": True, "github.com": True, "1.1.1.1:53": False}}
 
 
 def facts(probe, value, exit_code=0, output=""):
@@ -45,6 +45,7 @@ def test_firewall_holds_on_the_recorded_box(probe):
     ({"cap_eff": "00000000a80425fb"}, "keeps capabilities"),
     ({"no_new_privs": "0"}, "no-new-privs"),
     ({"iptables_as_user_exit": 0}, "can read iptables"),
+    ({"net": {**USER_FACTS["net"], "1.1.1.1:53": True}}, "port 53 off the resolver"),
 ])
 def test_firewall_fails_on_each_gap(probe, change, fragment):
     status, reason, _ = probe.j_firewall(facts(probe, {**USER_FACTS, **change}), probe.Facts(*CLOSED))

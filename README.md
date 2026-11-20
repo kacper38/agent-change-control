@@ -314,13 +314,17 @@ variables (`KZ_TRACKER_REPO`, `KZ_TRACKER_AREA`, `KZ_TRACKER_ADO_MODE`,
   `ruff check tools` and both `pytest` runs inside it; `bin/box build` builds
   `agent-box:<git SHA>` from `tools/box/pins.env`.
 - Inside: the CLI with `--dangerously-skip-permissions` as uid 1000, no
-  capabilities, TCP 443 to the model API and GitHub only (DNS open), the
+  capabilities, TCP 443 to the model API and GitHub only, port 53 to the
+  container's resolver only, the
   model pinned to Opus. The hooks that run are those of `main` as fetched at
   the start, exported read-only to `~/.agent-box/judge/<SHA>/` and loaded as
   managed settings with `allowManagedHooksOnly`, so the work clone cannot
   change them. The guard still denies; until step 1.0b the wrapper sets
   `KZ_RULES_OFF` for `delete-guard`, `guard-config`, `scratch-md`, `fan-out`
   and `tracker-guard` (plan section 5, row 1).
+- No session starts until the probe's record shows that a hook's `deny`
+  holds with permission checks off for the pinned CLI (`run` reads
+  `verified.json`).
 - Before the first start the owner stores two tokens (plan section 7):
   `agent-box-claude` (from `claude setup-token`) and `agent-box-github` (a
   fine-grained token for this repository: Contents, Pull requests and Issues

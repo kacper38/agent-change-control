@@ -11,6 +11,7 @@ source is the host home, no SSH or gh credentials); the marker is root's. With -
 import argparse
 import os
 import re
+import socket
 import subprocess
 import sys
 
@@ -89,6 +90,13 @@ def checks(kit) -> list:
     curl = subprocess.run(["curl", "-sS", "-m", "5", "-o", "/dev/null", "https://example.com"],
                           capture_output=True, text=True)
     res.append((curl.returncode != 0, f"curl https://example.com fails (exit {curl.returncode})"))
+    try:
+        with socket.create_connection(("1.1.1.1", 53), timeout=5):
+            dns_out = True
+    except OSError:
+        dns_out = False
+    res.append((not dns_out, "port 53 off the resolver is closed (1.1.1.1)" if not dns_out
+                else "port 53 is open to 1.1.1.1: a channel out of the box"))
     sock = [p for p in ("/var/run/docker.sock", "/run/docker.sock") if os.path.exists(p)]
     res.append((not sock, "no Docker socket" if not sock else f"Docker socket at {sock[0]}"))
     host_home = os.environ.get("BOX_HOST_HOME", "")

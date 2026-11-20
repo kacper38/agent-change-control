@@ -156,20 +156,69 @@ def token_env(slug: str) -> dict:
 def committed_boundary(repo: str, rev: str = "HEAD") -> str:
     """boundary in .claude/guard.json as committed at rev; "" when the file or the key is missing."""
     r = subprocess.run(["git", "show", f"{rev}:.claude/guard.json"], cwd=repo, capture_output=True, text=True)
-    if r.returncode != 0:
-        return ""
+    return boundary_of(r.stdout) if r.returncode == 0 else ""
+
+
+CLONE_FACTS = ("git -C /work rev-parse HEAD && git -C /work rev-parse --abbrev-ref HEAD && "
+               "{ git -C /work show HEAD:.claude/guard.json 2>/dev/null || true; }")
+
+
+def parse_clone_facts(code: int, stdout: str, stderr: str = "") -> dict:
+    lines = stdout.splitlines()
+    if code != 0 or len(lines) < 2 or not re.fullmatch(r"[0-9a-f]{40}", lines[0].strip()):
+        raise BoxError(f"cannot read the box's clone (exit {code}: {stderr.strip()[:200]}); look at it, "
+                       f"nothing is deleted")
+    return {"head": lines[0].strip(), "branch": lines[1].strip(), "boundary": boundary_of("\n".join(lines[2:]))}
+
+
+def clone_facts(image: str, clone: str) -> dict:
+    """HEAD, branch and the committed boundary of the box's clone, read by git inside a throwaway container with
+    no network and the clone read-only: the session controls that clone, .git/config included, so the owner's
+    own git never runs in it."""
+    argv = ["docker", "run", "--rm", "--network", "none", "--user", "1000:1000", "--entrypoint", "sh",
+            "--security-opt", "no-new-privileges", "--mount", f"type=bind,src={clone},dst=/work,readonly",
+            image, "-c", CLONE_FACTS]
+    r = subprocess.run(argv, capture_output=True, text=True, stdin=subprocess.DEVNULL)
+    return parse_clone_facts(r.returncode, r.stdout, r.stderr)
+
+
+VERIFIED = os.path.join(os.path.dirname(HERE), "orchestration", "verified.json")
+GATE = "hook-deny-checks-off"
+
+
+def probe_gate(pins: dict, path: str = VERIFIED) -> None:
+    """No session with permission checks off before the probe has shown, for this CLI version, that a hook's deny
+    blocks the call (criterion 2 of #63)."""
     try:
-        data = json.loads(r.stdout)
+        with open(path, encoding="utf-8") as fh:
+            box = json.load(fh).get("box") or {}
+    except (OSError, ValueError, AttributeError) as exc:
+        raise BoxError(f"no probe record at {path}: {exc}") from exc
+    status = ((box.get("questions") or {}).get(GATE) or {}).get("status")
+    if box.get("cli_version") != pins.get("CLAUDE_CODE") or status != "holds":
+        raise BoxError(f"the probe has not shown that a hook's deny holds with permission checks off for CLI "
+                       f"{pins.get('CLAUDE_CODE')} (record: CLI {box.get('cli_version')}, {GATE} {status}); "
+                       f"run python3 tools/box/box_probe.py first")
+
+
+def boundary_of(text: str) -> str:
+    """boundary in the text of a guard.json; "" when unreadable or missing."""
+    try:
+        data = json.loads(text)
     except ValueError:
         return ""
     return str(data.get("boundary", "")) if isinstance(data, dict) else ""
 
 
-def require_own(repo: str, rev: str, what: str) -> None:
-    boundary = committed_boundary(repo, rev)
+def own_or_refuse(boundary: str, what: str) -> None:
     if boundary != "own":
         raise BoxError(f"{what}: the committed .claude/guard.json says boundary {boundary or 'nothing'}, not own; "
                        f"a box starts only for a boundary own repository")
+
+
+def require_own(repo: str, rev: str, what: str) -> None:
+    """For the owner's own checkout (main); the box's clone is read inside a container (clone_facts)."""
+    own_or_refuse(committed_boundary(repo, rev), what)
 
 
 def take_judge(root: str) -> tuple:
@@ -185,8 +234,14 @@ def take_judge(root: str) -> tuple:
         untar = subprocess.run(["tar", "-x", "-C", tmp], stdin=archive.stdout, capture_output=True, text=True)
         archive.stdout.close()
         if archive.wait() != 0 or untar.returncode != 0:
-            raise BoxError(f"cannot export main {sha[:12]} to {tmp}: {untar.stderr.strip()[:200]}")
-        os.rename(tmp, folder)
+            shutil.rmtree(tmp, ignore_errors=True)  # our own half-written export, never anything else
+            raise BoxError(f"cannot export main {sha[:12]}: {untar.stderr.strip()[:200]}")
+        try:
+            os.rename(tmp, folder)
+        except OSError:
+            shutil.rmtree(tmp, ignore_errors=True)
+            if not os.path.isdir(folder):  # another start exported the same SHA at the same time: take that one
+                raise BoxError(f"cannot move the export of main {sha[:12]} to {folder}") from None
     return sha, folder
 
 
@@ -214,7 +269,7 @@ def mounts(root: str, name: str, judge: str, managed: str) -> list:
 
 
 def docker_argv(image: str, name: str, seat: str, judge_sha: str, mount_list: list, command: list,
-                tty: bool = False, extra_mounts: tuple = ()) -> list:
+                tty: bool = False) -> list:
     argv = ["docker", "run", "--rm", "--init", "--name", f"agent-box-{name}", "--hostname", f"box-{name}",
             "--cap-add", "NET_ADMIN", "--cap-add", "NET_RAW", "--security-opt", "no-new-privileges"]
     argv += ["-it"] if tty else ["-i"]
@@ -225,7 +280,7 @@ def docker_argv(image: str, name: str, seat: str, judge_sha: str, mount_list: li
         argv += ["-e", f"{key}={value}"]
     for var in TOKEN_ENV.values():
         argv += ["-e", var]  # by name: the value comes from the docker process's environment
-    for src, dst, ro in list(mount_list) + list(extra_mounts):
+    for src, dst, ro in mount_list:
         argv += ["--mount", f"type=bind,src={src},dst={dst}{',readonly' if ro else ''}"]
     return argv + [image] + command
 
@@ -244,11 +299,12 @@ def check_mounts(mount_list: list) -> None:
 
 
 def prepare(name: str, seat: str) -> tuple:
-    """Folders, judge, managed settings, image and tokens for box name; (image, judge SHA, mounts, env)."""
+    """Gate, folders, judge, managed settings, image and tokens for box name; (image, judge SHA, mounts, env)."""
     if not NAME.fullmatch(name):
         raise BoxError(f"not a box name: {name!r} (lower-case letters, digits and dashes, at most 40)")
     if not NAME.fullmatch(seat):
         raise BoxError(f"not a seat: {seat!r}")
+    probe_gate(read_pins())
     root = box_root()
     slug = repo_slug(git("remote", "get-url", "origin"))
     env = dict(os.environ, **token_env(slug))
@@ -272,12 +328,20 @@ def prepare(name: str, seat: str) -> tuple:
                            env=env, stdin=subprocess.DEVNULL)
         if r.returncode != 0:
             raise BoxError(f"the clone inside the box failed (exit {r.returncode}); check the token in {GITHUB_TOKEN}")
-    require_own(clone, "HEAD", f"the clone of box {name}")
+    own_or_refuse(clone_facts(image, clone)["boundary"], f"the clone of box {name}")
     return image, judge_sha, mount_list, env
 
 
-HEADLESS = (f"claude -p --dangerously-skip-permissions --model {MODEL} --output-format json "
-            "< /brief/brief.md > /results/out.json 2> /results/stderr.txt")
+# The CLI's JSON goes to the container's stdout, which the host captures into a folder no container sees.
+HEADLESS = ["claude", "-p", "--dangerously-skip-permissions", "--model", MODEL, "--output-format", "json"]
+
+
+def write_new(path: str, data: dict) -> None:
+    """Create path with data; never follows a link and never replaces a file."""
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o644)
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        json.dump(data, fh, indent=2)
+        fh.write("\n")
 
 
 def run(name: str, seat: str, brief=None, out=None) -> int:
@@ -293,34 +357,37 @@ def run(name: str, seat: str, brief=None, out=None) -> int:
                            ["claude", "--dangerously-skip-permissions", "--model", MODEL], tty=True)
         return subprocess.run(argv, env=env).returncode
     started = _dt.datetime.now(_dt.timezone.utc)
-    stamp = started.strftime("%Y%m%dT%H%M%SZ")
-    results = os.path.join(box_root(), "boxes", name, "results", stamp)
+    results = os.path.join(box_root(), "boxes", name, "results", started.strftime("%Y%m%dT%H%M%SZ"))
     os.makedirs(results)
     with open(brief, "rb") as fh:
         brief_bytes = fh.read()
-    shutil.copyfile(brief, os.path.join(results, "brief.md"))
-    head_before = git("rev-parse", "HEAD", cwd=clone)
-    argv = docker_argv(image, name, seat, judge_sha, mount_list, ["sh", "-c", HEADLESS],
-                       extra_mounts=((os.path.join(results, "brief.md"), "/brief/brief.md", True),
-                                     (results, "/results", False)))
-    code = subprocess.run(argv, env=env, stdin=subprocess.DEVNULL).returncode
+    brief_copy = os.path.join(results, "brief.md")
+    with open(brief_copy, "wb") as fh:
+        fh.write(brief_bytes)
+    before = clone_facts(image, clone)
+    argv = docker_argv(image, name, seat, judge_sha, mount_list, HEADLESS)  # the brief goes in on stdin
+    with open(brief_copy, "rb") as stdin, open(os.path.join(results, "out.json"), "wb") as stdout, \
+            open(os.path.join(results, "stderr.txt"), "wb") as stderr:
+        code = subprocess.run(argv, env=env, stdin=stdin, stdout=stdout, stderr=stderr).returncode
     try:
         with open(os.path.join(results, "out.json"), encoding="utf-8") as fh:
-            cli = json.load(fh)
-    except (OSError, ValueError):
+            cli = json.loads(fh.read().strip().splitlines()[-1])
+    except (OSError, ValueError, IndexError):
         cli = None
+    try:
+        after = clone_facts(image, clone)
+    except BoxError as exc:
+        after = {"head": None, "branch": None, "error": str(exc)}
     record = {"schema": "agent-box-result/1", "name": name, "seat": seat, "image": image, "judge": judge_sha,
               "model": MODEL, "brief_sha256": hashlib.sha256(brief_bytes).hexdigest(),
               "started": started.strftime("%Y-%m-%dT%H:%M:%SZ"),
               "ended": _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), "exit": code,
-              "head_before": head_before, "head_after": git("rev-parse", "HEAD", cwd=clone),
-              "branch_after": git("rev-parse", "--abbrev-ref", "HEAD", cwd=clone),
+              "head_before": before["head"], "head_after": after.get("head"), "branch_after": after.get("branch"),
               "result": ({k: cli.get(k) for k in ("subtype", "is_error", "total_cost_usd", "num_turns", "session_id",
-                                                  "result")} if isinstance(cli, dict) else None)}
+                                                  "result")} if isinstance(cli, dict) else None),
+              "_about": "result comes from inside the box: the session's word, not evidence against it"}
     path = os.path.join(results, "result.json")
-    with open(path, "w", encoding="utf-8") as fh:
-        json.dump(record, fh, indent=2)
-        fh.write("\n")
+    write_new(path, record)
     out.write(f"box: result {path}\n")
     ok = code == 0 and isinstance(cli, dict) and not cli.get("is_error")
     return 0 if ok else 1

@@ -200,6 +200,7 @@ G2 | feat/x | git-guard | ask | git config --unset remote.origin.url
 G2 | feat/x | git-guard | ask | git config --remove-section remote.origin
 G2 | feat/x | git-guard | ask | git fetch origin main:refs/remotes/origin/main
 G2 | feat/x | git-guard | ask | git fetch origin +refs/heads/*:refs/remotes/origin/*
+G2 | feat/x | git-guard | ask | git fetch . abc123:refs/remotes/origin/main
 G2 | feat/x | git-guard | ask | git remote set-branches origin main
 G2 | feat/x | git-guard | ask | git remote set-head origin -a
 G2 | feat/x | git-guard | ask | git config url.https://example.org/.insteadOf https://github.com/
@@ -333,6 +334,11 @@ H5 | mcp__github__push_files | github-tools | deny | {"owner": "o", "repo": "r",
 H5 | mcp__github__delete_file | github-tools | ask | {"owner": "o", "repo": "r", "path": "src/a.py", "message": "m", "branch": "feat/x"}
 H5 | mcp__github__delete_file | github-tools | deny | {"owner": "o", "repo": "r", "path": "src/a.py", "message": "m", "branch": "main"}
 H5 | mcp__github__delete_file | github-tools | deny | {"owner": "o", "repo": "r", "path": ".env", "message": "m", "branch": "feat/x"}
+H5 | mcp__github__create_or_update_file | github-tools | deny | {"owner": "o", "repo": "r", "path": "src/a.py", "content": "x", "message": "m", "branch": "refs/heads/main"}
+H5 | mcp__github__create_or_update_file | github-tools | deny | {"owner": "o", "repo": "r", "path": "src/a.py", "content": "x", "message": "m", "branch": "MAIN"}
+H5 | mcp__github__push_files | github-tools | deny | {"owner": "o", "repo": "r", "branch": "Refs/heads/main", "files": [{"path": "src/a.py", "content": "x"}], "message": "m"}
+H5 | mcp__github__delete_file | github-tools | deny | {"owner": "o", "repo": "r", "path": "src/a.py", "message": "m"}
+H5 | mcp__github__create_or_update_file | github-tools | silent | {"owner": "o", "repo": "r", "path": "src/a.py", "content": "x", "message": "m", "branch": "refs/heads/feat/main"}
 H6 | mcp__github__fork_repository | github-tools | ask | {"owner": "o", "repo": "r"}
 H6 | mcp__github__create_repository | github-tools | ask | {"name": "x"}
 H6 | mcp__github__run_workflow | github-tools | ask | {"owner": "o", "repo": "r", "workflow_id": "ci.yml", "ref": "main"}
@@ -463,7 +469,11 @@ def test_a_workflow_file_is_read(guard, monkeypatch, tmp_path):
 def test_a_secret_path_through_get_file_contents_gets_secret_reads_answer(guard, monkeypatch):
     _ev, got = _tool_answer(guard, monkeypatch, "mcp__github__get_file_contents", "github-tools",
                             json.dumps({"path": "~/.git-credentials"}))
-    assert got is not None and got[0] == "deny" and "stored GitHub credentials" in got[1], got
+    assert got is not None and got[0] == "deny" and "stored GitHub login" in got[1], got
+
+
+CREDENTIAL_TAIL = ("reads stored credentials (a keychain item, a credential helper or the owner's stored GitHub "
+                   "login); a session never does (plan rev 3, D6).")
 
 
 @pytest.mark.parametrize("path", ["~/.config/gh/hosts.yml", "~/.git-credentials", "/Users/dev/.config/GH/Hosts.YML"])
@@ -473,7 +483,7 @@ def test_the_read_tool_on_the_stored_login_is_denied(guard, path):
                       "cwd": "/nonexistent-scratch"})
     got = guard.RULES["secret-read"](ev, dict(guard.DEFAULTS))
     assert got is not None and got[0] == "deny"
-    assert "reads the owner's stored GitHub credentials; a session never does (plan rev 3, D6)." in got[1]
+    assert CREDENTIAL_TAIL in got[1]
 
 
 def test_the_credential_message(guard, monkeypatch):
@@ -481,7 +491,7 @@ def test_the_credential_message(guard, monkeypatch):
                       "cwd": "/nonexistent-scratch"})
     got = guard.RULES["secret-shell"](ev, dict(guard.DEFAULTS))
     assert got[0] == "deny" and got[1].startswith("secret-shell: ")
-    assert got[1].endswith("reads the owner's stored GitHub credentials; a session never does (plan rev 3, D6).")
+    assert got[1].endswith(CREDENTIAL_TAIL)
 
 
 def test_a_shell_write_names_the_path_the_class_and_the_command(guard, monkeypatch):
@@ -804,8 +814,8 @@ def _guard_matchers(settings, event, target):
 
 
 def test_the_matchers_name_the_new_tools():
-    """D4: the pre matcher and the two post matchers of the guard name Skill, Workflow, RemoteTrigger and the
-    GitHub tools (the last part only if the probe of D11 shows the hook is called for them)."""
+    """D4: the pre matcher and the two post matchers of the guard name the new tools and the GitHub tools (the
+    probe of D11, `e1ebdb6`, shows the hook is called for an `mcp__github__` tool)."""
     s = _settings()
     for event, target in (("PreToolUse", "pre"), ("PostToolUse", "post"), ("PostToolUseFailure", "post")):
         (matcher,) = _guard_matchers(s, event, target)
@@ -816,3 +826,38 @@ def test_the_matchers_name_the_new_tools():
 
 def test_the_version_is_0_10_0(guard):
     assert guard.VERSION == "0.10.0"
+
+
+def test_the_copilot_hook_reaches_every_tool():
+    """D4: Copilot's PreToolUse entry has no matcher, so every tool, a `github-mcp-server-` one included, reaches
+    `guard.py hook pre --wrapper github`."""
+    with open(os.path.join(REPO, ".github", "hooks", "guard.json"), encoding="utf-8") as fh:
+        hooks = json.load(fh)["hooks"]["PreToolUse"]
+    (entry,) = [h for h in hooks if "guard.py hook pre --wrapper github" in h["command"]]
+    assert "matcher" not in entry
+
+
+def test_a_local_file_cannot_loosen_the_boundary(guard, tmp_path, monkeypatch):
+    """D2: guard.local.json carries rules_off only; its boundary own leaves a committed client in force."""
+    monkeypatch.delenv("KZ_BOUNDARY", raising=False)
+    cwd = _policy(tmp_path, {"boundary": "client"}, {"boundary": "own", "rules_off": ["delete-guard"]})
+    cfg = guard.load_config(cwd)
+    assert cfg["boundary"] == "client" and cfg["rules_off"] == []
+
+
+@pytest.mark.parametrize("kind", ["directory", "device", "fifo", "large"])
+def test_a_workflow_path_that_is_no_small_regular_file_asks(guard, monkeypatch, tmp_path, kind):
+    """D3: a scriptPath that is a directory, a device, a FIFO or larger than the cap asks and never stalls."""
+    if kind == "directory":
+        path = str(tmp_path)
+    elif kind == "device":
+        path = "/dev/zero"
+    elif kind == "fifo":
+        path = str(tmp_path / "pipe")
+        os.mkfifo(path)
+    else:
+        big = tmp_path / "big.js"
+        big.write_text("x" * (guard.WORKFLOW_SCRIPT_MAX + 1))
+        path = str(big)
+    _ev, got = _tool_answer(guard, monkeypatch, "Workflow", "cloud-launch", json.dumps({"scriptPath": path}))
+    assert got is not None and got[0] == "ask", got

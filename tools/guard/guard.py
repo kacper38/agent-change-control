@@ -1325,7 +1325,8 @@ def secret_store_what(seg: list[str]) -> Optional[str]:
 
 
 # 0.10.0 (item #65, D8): the owner's stored GitHub login is read by no session; these deny (some asked at 0.9.0)
-GITHUB_LOGIN_MSG = "{rule}: {what} reads the owner's stored GitHub credentials; a session never does (plan rev 3, D6)."
+GITHUB_LOGIN_MSG = ("{rule}: {what} reads stored credentials (a keychain item, a credential helper or the owner's "
+                    "stored GitHub login); a session never does (plan rev 3, D6).")
 _GITHUB_LOGIN_SUFFIXES = ("/.config/gh/hosts.yml", "/.git-credentials")
 _GITHUB_TOKEN_VARS = frozenset({"GH_TOKEN", "GITHUB_TOKEN"})
 _EMPTY_TOKEN_RE = re.compile(
@@ -4064,6 +4065,9 @@ def _cloud_seg(seg: list[str]) -> Optional[Decision]:
     return None
 
 
+WORKFLOW_SCRIPT_MAX = 1_000_000
+
+
 def _workflow_script(ev: Event) -> tuple:
     """(script text or None, what could not be read or None) of a Workflow call; a `name` is not resolved."""
     if "script" in ev.args:
@@ -4073,8 +4077,13 @@ def _workflow_script(ev: Event) -> tuple:
         path = ev.args["scriptPath"]
         if not isinstance(path, str) or not path:
             return None, "a Workflow scriptPath that is not a path"
-        try:
-            with open(os.path.join(ev.cwd, os.path.expanduser(path)), encoding="utf-8", errors="replace") as fh:
+        full = os.path.join(ev.cwd, os.path.expanduser(path))
+        try:  # a directory, a device, a FIFO or a huge file would raise or stall the hook: each asks
+            if not os.path.isfile(full):
+                return None, f"the Workflow script {path} is not a regular file"
+            if os.path.getsize(full) > WORKFLOW_SCRIPT_MAX:
+                return None, f"the Workflow script {path} is larger than {WORKFLOW_SCRIPT_MAX} bytes"
+            with open(full, encoding="utf-8", errors="replace") as fh:
                 return fh.read(), None
         except OSError as exc:
             return None, f"the Workflow script {path} could not be read ({type(exc).__name__})"
@@ -4215,8 +4224,13 @@ def _github_twins(op: str, args: dict, cfg: dict) -> Optional[list]:
         twins = [(f"a `Write` of {p}", "Write", {"file_path": p, "content": ""}, _GITHUB_PATH_RULES) for p in paths]
         if op == "delete_file":
             twins.append(_shell_twin(f"git rm {shlex.quote(paths[0])}", "delete-guard"))
-        if branch is None or branch in protected_branches(cfg):
-            twins.append(_shell_twin(f"git push origin HEAD:{branch or 'main'}", "git-guard"))
+        protected = sorted(protected_branches(cfg))
+        name = branch[len("refs/heads/"):] if branch and branch.lower().startswith("refs/heads/") else branch
+        # no branch: the API writes the default branch; a spelling of a protected name in another case counts
+        hit = next((b for b in protected if name is None or b.lower() == name.lower()), None)
+        if hit is not None:
+            twins.append(_shell_twin(f"git push origin HEAD:{'main' if name is None and 'main' in protected else hit}",
+                                     "git-guard"))
         return twins
     return None
 

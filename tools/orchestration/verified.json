@@ -134,5 +134,157 @@
       },
       "cost_usd": 0.0
     }
+  },
+  "box": {
+    "schema": "box-probe/1",
+    "date": "2026-11-20",
+    "cli_version": "2.1.323",
+    "runtime": "Docker Engine - Community 29.8.2 linux/arm64 (context orbstack)",
+    "image": "agent-box:f0eea0832a2d91ecca5093ff4f56961bfff0f705",
+    "model": "haiku",
+    "cost_usd": 0.0036,
+    "questions": {
+      "permission-flag-non-root": {
+        "status": "holds",
+        "reason": "",
+        "expect": "--dangerously-skip-permissions is accepted for the box's user (uid 1000) and refused for root",
+        "observed": {
+          "user": {
+            "uid": 1000,
+            "exit": 1,
+            "said": "Not logged in \u00b7 Please run /login"
+          },
+          "root": {
+            "exit": 1,
+            "said": "--dangerously-skip-permissions cannot be used with root/sudo privileges for security reasons"
+          }
+        }
+      },
+      "dockerenv": {
+        "status": "holds",
+        "reason": "",
+        "expect": "/.dockerenv exists in a box under this container runtime",
+        "observed": {
+          "dockerenv": true
+        }
+      },
+      "marker": {
+        "status": "holds",
+        "reason": "",
+        "expect": "the entrypoint writes /etc/agent-box/box.json owned by root, not writable by the session's user, and the session runs as that user",
+        "observed": {
+          "marker": {
+            "dir_writable": false,
+            "exists": true,
+            "mode": "0o444",
+            "schema": "agent-box/1",
+            "uid": 0,
+            "writable": false
+          },
+          "uid": 1000
+        }
+      },
+      "firewall": {
+        "status": "holds",
+        "reason": "",
+        "expect": "the entrypoint's firewall leaves the model API and GitHub reachable and example.com not, the user has no capabilities, and a box without NET_ADMIN starts no session",
+        "observed": {
+          "net": {
+            "1.1.1.1:53": false,
+            "api.anthropic.com": true,
+            "example.com": false,
+            "github.com": true
+          },
+          "cap_eff": "0000000000000000",
+          "no_new_privs": "1",
+          "iptables_as_user_exit": 4,
+          "without_net_admin": {
+            "exit": 70,
+            "session_started": false
+          }
+        }
+      },
+      "headless-token": {
+        "status": "holds",
+        "reason": "",
+        "expect": "a headless run as the box's user works with the token variable and permission checks off",
+        "observed": {
+          "exit": 0,
+          "result": {
+            "is_error": false,
+            "num_turns": 4,
+            "subtype": "success",
+            "total_cost_usd": 0.00243151
+          },
+          "permission_mode": "bypassPermissions",
+          "uid": 1000
+        }
+      },
+      "hook-deny-checks-off": {
+        "status": "holds",
+        "reason": "",
+        "expect": "a PreToolUse hook's deny blocks the call with permission checks off",
+        "observed": {
+          "markers": [
+            "allowed.marker"
+          ],
+          "deny_rows": 1,
+          "allowed_ran": true
+        }
+      },
+      "hook-ask-checks-off": {
+        "status": "holds",
+        "reason": "",
+        "expect": "a PreToolUse hook's ask does not let the call run unanswered with permission checks off",
+        "observed": {
+          "ask_rows": 1,
+          "asked_command_ran": false
+        }
+      },
+      "managed-hooks": {
+        "status": "holds",
+        "reason": "",
+        "expect": "a hook from /etc/claude-code/managed-settings.json fires, and with allowManagedHooksOnly a project hook does not",
+        "observed": {
+          "managed_rows": 1,
+          "project_rows": 0,
+          "markers": [
+            "ran.marker"
+          ]
+        }
+      },
+      "cli-hosts": {
+        "status": "holds",
+        "reason": "",
+        "expect": "every host the CLI asks for in a headless run is on tools/box/allowlist",
+        "observed": {
+          "hosts": [
+            {
+              "host": "api.anthropic.com",
+              "connected": true
+            }
+          ],
+          "outside_allowlist": []
+        }
+      },
+      "connectors": {
+        "status": "holds",
+        "reason": "",
+        "expect": "no account connector (claude.ai MCP server) loads in the box with the token",
+        "observed": {
+          "mcp_servers": [],
+          "mcp_tools": 0
+        }
+      },
+      "config-dir": {
+        "status": "holds",
+        "reason": "",
+        "expect": "transcripts go under CLAUDE_CONFIG_DIR and none under the user's home",
+        "observed": {
+          "in_config_dir": 1,
+          "in_home": 0
+        }
+      }
+    }
   }
 }

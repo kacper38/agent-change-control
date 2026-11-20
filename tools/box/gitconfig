@@ -1,0 +1,13 @@
+# /etc/gitconfig of the box (plan step 1.0a, decision 9). Box commits are unsigned and carry an author that is
+# nobody's account (the .invalid domain cannot be registered), so no commit of a session shows under the owner's
+# name or a stranger's. GitHub over HTTPS takes the box token through gh; there is no other credential inside.
+[user]
+	name = agent-box
+	email = agent-box@box.invalid
+[commit]
+	gpgsign = false
+[credential "https://github.com"]
+	helper =
+	helper = !/usr/local/bin/gh auth git-credential
+[safe]
+	directory = /work

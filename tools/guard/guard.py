@@ -5625,6 +5625,78 @@ def run_post() -> int:
     return 0
 
 
+# ----------------------------------------------------------------------------
+# The box (item #66, plan step 1.0b): the facts the profile `box` reads, gathered by one function
+# ----------------------------------------------------------------------------
+
+BOX_MARKER = "/etc/agent-box/box.json"  # written by root at the box's start (tools/box/marker.py)
+DOCKERENV = "/.dockerenv"
+BOX_SCHEMA = "agent-box/1"
+_MARKER_MAX = 64 * 1024  # a marker is a few hundred bytes; a larger file is no marker
+# the facts of a machine with no marker; box_facts answers these when anything goes wrong
+_NO_MARKER_FACTS = {"dockerenv": False, "marker_exists": False, "marker": None, "marker_uid": None,
+                    "marker_writable": False, "marker_dir_writable": False, "guard_writable": True, "euid": None}
+
+
+def box_facts() -> dict:
+    """Everything the profile `box` reads (D1), and the only code that touches the marker and /.dockerenv.
+    `marker` is the parsed JSON object, or None when the marker is missing, unreadable, no JSON object, too large
+    or a symlink. Callers call it through the module global, once per hook call, and pass the dict on. Any error
+    gives the facts of a machine with no marker."""
+    try:
+        me = os.path.realpath(__file__)
+        exists = os.path.lexists(BOX_MARKER)
+        st = os.lstat(BOX_MARKER) if exists else None
+        marker = None
+        if st is not None and stat.S_ISREG(st.st_mode):
+            try:
+                fd = os.open(BOX_MARKER, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0))
+                try:
+                    data = os.read(fd, _MARKER_MAX + 1)
+                finally:
+                    os.close(fd)
+                parsed = json.loads(data.decode("utf-8")) if len(data) <= _MARKER_MAX else None
+                marker = parsed if isinstance(parsed, dict) else None
+            except (OSError, ValueError, RecursionError):  # unreadable or no JSON (a decode error is a ValueError)
+                marker = None
+        return {
+            "dockerenv": os.path.exists(DOCKERENV),
+            "marker_exists": exists,
+            "marker": marker,
+            "marker_uid": st.st_uid if st is not None else None,
+            "marker_writable": os.access(BOX_MARKER, os.W_OK),
+            "marker_dir_writable": os.access(os.path.dirname(BOX_MARKER), os.W_OK),
+            "guard_writable": os.access(me, os.W_OK) or os.access(os.path.dirname(me), os.W_OK),
+            "euid": os.geteuid(),
+        }
+    except Exception:  # a guard that cannot read its facts runs as on a machine with no marker
+        return dict(_NO_MARKER_FACTS)
+
+
+def in_box(facts: dict) -> bool:
+    """A marker exists, /.dockerenv too, and this guard is a copy the session cannot write (the judge). The last
+    fact is no security check (D2): it tells the judge, a read-only mount and the only copy the box's hooks run,
+    from a working copy, whose tests answer as in CI. A missing fact counts against the box."""
+    return bool(facts.get("dockerenv") and facts.get("marker_exists") and not facts.get("guard_writable", True))
+
+
+def box_valid(facts: dict, cfg: dict) -> bool:
+    """in_box, and the marker is root's, neither it nor its folder is writable by this process, the guard does not
+    run as root, the marker says schema agent-box/1 and boundary own, and the effective boundary is own (D2)."""
+    marker = facts.get("marker")
+    euid = facts.get("euid")
+    return (in_box(facts) and facts.get("marker_uid") == 0 and facts.get("marker_writable") is False
+            and facts.get("marker_dir_writable") is False and isinstance(euid, int) and euid != 0
+            and isinstance(marker, dict) and marker.get("schema") == BOX_SCHEMA and marker.get("boundary") == "own"
+            and cfg.get("boundary") == "own")
+
+
+def guard_root() -> str:
+    """The folder of this guard's repository: three folders above its real path (`/judge` for
+    `/judge/tools/guard/guard.py`). In a box the configuration is read there (D3)."""
+    return os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
+
+
 # The profile names where the session runs (D1 of item #65); step 1.0b adds `box`. Each entry: whether rules_off
 # counts, and what an ask becomes (None: it stays an ask). Every ask of a rule or of the guard itself passes
 # through the table where rules_off is applied: the combined ask is turned, so a deny keeps its own reasons.

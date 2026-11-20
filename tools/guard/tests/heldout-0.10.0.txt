@@ -1,0 +1,63 @@
+# Held-out rows for guard 0.10.0 (tracker item #65), written by the host session before the build.
+# The box session that builds 0.10.0 does not see this file; only its sha256 is committed before the code.
+# Format: id | env | expect | tool | input
+#   env: comma-separated; "-" = none. cloud = CLAUDE_CODE_REMOTE=true; file=client = the repo's committed
+#        guard.json says boundary client (default: boundary own); KZ_BOUNDARY=<v>; rules_off=<rule> = KZ_RULES_OFF.
+#   expect: the combined answer of `guard.py hook pre --wrapper claude`: silent | ask | deny.
+#   input: for Bash the command text; for any other tool its tool_input as JSON.
+#   The repo is a scratch git repository on branch feat/x; protected branch main.
+H01 | - | deny | Bash | claude --remote "fix the flaky test"
+H02 | - | deny | Bash | timeout 600 claude -p --cloud "refactor the parser"
+H03 | - | deny | Bash | bash -c 'claude --cloud=default "x"'
+H04 | - | deny | Bash | claude -p "/autofix-pr 12"
+H05 | - | silent | Bash | claude -p "summarise the remote branches"
+H06 | - | silent | Bash | claude remote-control
+H07 | - | silent | Bash | grep -rn -- --cloud docs/
+H08 | - | deny | Agent | {"description": "x", "prompt": "y", "subagent_type": "general-purpose", "isolation": "Remote"}
+H09 | - | silent | Agent | {"description": "x", "prompt": "y", "isolation": "worktree"}
+H10 | - | deny | Skill | {"skill": "schedule", "args": "daily at 9"}
+H11 | - | silent | Skill | {"skill": "loop", "args": "5m /verify"}
+H12 | - | ask | mcp__github__merge_pull_request | {"owner": "o", "repo": "r", "pullNumber": 7, "merge_method": "squash"}
+H13 | cloud | deny | mcp__github__merge_pull_request | {"owner": "o", "repo": "r", "pullNumber": 7}
+H14 | - | deny | mcp__github__issue_write | {"method": "update", "owner": "o", "repo": "r", "issue_number": 65, "labels": ["status/done"]}
+H15 | - | silent | mcp__github__create_pull_request | {"owner": "o", "repo": "r", "title": "t", "head": "feat/x", "base": "main", "body": "b"}
+H16 | - | silent | mcp__github__pull_request_read | {"method": "get", "owner": "o", "repo": "r", "pullNumber": 7}
+H17 | - | deny | mcp__github__create_or_update_file | {"owner": "o", "repo": "r", "path": "docs/x.md", "content": "x", "message": "m"}
+H18 | - | ask | mcp__github__create_or_update_file | {"owner": "o", "repo": "r", "path": "tools/tracker/tracker.py", "content": "x", "message": "m", "branch": "feat/x"}
+H19 | - | ask | mcp__github__fork_repository | {"owner": "o", "repo": "r"}
+H20 | cloud | deny | mcp__github__fork_repository | {"owner": "o", "repo": "r"}
+H21 | - | ask | mcp__github__pull_request_review_write | {"method": "create", "owner": "o", "repo": "r", "pullNumber": 7, "event": "APPROVE"}
+H22 | - | silent | mcp__github__pull_request_review_write | {"method": "create", "owner": "o", "repo": "r", "pullNumber": 7, "event": "COMMENT", "body": "nit"}
+H23 | - | ask | Bash | printf '%s\n' x >> .github/workflows/ci.yml
+H24 | - | ask | Bash | cp /tmp/guard.py tools/guard/guard.py
+H25 | - | silent | Bash | cp tools/guard/guard.py /tmp/guard-old.py
+H26 | - | ask | Bash | python3 -c "open('tools/scan/latest_tag.py','w').write('')"
+H27 | - | silent | Bash | python3 tools/guard/guard.py hook pre --wrapper claude < event.json
+H28 | - | ask | Write | {"file_path": "tools/commit_msg.py", "content": "x = 1\n"}
+H29 | - | silent | Bash | sed -n 1,40p tools/testguard/testguard.py
+H30 | - | deny | Bash | gh auth token | pbcopy
+H31 | - | silent | Bash | gh auth status
+H32 | - | deny | Bash | env -u GH_TOKEN gh pr list
+H33 | - | deny | Bash | security find-internet-password -s github.com -w
+H34 | - | deny | Bash | git update-ref -d refs/remotes/origin/main
+H35 | - | silent | Bash | git fetch origin main
+H36 | - | ask | Bash | git remote set-url origin git@example.com:o/r.git
+H37 | cloud | deny | Bash | rm -rf build
+H38 | cloud,rules_off=delete-guard | deny | Bash | rm -rf build
+H39 | rules_off=delete-guard | silent | Bash | rm -rf build
+H40 | file=client,KZ_BOUNDARY=own | ask | Bash | gemini -p hi
+H41 | KZ_BOUNDARY=Client | ask | Bash | gemini -p hi
+H42 | - | silent | Bash | gemini -p hi
+H43 | cloud | deny | Bash | gh pr merge 7 --squash
+H44 | - | ask | Bash | gh pr review 7 --approve
+H45 | - | deny | Workflow | {"script": "export const meta = {name: 'x', description: 'y'}\nawait agent('go', {isolation: 'remote'})"}
+H46 | - | deny | RemoteTrigger | {"action": "list"}
+H47 | - | ask | Bash | git restore --source origin/main -- .claude/settings.json
+H48 | - | deny | mcp__github__push_files | {"owner": "o", "repo": "r", "branch": "feat/x", "files": [{"path": ".env", "content": "A=1"}], "message": "m"}
+H49 | - | ask | mcp__github__merge_pull_request | {"owner": "o", "repo": "r", "pullNumber": {"n": 7}}
+H50 | - | silent | Bash | git replace --list
+H51 | - | deny | Bash | git replace HEAD~1 HEAD
+H52 | - | silent | Bash | git remote -v
+H53 | cloud | silent | Bash | git status
+H54 | - | ask | Bash | tee -a tools/tracker/tracker.py < patch.txt
+H55 | - | silent | Bash | ruff check tools/scan tools/testguard

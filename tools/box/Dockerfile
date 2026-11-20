@@ -54,15 +54,17 @@ COPY --from=tools /opt/python /opt/python
 COPY --from=tools /opt/venv /opt/venv
 COPY --from=tools /usr/local/bin/gh /usr/local/bin/gh
 COPY --from=tools /usr/local/lib/node_modules/@anthropic-ai /usr/local/lib/node_modules/@anthropic-ai
+# Shims, not symlinks: a venv's python found through a symlink elsewhere does not see its pyvenv.cfg.
 RUN ln -s ../lib/node_modules/@anthropic-ai/claude-code/bin/claude.exe /usr/local/bin/claude \
- && ln -s /opt/venv/py313/bin/python /usr/local/bin/python3 \
- && ln -s /opt/venv/py313/bin/python /usr/local/bin/python3.13 \
- && ln -s /opt/venv/py39/bin/python /usr/local/bin/python3.9 \
+ && for pair in python3:py313 python3.13:py313 python3.9:py39; do \
+      printf '#!/bin/sh\nexec /opt/venv/%s/bin/python "$@"\n' "${pair#*:}" > "/usr/local/bin/${pair%%:*}" \
+      && chmod 0755 "/usr/local/bin/${pair%%:*}"; done \
  && ln -s /opt/venv/py313/bin/ruff /usr/local/bin/ruff \
  && install -d -m 0755 -o root -g root /etc/agent-box /etc/claude-code /usr/local/share/agent-box
 COPY --chown=root:root --chmod=0755 entrypoint.sh /usr/local/sbin/box-entrypoint
-COPY --chown=root:root --chmod=0644 firewall.py marker.py allowlist /usr/local/share/agent-box/
+COPY --chown=root:root --chmod=0644 firewall.py marker.py doctor.py allowlist pins.env /usr/local/share/agent-box/
 COPY --chown=root:root --chmod=0644 managed-settings.json /etc/claude-code/managed-settings.json
+COPY --chown=root:root --chmod=0644 gitconfig /etc/gitconfig
 # The CLI must stay at its pin and send no traffic beyond the model API: no updater, no telemetry.
 ENV DISABLE_AUTOUPDATER=1 \
     CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 \

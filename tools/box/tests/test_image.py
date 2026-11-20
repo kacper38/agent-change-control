@@ -151,3 +151,20 @@ def test_marker_main_refuses_without_root(marker, tmp_path, monkeypatch):
     path = tmp_path / "box.json"
     assert marker.main(["--path", str(path)]) == 1
     assert not path.exists()
+
+
+# --- doctor ---
+
+def test_doctor_wants_the_pinned_versions(box, box_dir):
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("box_doctor", box_dir / "doctor.py")
+    doctor = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(doctor)
+    pins = doctor.read_pins(str(box_dir / "pins.env"))
+    assert pins == box.read_pins()
+    wanted = doctor.wanted_versions(pins)
+    assert set(wanted) == set(doctor.VERSION_ARGV)
+    assert wanted["git"] == "2.47.3" and wanted["claude"] == pins["CLAUDE_CODE"]
+    assert doctor.first_version("gh version 2.92.0 (2026-04-28)") == "2.92.0"
+    assert doctor.first_version("v24.22.3") == "24.22.3"
+    assert doctor.first_version("No module named pytest").startswith("<none")

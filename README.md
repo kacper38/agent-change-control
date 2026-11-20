@@ -134,8 +134,9 @@ On the laptop, before a tool call runs:
   asks before secret files are read, anything deploys or a command installs
   packages or runs a downloaded script on the host; denies force-push and
   protected-branch commits, `gh issue …`, `gh label …`, `az boards work-item`
-  writes, `az devops invoke`, any `bypassRules` and raw API writes; counts
-  subagent spawns. Every rule ships with allow, ask, deny and crash fixtures
+  writes, `az devops invoke`, any `bypassRules` and raw API writes, every
+  cloud launch and a read of the stored GitHub login; gives the harness's
+  GitHub tools the verdict of their shell twin; counts subagent spawns. Every rule ships with allow, ask, deny and crash fixtures
   from both harnesses.
 - `.githooks/commit-msg`: `type(scope): imperative subject`, no closing keywords.
 - `tools/egress/egress_screen.py --target <name> [--pass] [files]`: the last
@@ -206,8 +207,8 @@ variables (`KZ_TRACKER_REPO`, `KZ_TRACKER_AREA`, `KZ_TRACKER_ADO_MODE`,
   it silences is logged as `skipped`. A
   gitignored `.claude/guard.local.json` or `KZ_RULES_OFF=rule,rule` silences
   the named rules' asks, logged as `skipped`; denies stand, and only a
-  committed `guard.json` at the repo root that says `boundary: own` enables
-  it. Gitignore the local file in a task repo yourself; the installer never
+  committed `guard.json` at the repo root that says `boundary: own`, with no
+  tighter `KZ_BOUNDARY`, enables it; a cloud session ignores it. Gitignore the local file in a task repo yourself; the installer never
   edits `.gitignore`.
 - Every shell rule judges a command twice: by its first pass, as before, and
   by reading every simple command the shell would run, nested scripts included
@@ -225,6 +226,33 @@ variables (`KZ_TRACKER_REPO`, `KZ_TRACKER_AREA`, `KZ_TRACKER_ADO_MODE`,
   that is the agreed route for installs. The guard reads text and prompts; it
   is no sandbox, and `DECISIONS.md` (2026-11-16, 2026-11-17, 2026-11-18 and
   2026-11-19) lists the forms it does not see.
+- Since guard 0.10.0 (item #65) the boundary only tightens: `KZ_BOUNDARY=client`
+  sets client, `KZ_BOUNDARY=own` leaves a committed `client` in force, and any
+  other value, committed or in the variable (`Client`, `OWN`), counts as
+  `client`. One function names the profile: `cloud` when
+  `CLAUDE_CODE_REMOTE` is set, else `host`. In a cloud session every ask is a
+  deny (nobody can answer it there), `rules_off` from every source is
+  ignored, and a merge is denied; every line of `decisions.jsonl` names its
+  profile. `cloud-launch` denies every way a session starts cloud work:
+  `claude --cloud|--remote`, `/autofix-pr`, an `Agent` or `Task` with
+  `isolation: remote`, the `schedule` skill, a `Workflow` whose script asks
+  for `isolation: 'remote'`, and every `RemoteTrigger` call; `DesignSync`
+  asks. `github-tools` gives the harness's GitHub tools (`mcp__github__…`) the
+  verdict of the same act in a shell or a file tool: reads, a branch, a pull
+  request and its text stay silent, a merge or an approval asks, issue and
+  label writes are denied as `gh issue …` is, a file write is judged by the
+  path rules and as a push; an op with no known twin asks. `guard-config`
+  also covers `.github/workflows/`, `tools/testguard/`, `tools/scan/`,
+  `tools/tracker/` and `tools/commit_msg.py`, and asks on shell writes to its
+  paths (`>`, `tee`, `cp`, `sed -i`, `git checkout -- <path>`, inline
+  `python -c` code that writes one). `secret-shell` denies a read of the
+  owner's stored GitHub login (`gh auth token`, `git credential fill`, a
+  keychain read, `~/.config/gh/hosts.yml`, a command that drops `GH_TOKEN`).
+  `git-guard` denies rewriting `refs/remotes/` (`git update-ref`,
+  `git replace`, `git symbolic-ref`) and asks before a remote's URL or fetch
+  refspec changes; `tracker-guard` asks before `gh pr review --approve`.
+  `Monitor` is judged as `Bash`, and `ExitWorktree` with `action: remove`
+  asks as a delete.
 - Since guard 0.9.0 the tables reach the tools, verbs and secret stores they
   did not name, and eleven kinds of false asks are gone. `deploy-ask` asks
   when a cloud CLI runs a command on a live host or container

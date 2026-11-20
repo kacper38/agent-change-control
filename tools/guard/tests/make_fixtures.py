@@ -130,7 +130,9 @@ CASES: dict = {
         ("ask", "read", {"path": "~/.ssh/id_ed25519"}),
         ("ask", "read", {"path": "~/.kube/config"}),
         ("ask", "read", {"path": "infra/terraform.tfstate"}),
-        ("ask", "read", {"path": "~/.config/gh/hosts.yml"}),
+        # guard 0.10.0 (D8): the owner's stored GitHub login is read by no session
+        ("deny", "read", {"path": "~/.config/gh/hosts.yml"}),
+        ("deny", "read", {"path": "~/.git-credentials"}),
         ("allow", "read", {"path": ".env.example"}),
         ("allow", "read", {"path": "~/.ssh/id_ed25519.pub"}),
         ("allow", "read", {"path": "README.md"}),
@@ -168,6 +170,10 @@ CASES: dict = {
         # guard 0.7.0, review fixes: a search pattern is no path; the file of -f is read
         *shell("ask", "bash -c 'grep -f .env notes.txt'"),
         *shell("allow", "grep -rn '\\.env|\\.pem' tools"),
+        # guard 0.10.0 (D8): the owner's stored GitHub credentials, and dropping GH_TOKEN so gh falls back to them
+        *shell("deny", "gh auth token", "git credential fill", "security find-internet-password -s github.com -w",
+               "cat ~/.git-credentials", "env -u GH_TOKEN gh pr list", "GH_TOKEN= gh api user"),
+        *shell("allow", "gh auth status", "git config --get credential.helper", "security list-keychains"),
     ],
     "git-guard": [
         *shell(
@@ -197,6 +203,11 @@ CASES: dict = {
         *shell("allow", "docker exec dev git push origin feat/x"),
         # guard 0.8.0: a tool's name in capitals runs the real tool on a file system that ignores case
         *shell("deny", "GIT commit --no-verify -m x"),
+        # guard 0.10.0 (D9): the refs the guard reads to judge a push
+        *shell("deny", "git update-ref refs/remotes/origin/main abc123", "git replace abc123 def456"),
+        *shell("ask", "git remote set-url origin https://example.org/x.git",
+               "git fetch origin main:refs/remotes/origin/main"),
+        *shell("allow", "git fetch origin main", "git remote -v", "git replace -l"),
     ],
     "deploy-ask": [
         *shell(
@@ -347,8 +358,17 @@ CASES: dict = {
         ("allow", "edit", {"path": "README.md"}),
         ("allow", "write", {"path": ".claude/agents/x.md", "content": "x"}),
         ("allow", "write", {"path": ".claude/skills/x/SKILL.md", "content": "x"}),
-        ("allow", "edit", {"path": ".github/workflows/ci.yml"}),
-        ("allow", "edit", {"path": "tools/tracker/cli.py"}),
+        # guard 0.10.0 (D7): the CI workflows, the test guard, the tag scan, the commit gate and the tracker
+        ("ask", "edit", {"path": ".github/workflows/ci.yml"}),
+        ("ask", "edit", {"path": "tools/tracker/cli.py"}),
+        ("ask", "edit", {"path": "tools/testguard/testguard.py"}),
+        ("ask", "write", {"path": "tools/scan/latest_tag.py", "content": "x"}),
+        ("ask", "edit", {"path": "tools/commit_msg.py"}),
+        # guard 0.10.0 (D7): shell writes to the same paths ask; reads stay silent
+        *shell("ask", "sed -i s/a/b/ tools/guard/guard.py", "echo x > .github/workflows/ci.yml",
+               "tee -a .claude/settings.json < x", "cp /tmp/x tools/commit_msg.py"),
+        *shell("allow", "cat tools/guard/guard.py", "git diff -- tools/guard/guard.py", "pytest tools/guard",
+               "cp tools/guard/guard.py /tmp/guard.py"),
         ("allow", "edit", {"path": "~/.claude/agents/x.md"}),
         ("allow", "edit", {"path": "~/.claude/CLAUDE.md"}),
         ("allow", "edit", {"path": "docs/settings.json"}),
@@ -423,6 +443,9 @@ CASES: dict = {
         # guard 0.9.0: a GraphQL mutation of an issue is the REST write's twin (rows L1)
         *shell("deny",
                "gh api graphql -f query='mutation { closeIssue(input: {issueId: \"I_1\"}) { clientMutationId } }'"),
+        # guard 0.10.0 (D6): an approval counts as a person's
+        *shell("ask", "gh pr review 3 --approve"),
+        *shell("allow", "gh pr review 3 --comment -b x"),
     ],
     # the rule asks whatever the mode; run_hook silences it (off, auto in a container or CI): test_host_install.py
     "host-install": [
@@ -529,16 +552,77 @@ CASES: dict = {
         *shell("ask", "direnv exec . npm install", "mise exec node@20 -- npm install"),
         *shell("allow", "devcontainer exec npm install", "docker exec web bash <<< 'npm install'"),
     ],
+    # guard 0.10.0 (D3): every way a session starts cloud work, as shell form and as tool call
+    "cloud-launch": [
+        *shell("deny", "claude --cloud \"fix the flaky test\"", "claude --remote \"fix it\"",
+               "claude -p \"/autofix-pr 12\"", "bash -c 'claude --cloud x'",
+               "claude --cloud 'x"),  # an unbalanced quote: the reader reads it as the shell would start to
+        *shell("allow", "claude --version", "claude -p \"explain the remote setup\"", "claude remote-control",
+               "echo claude --cloud", "git remote -v"),
+        ("deny", "call", {"claude": "Agent", "copilot": "task",
+                          "input": {"description": "d", "prompt": "p", "isolation": "remote"}}),
+        ("deny", "call", {"claude": "Skill", "input": {"skill": "schedule", "args": "daily"}}),
+        ("deny", "call", {"claude": "Workflow",
+                          "input": {"script": "await agent('go', { isolation: 'remote' })"}}),
+        ("deny", "call", {"claude": "RemoteTrigger", "input": {"action": "list"}}),
+        ("ask", "call", {"claude": "Agent", "copilot": "task",
+                         "input": {"description": "d", "prompt": "p", "isolation": 1}}),
+        ("ask", "call", {"claude": "Skill", "input": {"skill": 5}}),
+        ("ask", "call", {"claude": "Workflow", "input": {"scriptPath": "/nonexistent-scratch/x.js"}}),
+        ("allow", "call", {"claude": "Agent", "copilot": "task", "input": {"description": "d", "prompt": "p"}}),
+        ("allow", "call", {"claude": "Agent", "input": {"description": "d", "prompt": "p", "isolation": "worktree"}}),
+        ("allow", "call", {"claude": "Skill", "input": {"skill": "loop", "args": "5m /verify"}}),
+        ("allow", "call", {"claude": "Workflow", "input": {"name": "review-panel"}}),
+        ("allow", "call", {"claude": "CronCreate", "input": {"cron": "7 * * * *", "prompt": "x"}}),
+    ],
+    # guard 0.10.0 (D5): a GitHub tool of the harness gets the verdict of the same act in a shell or a file tool
+    "github-tools": [
+        ("allow", "call", {"claude": "mcp__github__get_me", "copilot": "github-mcp-server-get_me", "input": {}}),
+        ("allow", "call", {"claude": "mcp__github__list_issues", "copilot": "github-mcp-server-list_issues",
+                           "input": {"owner": "o", "repo": "r"}}),
+        ("allow", "call", {"claude": "mcp__github__create_pull_request",
+                           "copilot": "github-mcp-server-create_pull_request",
+                           "input": {"owner": "o", "repo": "r", "title": "x", "head": "feat/x", "base": "main"}}),
+        ("allow", "call", {"claude": "mcp__github__get_file_contents",
+                           "copilot": "github-mcp-server-get_file_contents",
+                           "input": {"owner": "o", "repo": "r", "path": "README.md"}}),
+        ("ask", "call", {"claude": "mcp__github__merge_pull_request",
+                         "copilot": "github-mcp-server-merge_pull_request",
+                         "input": {"owner": "o", "repo": "r", "pullNumber": 3}}),
+        ("ask", "call", {"claude": "mcp__github__pull_request_review_write",
+                         "copilot": "github-mcp-server-pull_request_review_write",
+                         "input": {"method": "create", "owner": "o", "repo": "r", "pullNumber": 3,
+                                   "event": "APPROVE"}}),
+        ("ask", "call", {"claude": "mcp__github__fork_repository", "copilot": "github-mcp-server-fork_repository",
+                         "input": {"owner": "o", "repo": "r"}}),
+        ("ask", "call", {"claude": "mcp__github__create_or_update_file",
+                         "copilot": "github-mcp-server-create_or_update_file",
+                         "input": {"owner": "o", "repo": "r", "path": "tools/guard/guard.py", "content": "x",
+                                   "message": "m", "branch": "feat/x"}}),
+        ("deny", "call", {"claude": "mcp__github__issue_write", "copilot": "github-mcp-server-issue_write",
+                          "input": {"method": "update", "owner": "o", "repo": "r", "issue_number": 3,
+                                    "state": "closed"}}),
+        ("deny", "call", {"claude": "mcp__github__add_issue_comment", "copilot": "github-mcp-server-add_issue_comment",
+                          "input": {"owner": "o", "repo": "r", "issue_number": 3, "body": "x"}}),
+        ("deny", "call", {"claude": "mcp__github__create_or_update_file",
+                          "copilot": "github-mcp-server-create_or_update_file",
+                          "input": {"owner": "o", "repo": "r", "path": "src/a.py", "content": "x", "message": "m"}}),
+        ("deny", "call", {"claude": "mcp__github__push_files", "copilot": "github-mcp-server-push_files",
+                          "input": {"owner": "o", "repo": "r", "branch": "main", "message": "m",
+                                    "files": [{"path": "src/a.py", "content": "x"}]}}),
+        ("deny", "call", {"claude": "mcp__github__delete_file", "copilot": "github-mcp-server-delete_file",
+                          "input": {"owner": "o", "repo": "r", "path": ".env", "message": "m", "branch": "feat/x"}}),
+    ],
 }
 
 ENVELOPES = {
     "claude": {
         "shell": "PreToolUse-Bash", "read": "PreToolUse-Read", "write": "PreToolUse-Write", "edit": "PreToolUse-Edit",
-        "spawn": "PreToolUse-Agent",
+        "spawn": "PreToolUse-Agent", "call": "PreToolUse-Agent",
     },
     "copilot": {
         "shell": "PreToolUse-bash", "read": "PreToolUse-view", "write": "PreToolUse-create", "edit": "PreToolUse-edit",
-        "spawn": "PreToolUse-task",
+        "spawn": "PreToolUse-task", "call": "PreToolUse-task",
     },
 }
 
@@ -546,6 +630,8 @@ ENVELOPES = {
 def tool_input(harness: str, kind: str, payload: dict) -> dict:
     if kind == "shell":
         return {"command": payload["command"]}
+    if kind == "call":  # guard 0.10.0: any tool by name; the envelope's tool_name is replaced in generate()
+        return json.loads(json.dumps(payload["input"]))
     if kind == "spawn":
         ti = {"description": "d", "prompt": "p"}
         if harness == "claude":
@@ -571,6 +657,10 @@ def tool_input(harness: str, kind: str, payload: dict) -> dict:
 
 def slug(payload: dict) -> str:
     text = payload.get("command") or payload.get("path") or payload.get("agent") or ""
+    if "input" in payload:  # a tool call: its name and the first values of its input
+        values = [v for v in payload["input"].values() if isinstance(v, (str, int))][:2]
+        text = " ".join([str(payload.get("claude") or payload.get("copilot")).replace("mcp__github__", "")]
+                        + [str(v) for v in values])
     return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")[:40]
 
 
@@ -585,9 +675,13 @@ def generate(out: pathlib.Path) -> dict:
             counters: dict = {}
             for case in cases:
                 decision, kind, payload = case[0], case[1], case[2]
+                if kind == "call" and harness not in payload:  # a tool the other harness does not have
+                    continue
                 config = case[3] if len(case) > 3 else None
                 env = json.loads(json.dumps(envelopes[harness][kind]))
                 env["tool_input"] = tool_input(harness, kind, payload)
+                if kind == "call":
+                    env["tool_name"] = payload[harness]
                 shape = ENVELOPES[harness][kind]
                 env["_fixture"] = {**env.get("_fixture", {}), "rule": rule, "case": payload,
                                    "source": f"synthesized by make_fixtures.py from _shapes/{harness}/{shape}.json "

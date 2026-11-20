@@ -3,7 +3,7 @@
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Bash|Write|Edit|MultiEdit|NotebookEdit|Read|Agent|Task",
+        "matcher": "Bash|Write|Edit|MultiEdit|NotebookEdit|Read|Agent|Task|Monitor|ExitWorktree|Skill|Workflow|RemoteTrigger|DesignSync|mcp__github__.*",
         "hooks": [
           {
             "type": "command",
@@ -44,7 +44,7 @@
         ]
       },
       {
-        "matcher": "Bash|Write|Edit|MultiEdit|NotebookEdit|Read|Agent|Task",
+        "matcher": "Bash|Write|Edit|MultiEdit|NotebookEdit|Read|Agent|Task|Monitor|ExitWorktree|Skill|Workflow|RemoteTrigger|DesignSync|mcp__github__.*",
         "hooks": [
           {
             "type": "command",
@@ -57,7 +57,7 @@
     ],
     "PostToolUseFailure": [
       {
-        "matcher": "Bash|Write|Edit|MultiEdit|NotebookEdit|Read|Agent|Task",
+        "matcher": "Bash|Write|Edit|MultiEdit|NotebookEdit|Read|Agent|Task|Monitor|ExitWorktree|Skill|Workflow|RemoteTrigger|DesignSync|mcp__github__.*",
         "hooks": [
           {
             "type": "command",

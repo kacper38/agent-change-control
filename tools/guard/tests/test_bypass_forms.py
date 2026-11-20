@@ -755,9 +755,9 @@ F1 | Read | secret-read | ask | /Users/dev/.aws/Credentials
 Ft | Read | secret-read | ask | /Users/dev/.kube/config
 F1 | Read | secret-read | ask | /Users/dev/.KUBE/config
 F1 | Read | secret-read | ask | /Users/dev/.kube/CONFIG
-Ft | Read | secret-read | ask | /Users/dev/.config/gh/hosts.yml
-F1 | Read | secret-read | ask | /Users/dev/.config/GH/hosts.yml
-F1 | Read | secret-read | ask | /Users/dev/.config/gh/Hosts.YML
+Ft | Read | secret-read | deny | /Users/dev/.config/gh/hosts.yml
+F1 | Read | secret-read | deny | /Users/dev/.config/GH/hosts.yml
+F1 | Read | secret-read | deny | /Users/dev/.config/gh/Hosts.YML
 Ft | Read | secret-read | ask | /Users/dev/.docker/config.json
 F1 | Read | secret-read | ask | /Users/dev/.DOCKER/config.json
 Ft | Read | secret-read | ask | /Users/dev/.azure/msal_token_cache.json
@@ -768,8 +768,8 @@ F1 | Read | secret-read | ask | infra/terraform.TFSTATE
 F1 | Read | secret-read | ask | infra/Terraform.tfstate.BACKUP
 Ft | Read | secret-read | ask | /Users/dev/.netrc
 F1 | Read | secret-read | ask | /Users/dev/.NETRC
-Ft | Read | secret-read | ask | /Users/dev/.git-credentials
-F1 | Read | secret-read | ask | /Users/dev/.Git-Credentials
+Ft | Read | secret-read | deny | /Users/dev/.git-credentials
+F1 | Read | secret-read | deny | /Users/dev/.Git-Credentials
 Ft | Read | secret-read | ask | store/release.p12
 F1 | Read | secret-read | ask | store/release.P12
 F1 | Read | secret-read | ask | store/release.JKS

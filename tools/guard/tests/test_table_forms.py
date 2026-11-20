@@ -439,7 +439,7 @@ D2 | main | protected-branch | ask | git update-ref --stdin
 Ds | feat/x | shell | silent | git update-ref refs/heads/feat abc123
 Ds | feat/x | shell | silent | git update-ref refs/heads/release abc123
 Ds | feat/x | shell | silent | git update-ref refs/tags/v1 abc123
-Ds | feat/x | shell | silent | git update-ref refs/remotes/origin/main abc123
+Ds | feat/x | git-guard | deny | git update-ref refs/remotes/origin/main abc123
 Ds | feat/x | shell | silent | git update-ref HEAD abc123
 Ds | feat/x | shell | silent | git commit-tree abc -m x
 Ds | main | shell | silent | git commit-tree abc -m x
@@ -494,18 +494,18 @@ V1 | feat/x | secret-shell | ask | kubectl get secret app -ojson
 V1 | feat/x | secret-shell | ask | kubectl get secret app --output=yaml
 V1 | feat/x | secret-shell | ask | kubectl get secret/app -o yaml
 V1 | feat/x | secret-shell | ask | kubectl get pods,secrets -o yaml
-V1 | feat/x | secret-shell | ask | gh auth token
+V1 | feat/x | secret-shell | deny | gh auth token
 V1 | feat/x | secret-shell | ask | timeout 30 vault kv get secret/app
-V1 | feat/x | secret-shell | ask | bash -c 'gh auth token'
-V1 | feat/x | secret-shell | ask | gh auth token | pbcopy
+V1 | feat/x | secret-shell | deny | bash -c 'gh auth token'
+V1 | feat/x | secret-shell | deny | gh auth token | pbcopy
 V2 | feat/x | secret-shell | ask | vault read secret/data/app
 V2 | feat/x | secret-shell | ask | op item get Login --fields password
 V2 | feat/x | secret-shell | ask | op item get Login --reveal
 V2 | feat/x | secret-shell | ask | op inject -i config.tpl
 V2 | feat/x | secret-shell | ask | kubectl get secret app -o go-template='{{.data.password}}'
 V2 | feat/x | secret-shell | ask | kubectl config view --raw
-V2 | feat/x | secret-shell | ask | gh auth status --show-token
-V2 | feat/x | secret-shell | ask | gh auth status -t
+V2 | feat/x | secret-shell | deny | gh auth status --show-token
+V2 | feat/x | secret-shell | deny | gh auth status -t
 V2 | feat/x | secret-shell | ask | aws secretsmanager get-secret-value --secret-id x
 V2 | feat/x | secret-shell | ask | aws ssm get-parameter --name x --with-decryption
 V2 | feat/x | secret-shell | ask | aws ssm get-parameters-by-path --path / --with-decryption
@@ -523,23 +523,23 @@ V2 | feat/x | secret-shell | ask | az acr credential show -n reg
 V2 | feat/x | secret-shell | ask | gcloud secrets versions access latest --secret=x
 V2 | feat/x | secret-shell | ask | gcloud auth print-access-token
 V2 | feat/x | secret-shell | ask | gcloud auth print-identity-token
-V2 | feat/x | secret-shell | ask | security find-generic-password -s x -w
-V2 | feat/x | secret-shell | ask | security find-generic-password -s x -g
-V2 | feat/x | secret-shell | ask | security find-internet-password -s x -w
+V2 | feat/x | secret-shell | deny | security find-generic-password -s x -w
+V2 | feat/x | secret-shell | deny | security find-generic-password -s x -g
+V2 | feat/x | secret-shell | deny | security find-internet-password -s x -w
 V2 | feat/x | secret-shell | ask | pass show x
 V2 | feat/x | secret-shell | ask | doppler secrets get X --plain
 V2 | feat/x | secret-shell | ask | doppler secrets download --no-file
-V2 | feat/x | secret-shell | ask | git credential fill
+V2 | feat/x | secret-shell | deny | git credential fill
 V2 | feat/x | secret-shell | ask | sops -d secrets.enc.yaml
 V2 | feat/x | secret-shell | ask | sops --decrypt secrets.enc.yaml
 V2 | feat/x | secret-shell | ask | sops decrypt secrets.enc.yaml
 V2 | feat/x | secret-shell | ask | ansible-vault view group_vars/all/vault.yml
 V2 | feat/x | secret-shell | ask | ansible-vault decrypt group_vars/all/vault.yml
 V3 | feat/x | secret-shell | ask | aws configure get aws_secret_access_key
-V3 | feat/x | secret-shell | ask | security dump-keychain -d
-V3 | feat/x | secret-shell | ask | git credential-osxkeychain get
+V3 | feat/x | secret-shell | deny | security dump-keychain -d
+V3 | feat/x | secret-shell | deny | git credential-osxkeychain get
 V3 | feat/x | secret-shell | ask | kubectl get secret app -o custom-columns=P:.data.password
-V3 | feat/x | secret-shell | ask | export GH_TOKEN=$(gh auth token)
+V3 | feat/x | secret-shell | deny | export GH_TOKEN=$(gh auth token)
 Vs | feat/x | shell | silent | vault kv list secret/
 Vs | feat/x | shell | silent | vault kv metadata get secret/app
 Vs | feat/x | shell | silent | vault status
@@ -1025,10 +1025,10 @@ Ys | Write | guard-config | silent | .claude/skills/x/SKILL.md
 Ys | Write | guard-config | silent | .claude/SKILLS/x/SKILL.md
 Ys | Edit | guard-config | silent | .claude/agents/GUARD.md
 Ys | Edit | guard-config | silent | tools/GUARDRAILS/x.py
-Ys | Edit | guard-config | silent | tools/tracker/tracker.py
+Ys | Edit | guard-config | ask | tools/tracker/tracker.py
 Ys | Write | guard-config | silent | src/Guard.py
 Ys | Write | guard-config | silent | docs/tools/guard-notes.md
-Ys | Write | guard-config | silent | .github/workflows/ci.yml
+Ys | Write | guard-config | ask | .github/workflows/ci.yml
 Ys | Write | guard-config | silent | README.md
 Ys | Read | guard-config | silent | .claude/SETTINGS.json
 Ys | Read | guard-config | silent | tools/guard/guard.py
@@ -1199,12 +1199,12 @@ Fs | feat/x | shell | silent | cat run.sh | bash -c 'wc -l'
 Fs | feat/x | shell | silent | cat data.txt | bash process.sh
 
 # --- F04: for `gh auth`, `-h` is --hostname and no help probe (read in `gh auth token --help`, gh 2.92.0)
-F04 | feat/x | secret-shell | ask | gh auth token -h github.com
-F04 | feat/x | secret-shell | ask | gh auth token -h ghe.example.org -u me
-F04 | feat/x | secret-shell | ask | gh auth status -h github.com --show-token
-F04 | feat/x | secret-shell | ask | gh auth status -h github.com -t
-Fs | feat/x | secret-shell | ask | gh auth token --hostname github.com
-Fs | feat/x | secret-shell | ask | gh auth status --show-token
+F04 | feat/x | secret-shell | deny | gh auth token -h github.com
+F04 | feat/x | secret-shell | deny | gh auth token -h ghe.example.org -u me
+F04 | feat/x | secret-shell | deny | gh auth status -h github.com --show-token
+F04 | feat/x | secret-shell | deny | gh auth status -h github.com -t
+Fs | feat/x | secret-shell | deny | gh auth token --hostname github.com
+Fs | feat/x | secret-shell | deny | gh auth status --show-token
 Fs | feat/x | shell | silent | gh auth token --help
 Fs | feat/x | shell | silent | gh auth status
 Fs | feat/x | shell | silent | gh auth status -h github.com
@@ -1252,8 +1252,8 @@ F06 | feat/x | secret-shell | ask | op item get GitHub
 F06 | feat/x | secret-shell | ask | op item get GitHub --format json
 F06 | feat/x | secret-shell | ask | op item get GitHub --share-link
 F06 | feat/x | secret-shell | ask | op item get GitHub --account my
-F06 | feat/x | secret-shell | ask | security find-generic-password -ws svc
-F06 | feat/x | secret-shell | ask | security find-internet-password -gs example.org
+F06 | feat/x | secret-shell | deny | security find-generic-password -ws svc
+F06 | feat/x | secret-shell | deny | security find-internet-password -gs example.org
 F06 | feat/x | secret-shell | ask | aws configure get default.aws_secret_access_key
 F06 | feat/x | secret-shell | ask | aws configure get profile.p.aws_secret_access_key
 F06 | feat/x | secret-shell | ask | aws secretsmanager batch-get-secret-value --secret-id-list x
@@ -1272,7 +1272,7 @@ Fs | feat/x | shell | silent | op item get --help
 Fs | feat/x | shell | silent | op item list
 Fs | feat/x | shell | silent | op vault list
 Fs | feat/x | shell | silent | security find-generic-password -s svc
-Fs | feat/x | secret-shell | ask | security find-generic-password -s svc -w
+Fs | feat/x | secret-shell | deny | security find-generic-password -s svc -w
 Fs | feat/x | shell | silent | aws configure get region
 Fs | feat/x | shell | silent | aws configure get default.region
 Fs | feat/x | shell | silent | aws configure list

@@ -3,12 +3,13 @@
 
   python3 tools/orchestration/probe.py [--only NAME ...] [--model haiku] [--claude-bin claude]
                                        [--out PATH] [--workdir DIR]
-  python3 tools/orchestration/probe.py hook LOG [--only-allow NAME]     (internal: the hook recorder)
+  python3 tools/orchestration/probe.py hook LOG [--only-allow NAME] [--block-tool TOOL]   (internal: the recorder)
+  python3 tools/orchestration/probe.py mcp-server LOG                   (internal: a stdio MCP server, `github`)
 
 Each canary is one scripted `claude -p` run (depth-pin uses two; ledger-own-cost judges the workflow-by-name
 run and pays for none) in a fresh scratch project under the workdir. The verdict (holds / fails /
-inconclusive) comes only from hook rows, marker files, the run's result JSON and its transcripts, never from
-model prose; missing evidence is inconclusive. A full run writes the record
+inconclusive) comes only from hook rows, marker files, the MCP server's log, the run's result JSON, its init
+message and its transcripts, never from model prose; missing evidence is inconclusive. A full run writes the record
 (default verified.json next to this file); --only never writes it. Nothing is ever deleted.
 Exit codes: 0 every selected canary holds, 1 otherwise, 2 usage or environment error (no usable CLI,
 workdir collision). The hook recorder exits 2 to block a call or when it cannot do its job.
@@ -38,6 +39,9 @@ FORBIDDEN_CMD = f"touch {FORBIDDEN}"
 WORKFLOW_AGENT = "workflow-subagent"
 DEPTH_VAR = "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH"
 BG_VAR = "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS"
+MCP_LOG = "mcp.jsonl"
+MCP_TOOLS = ("get_me", "merge_pull_request")  # the server's tools; the hook lets the first through, blocks the second
+MCP_BLOCKED = "mcp__github__merge_pull_request"
 
 HERE = os.path.dirname(os.path.realpath(__file__))
 PROBE = os.path.join(HERE, "probe.py")
@@ -57,6 +61,11 @@ RELAY = ("You are a relay in an automated test. Use the Agent tool exactly once 
          "yourself. If you have no Agent tool, answer with the words no agent tool.")
 LEAF_BASH = "You are the last step of an automated test. " + TWO_CMDS_PROMPT
 LEAF = "You are the last step of an automated test. Answer with the single word leaf. Use no tools."
+
+MCP_PROMPT = ("Call the tool mcp__github__get_me exactly once. Then call the tool mcp__github__merge_pull_request "
+              "exactly once with pullNumber 1. Do not retry or rephrase either call. Then answer with the single "
+              "word done.")
+TOOL_LIST_PROMPT = "Answer with the single word ok. Use no tools."
 
 WORKFLOWS = {  # name: (description, prompt, label)
     "kit-probe-run": ("Canary: one agent runs one fixed Bash command", RUN_PROMPT, "ran"),
@@ -84,6 +93,8 @@ class Evidence(NamedTuple):
     markers: frozenset         # names of *.marker files in the scratch root
     spawn_rows: list           # rows of <scratch>/telemetry/spawns.jsonl
     transcript: Optional[str] = None  # the run's main transcript under <config dir>/projects/, None if not found
+    server_rows: tuple = ()    # rows of <scratch>/mcp.jsonl: one per call the MCP server received
+    init: Optional[dict] = None  # the init message of a stream-json run (its tool list), None otherwise
 
 
 class Run(NamedTuple):
@@ -95,6 +106,8 @@ class Run(NamedTuple):
     block: bool
     env: dict
     fanout: bool
+    mcp: bool = False          # register the probe's MCP server as `github`; the pre hook matches its tools
+    stream: bool = False       # stream-json output, so the init message with the tool list is kept
 
 
 class Canary(NamedTuple):
@@ -112,6 +125,7 @@ def hook_main(argv: list) -> int:
     ap = argparse.ArgumentParser(prog="probe.py hook")
     ap.add_argument("log")
     ap.add_argument("--only-allow")
+    ap.add_argument("--block-tool")
     ns = ap.parse_args(argv)
     try:
         data = json.loads(sys.stdin.read())
@@ -131,6 +145,7 @@ def hook_main(argv: list) -> int:
     # Anything that is not exactly `touch <path to NAME>` is blocked, a non-string command included: fail closed.
     blocked = bool(ns.only_allow is not None and event == "PreToolUse" and tool == "Bash"
                    and touched(command) != ns.only_allow)
+    blocked = blocked or bool(ns.block_tool is not None and event == "PreToolUse" and tool == ns.block_tool)
     row = {"event": event, "tool": tool, "agent_id": data.get("agent_id"), "agent_type": data.get("agent_type"),
            "session_id": data.get("session_id"), "command": command, "subagent_type": tool_input.get("subagent_type"),
            "workflow": tool_input.get("name") if tool == "Workflow" else None, "blocked": blocked,
@@ -143,6 +158,44 @@ def hook_main(argv: list) -> int:
     if blocked:
         sys.stderr.write("probe hook: blocked by the canary rule\n")
         return 2
+    return 0
+
+
+# --- the MCP server ------------------------------------------------------------------------------------------------
+
+def mcp_server_main(argv: list) -> int:
+    """A stdio MCP server (newline-delimited JSON-RPC 2.0) with the tools of MCP_TOOLS; every tools/call is
+    appended to LOG before it is answered, so the log shows which calls reached the server."""
+    ap = argparse.ArgumentParser(prog="probe.py mcp-server")
+    ap.add_argument("log")
+    ns = ap.parse_args(argv)
+    schema = {"type": "object", "properties": {"pullNumber": {"type": "number"}}}
+    tools = [{"name": n, "description": f"Canary tool {n}: answers ok", "inputSchema": schema} for n in MCP_TOOLS]
+    for line in sys.stdin:
+        try:
+            msg = json.loads(line)
+        except ValueError:
+            continue  # not a message; the client gets no answer to what it did not send
+        if not isinstance(msg, dict) or "id" not in msg:
+            continue  # a notification (notifications/initialized) needs no answer
+        method, params = msg.get("method"), msg.get("params") if isinstance(msg.get("params"), dict) else {}
+        if method == "initialize":
+            result = {"protocolVersion": params.get("protocolVersion") or "2025-06-18",
+                      "capabilities": {"tools": {}}, "serverInfo": {"name": "kit-probe-github", "version": "1"}}
+        elif method == "tools/list":
+            result = {"tools": tools}
+        elif method == "tools/call":
+            append_row(ns.log, {"tool": params.get("name"), "arguments": params.get("arguments")})
+            result = {"content": [{"type": "text", "text": "ok"}]}
+        elif method == "ping":
+            result = {}
+        else:
+            reply = {"jsonrpc": "2.0", "id": msg["id"], "error": {"code": -32601, "message": f"no method {method}"}}
+            sys.stdout.write(json.dumps(reply) + "\n")
+            sys.stdout.flush()
+            continue
+        sys.stdout.write(json.dumps({"jsonrpc": "2.0", "id": msg["id"], "result": result}) + "\n")
+        sys.stdout.flush()
     return 0
 
 
@@ -171,13 +224,18 @@ def build_scratch(scratch: str, run: Run, model: str) -> None:
     q = shlex.quote
     rec = f"{q(sys.executable)} -I {q(PROBE)} hook {q(os.path.join(scratch, 'hook.jsonl'))}"
     pre_cmd = rec + (f" --only-allow {q(ALLOWED)}" if run.block else "")
+    if run.mcp:
+        pre_cmd = rec + f" --block-tool {q(MCP_BLOCKED)}"
+        server = {"type": "stdio", "command": sys.executable,
+                  "args": ["-I", PROBE, "mcp-server", os.path.join(scratch, MCP_LOG)]}
+        write(os.path.join(scratch, "mcp.json"), json.dumps({"mcpServers": {"github": server}}, indent=2) + "\n")
     start_hooks = [{"type": "command", "command": rec, "timeout": 10}]
     if run.fanout:
         fanout = (f"KZ_TELEMETRY_DIR={q(os.path.join(scratch, 'telemetry'))} {q(sys.executable)} {q(GUARD)} "
                   "hook fan-out --wrapper claude")
         start_hooks.append({"type": "command", "command": fanout, "timeout": 10})
     settings: dict = {"hooks": {
-        "PreToolUse": [{"matcher": "Bash|Agent|Workflow",
+        "PreToolUse": [{"matcher": "mcp__github__.*" if run.mcp else "Bash|Agent|Workflow",
                         "hooks": [{"type": "command", "command": pre_cmd, "timeout": 10}]}],
         "SubagentStart": [{"hooks": start_hooks}],
     }}
@@ -207,6 +265,10 @@ def run_argv(run: Run, model: str, claude_bin: str) -> list:
             "--setting-sources", "project", "--max-budget-usd", str(BUDGET_USD)]
     if run.allowed:
         argv += ["--allowedTools", *run.allowed]  # variadic: must be followed by another flag
+    if run.mcp:  # the scratch project's server only, none of the user's (the run's cwd is the scratch project)
+        argv += ["--mcp-config", "mcp.json", "--strict-mcp-config"]
+    if run.stream:
+        return argv + ["--strict-mcp-config", "--output-format", "stream-json", "--verbose"]
     return argv + ["--output-format", "json"]
 
 
@@ -215,7 +277,7 @@ def child_env() -> dict:
 
 
 def execute(scratch: str, run: Run, model: str, claude_bin: str) -> Evidence:
-    exit_code, result, error = None, None, None
+    exit_code, result, error, init = None, None, None, None
     try:
         g = subprocess.run(["git", "init", "-q", scratch], capture_output=True, text=True)
         git_error = g.stderr.strip() if g.returncode != 0 else None
@@ -240,10 +302,13 @@ def execute(scratch: str, run: Run, model: str, claude_bin: str) -> Evidence:
             error = f"{claude_bin}: {exc}"
         else:
             exit_code = r.returncode
-            try:
-                parsed = json.loads(r.stdout)
-            except ValueError:
-                parsed = None
+            if run.stream:
+                parsed, init = stream_messages(r.stdout)
+            else:
+                try:
+                    parsed = json.loads(r.stdout)
+                except ValueError:
+                    parsed = None
             if isinstance(parsed, dict) and parsed.get("type") == "result":
                 result = parsed
             else:
@@ -252,7 +317,25 @@ def execute(scratch: str, run: Run, model: str, claude_bin: str) -> Evidence:
                         if n.endswith(".marker") and os.path.isfile(os.path.join(scratch, n)))
     return Evidence(exit_code, result, error, read_rows(os.path.join(scratch, "hook.jsonl")), markers,
                     read_rows(os.path.join(scratch, "telemetry", "spawns.jsonl")),
-                    find_transcript(result.get("session_id") if result else None))
+                    find_transcript(result.get("session_id") if result else None),
+                    tuple(read_rows(os.path.join(scratch, MCP_LOG))), init)
+
+
+def stream_messages(stdout: str) -> tuple:
+    """(the last result message, the first init message) of stream-json output; None for either one missing."""
+    result, init = None, None
+    for line in stdout.splitlines():
+        try:
+            msg = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(msg, dict):
+            continue
+        if msg.get("type") == "result":
+            result = msg
+        elif init is None and msg.get("type") == "system" and msg.get("subtype") == "init":
+            init = msg
+    return result, init
 
 
 def find_transcript(session_id) -> Optional[str]:
@@ -450,6 +533,65 @@ def judge_spawn_log(ev: Evidence) -> tuple:
     return "inconclusive", "no workflow agent ran, so the spawn log had nothing to see", observed
 
 
+def judge_mcp_hook(ev: Evidence) -> tuple:
+    hook_tools = sorted({str(r.get("tool")) for r in ev.hook_rows if r.get("event") == "PreToolUse"})
+    server_calls = sorted({str(r.get("tool")) for r in ev.server_rows})
+    observed = {"hook_tools": hook_tools, "server_calls": server_calls, "denied_tools": denied_tools(ev)}
+    reason = broken(ev)
+    if reason:
+        return "inconclusive", reason, observed
+    unseen = [c for c in server_calls if f"mcp__github__{c}" not in hook_tools]
+    if unseen:
+        return "fails", f"the server received {', '.join(unseen)} and the hook has no row for it", observed
+    if not all(f"mcp__github__{t}" in hook_tools for t in MCP_TOOLS):
+        return "inconclusive", "the model did not call both tools, so the hook had nothing to show", observed
+    if "get_me" not in server_calls:
+        return "inconclusive", "the allowed call did not reach the server, so a missing blocked call proves nothing", \
+            observed
+    merge_blocked = any(r.get("event") == "PreToolUse" and r.get("tool") == "mcp__github__merge_pull_request"
+                        and r.get("blocked") for r in ev.hook_rows)
+    if "merge_pull_request" in server_calls:
+        if merge_blocked:
+            return "fails", "the hook blocked the merge call with exit 2, and it reached the server all the same", \
+                observed
+        return "inconclusive", "the merge call reached the server and the hook did not block it", observed
+    if not merge_blocked:
+        return "inconclusive", "the merge call did not reach the server, but not because the hook blocked it", observed
+    return "holds", "", observed
+
+
+def load_guard():
+    """tools/guard/guard.py as a module, loaded from its path like the tests load it."""
+    spec = importlib.util.spec_from_file_location("kit_guard", GUARD)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"cannot load {GUARD}")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def judge_tool_list(ev: Evidence) -> tuple:
+    observed = {"tools": None, "added": None, "removed": None}
+    if ev.error:
+        return "inconclusive", ev.error, observed
+    tools = ev.init.get("tools") if isinstance(ev.init, dict) else None
+    if not isinstance(tools, list) or not all(isinstance(t, str) for t in tools):
+        return "inconclusive", "the run has no init message with a tool list", observed
+    built_in = sorted(t for t in tools if not t.startswith("mcp__"))
+    try:
+        known = set(load_guard().KNOWN_CLAUDE_TOOLS)
+    except Exception as exc:  # broad on purpose: the boundary to another module; a canary that cannot judge says so
+        return "inconclusive", f"the guard's KNOWN_CLAUDE_TOOLS could not be read: {type(exc).__name__}: {exc}", \
+            observed
+    added, removed = sorted(set(built_in) - known), sorted(known - set(built_in))
+    observed.update(tools=built_in, added=added, removed=removed)
+    if added or removed:
+        return ("fails", f"the session's tools changed: added {', '.join(added) or 'none'}; removed "
+                f"{', '.join(removed) or 'none'}; decide for each how the guard treats it (KNOWN_CLAUDE_TOOLS)",
+                observed)
+    return "holds", "", observed
+
+
 def load_ledger():
     """tools/telemetry/ledger.py as a module, loaded from its path like the tests load it."""
     spec = importlib.util.spec_from_file_location("kit_ledger", LEDGER)
@@ -562,6 +704,18 @@ CANARIES = (
            "the ledger's own count over a probe run's transcripts, workflow agent included, is within 2 % of the "
            "run's total_cost_usd (judged on the workflow-by-name run, no run of its own)",
            "step 0.2 (#38)", (), lambda e: judge_ledger_cost(e["run"]), reuses="workflow-by-name"),
+    Canary("mcp-hook",
+           "a PreToolUse hook whose matcher is mcp__github__.* is called for each tool of an MCP server registered "
+           "as github, and its exit 2 keeps the call from the server",
+           "step 1.7 (#65), D4 and D5",
+           (Run("run", MCP_PROMPT, tuple(f"mcp__github__{t}" for t in MCP_TOOLS), (), (), False, {}, False,
+                mcp=True),),
+           lambda e: judge_mcp_hook(e["run"])),
+    Canary("tool-list",
+           "the built-in tools of the session's init message are the names of KNOWN_CLAUDE_TOOLS in guard.py",
+           "step 1.7 (#65), criterion 11",
+           (Run("run", TOOL_LIST_PROMPT, (), (), (), False, {}, False, stream=True),),
+           lambda e: judge_tool_list(e["run"])),
 )
 CANARY_BY_NAME = {c.name: c for c in CANARIES}
 
@@ -636,6 +790,8 @@ def main(argv: list, out=None) -> int:
     out = out or sys.stdout
     if argv[:1] == ["hook"]:
         return hook_main(argv[1:])
+    if argv[:1] == ["mcp-server"]:
+        return mcp_server_main(argv[1:])
     ap = argparse.ArgumentParser(prog="probe", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--only", action="append", choices=[c.name for c in CANARIES], metavar="NAME")

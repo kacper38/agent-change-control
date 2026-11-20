@@ -29,13 +29,14 @@ import select
 import shlex
 import signal
 import socket
+import stat
 import subprocess
 import sys
 import time
 from collections.abc import Mapping
 from typing import Callable, Optional
 
-VERSION = "0.9.0"
+VERSION = "0.10.0"
 
 # ----------------------------------------------------------------------------
 # Harness normalization
@@ -54,6 +55,45 @@ CLAUDE_TOOLS = {
     "Grep": "search",
     "WebFetch": "web",
     "WebSearch": "web",
+    "Monitor": "shell",  # runs a shell command, judged as Bash's
+    "ExitWorktree": "worktree",
+    "Skill": "skill",
+    "Workflow": "workflow",
+    "RemoteTrigger": "cloud",
+    "DesignSync": "design",
+}
+# The built-in tools of a Claude Code session and how the guard treats each: `judged` (a rule reads the call, so
+# the PreToolUse matcher must name it), `cloud-launch` (it can start cloud work, D3 of item #65) or `harmless`
+# (it starts no cloud work and no rule reads it: WebFetch and WebSearch have the kind `web` in CLAUDE_TOOLS, but
+# no rule judges that kind and the matcher does not name them, so what they send out is unguarded, a named limit
+# of item #65). Filled from the init message of the probe's
+# tool-list canary (CLI 2.1.323, 2026-11-20, the box and the owner's Mac); the canary fails when the session's list
+# differs from these names.
+KNOWN_CLAUDE_TOOLS = {
+    "Bash": "judged",
+    "CronCreate": "harmless",  # local: a prompt queued in this session (durable: .claude/scheduled_tasks.json)
+    "CronDelete": "harmless",
+    "CronList": "harmless",
+    "DesignSync": "cloud-launch",  # sends material to a service of the account: every call asks
+    "Edit": "judged",
+    "EnterWorktree": "harmless",  # a new worktree under .claude/worktrees/ on a new branch
+    "ExitWorktree": "judged",  # action remove deletes the worktree and its branch: delete-guard asks
+    "ListAgents": "harmless",
+    "Monitor": "judged",  # runs a shell command, as Bash does
+    "NotebookEdit": "judged",
+    "Read": "judged",
+    "RemoteTrigger": "cloud-launch",  # manages and runs the account's cloud routines: every call denied
+    "ReportFindings": "harmless",
+    "ScheduleWakeup": "harmless",  # local: the /loop of this session
+    "SendMessage": "harmless",  # messages a running session; it starts none
+    "Skill": "cloud-launch",  # the schedule skill creates cloud routines
+    "Task": "judged",  # fan-out; the init list says Task, hooks get Agent: both names stay in the matcher
+    "TaskStop": "harmless",
+    "ToolSearch": "harmless",
+    "WebFetch": "harmless",
+    "WebSearch": "harmless",
+    "Workflow": "cloud-launch",  # a script whose agent() asks for isolation remote
+    "Write": "judged",
 }
 COPILOT_TOOLS = {
     "bash": "shell",
@@ -115,7 +155,8 @@ class Event:
             self.harness = "claude"
         else:
             self.harness = "unknown"
-        self.kind = CLAUDE_TOOLS.get(self.tool) or COPILOT_TOOLS.get(self.tool) or "other"
+        self.kind = CLAUDE_TOOLS.get(self.tool) or COPILOT_TOOLS.get(self.tool) or (
+            "github" if self.tool.startswith(GITHUB_TOOL_PREFIXES) else "other")
         self.cwd = str(raw.get("cwd") or os.getcwd())
         self.session = str(raw.get("session_id") or raw.get("sessionId") or "")
         self.command = _first_str(self.args, "command", "cmd", "commandLine", "script")
@@ -158,12 +199,17 @@ DEFAULTS = {
 }
 
 
+BOUNDARIES = ("own", "client")
+
+
 def load_config(start: str) -> dict:
     """Merge DEFAULTS <- nearest .claude/guard.json (walking up) <- its sibling guard.local.json <- KZ_* env.
 
     guard.local.json is the owner's uncommitted override (gitignored): only its `rules_off` is read, so a
     session can silence rules without a diff in the reviewable policy and nothing else moves. rules_off is
-    dropped unless guard.json sits beside `.git` and says `boundary: own` itself (not the default)."""
+    dropped unless guard.json sits beside `.git` and says `boundary: own` itself (not the default) and the
+    effective boundary is own. The boundary only tightens (0.10.0): an unknown value counts as client, and
+    KZ_BOUNDARY=own leaves a committed client in force."""
     cfg = dict(DEFAULTS)
     d = os.path.abspath(start)
     relaxable = False  # rules_off counts only under a repo root whose committed guard.json says boundary own
@@ -179,6 +225,10 @@ def load_config(start: str) -> dict:
                     if isinstance(data, dict):
                         if path == candidate:
                             relaxable = data.get("boundary") == "own" and os.path.exists(os.path.join(d, ".git"))
+                            if data.get("boundary", "own") not in BOUNDARIES:  # an unknown value tightens
+                                print(f"guard: boundary {data['boundary']!r} in {path} is not own or client; "
+                                      "it counts as client", file=sys.stderr)
+                                data["boundary"] = "client"
                         else:  # the local file carries rules_off and nothing else
                             data = {k: v for k, v in data.items() if k == "rules_off"}
                         cfg.update(data)
@@ -196,8 +246,16 @@ def load_config(start: str) -> dict:
     if env:
         cfg["protected_branches"] = [b.strip() for b in env.split(",") if b.strip()]
     env = os.environ.get("KZ_BOUNDARY")
-    if env:
-        cfg["boundary"] = env.strip()
+    if env:  # it can only tighten: client sets client, own changes nothing, anything else counts as client
+        env = env.strip()
+        if env == "own" and cfg["boundary"] != "own":
+            print("guard: KZ_BOUNDARY=own does not loosen the committed boundary client", file=sys.stderr)
+        elif env != "own":
+            if env != "client":
+                print(f"guard: KZ_BOUNDARY {env!r} is no boundary (own or client); it counts as client",
+                      file=sys.stderr)
+            cfg["boundary"] = "client"
+    relaxable = relaxable and cfg["boundary"] == "own"
     env = os.environ.get("KZ_SCRATCH_MD")
     if env:
         cfg["scratch_md_mode"] = env.strip()
@@ -642,6 +700,13 @@ def _delete_judge(ev: Event) -> Optional[str]:
 
 
 def rule_delete_guard(ev: Event, cfg: dict) -> Optional[Decision]:
+    if ev.event == "PreToolUse" and ev.kind == "worktree":  # 0.10.0: ExitWorktree with action remove
+        action = ev.args.get("action")
+        if action == "keep":
+            return None
+        what = ("`ExitWorktree` removes the worktree and its branch" if action == "remove"
+                else "`ExitWorktree` with an action the guard cannot read")
+        return "ask", DELETE_MSG.format(what=what)
     if ev.event != "PreToolUse" or ev.kind != "shell" or not ev.command:
         return None
     pipe = None
@@ -830,6 +895,8 @@ def rule_secret_write(ev: Event, cfg: dict) -> Optional[Decision]:
 def rule_secret_read(ev: Event, cfg: dict) -> Optional[Decision]:
     if ev.event != "PreToolUse" or ev.kind != "read":
         return None
+    if github_login_file(ev.abspath()):
+        return "deny", GITHUB_LOGIN_MSG.format(rule="secret-read", what=f"`{ev.tool}` of {ev.path}")
     if secret_class(ev.abspath()) == "secret":
         return "ask", SECRET_READ_MSG.format(path=ev.path)
     return None
@@ -1089,9 +1156,12 @@ def _secret_reader_seg(seg: list[str], cwd: str, writes: list[str], reads: list[
     _secret_seg([t for m, t in enumerate(seg) if m not in drop], cwd, writes, reads)
 
 
-def _secret_verdict(writes: list[str], reads: list[str]) -> Optional[Decision]:
+def _secret_verdict(writes: list[str], reads: list[str], cwd: str = "/") -> Optional[Decision]:
     if writes:
         return "deny", SECRET_WRITE_MSG.format(path=", ".join(dict.fromkeys(writes)))
+    login = [p for p in reads if github_login_file(_expand(p, cwd))]
+    if login:
+        return "deny", GITHUB_LOGIN_MSG.format(rule="secret-shell", what=f"a read of {', '.join(dict.fromkeys(login))}")
     if reads:
         return "ask", SECRET_READ_MSG.format(path=", ".join(dict.fromkeys(reads)))
     return None
@@ -1252,6 +1322,68 @@ def secret_store_what(seg: list[str]) -> Optional[str]:
         if _leading(args, words) and (cond is None or cond(args)):
             shown = " ".join(w for w in words if isinstance(w, str))
             return f"`{head} {shown}` prints a stored secret"
+    return None
+
+
+# 0.10.0 (item #65, D8): the owner's stored GitHub login is read by no session; these deny (some asked at 0.9.0)
+GITHUB_LOGIN_MSG = ("{rule}: {what} reads stored credentials (a keychain item, a credential helper or the owner's "
+                    "stored GitHub login); a session never does (plan rev 3, D6).")
+_GITHUB_LOGIN_SUFFIXES = ("/.config/gh/hosts.yml", "/.git-credentials")
+_GITHUB_TOKEN_VARS = frozenset({"GH_TOKEN", "GITHUB_TOKEN"})
+_EMPTY_TOKEN_RE = re.compile(
+    r"(?:^|[;&|(`\n])\s*(?:export\s+|env\s+(?:-\S+\s+)*)?(?:[A-Za-z_]\w*=\S*\s+)*(GH_TOKEN|GITHUB_TOKEN)="
+    r"(?:\"\"|''|)(?=[\s;&|)]|$)")
+
+
+def github_login_file(path: Optional[str]) -> bool:
+    """The file of the owner's stored GitHub login (gh's hosts.yml, git's store helper), matched by its end."""
+    return bool(path) and ("/" + path.replace("\\", "/").lower().lstrip("/")).endswith(_GITHUB_LOGIN_SUFFIXES)
+
+
+def _env_runs(args: list[str]) -> list[str]:
+    """The command `env` runs: its arguments past options and assignments."""
+    k = 0
+    while k < len(args) and (args[k].startswith("-") or _ASSIGN_RE.match(args[k])):
+        k += 2 if args[k] in ("-u", "--unset", "-C", "--chdir", "-S", "--split-string") else 1
+    return args[k:]
+
+
+def github_login_what(seg: list[str]) -> Optional[str]:
+    """The call when one simple command reads or drops the owner's stored GitHub login, or None."""
+    head = tool_name(seg[0])
+    args = drop_redirections(seg[1:])
+    if head == "gh" and "--help" not in args:
+        if _leading(args, ("auth", "token")):
+            return "`gh auth token`"
+        if _leading(args, ("auth", "status")) and _has("--show-token", "-t")(args):
+            return "`gh auth status --show-token`"
+    if head == "git":
+        sub, rest = _git_subcommand(seg)
+        if sub == "credential" and ("fill" in rest or "approve" in rest):
+            return "`git credential " + ("fill`" if "fill" in rest else "approve`")
+        if sub and sub.startswith("credential-") and "get" in rest:
+            return f"`git {sub} get`"
+    if head == "security":
+        if _leading(args, ("dump-keychain",)):
+            return "`security dump-keychain`"
+        for verb in ("find-generic-password", "find-internet-password"):
+            if _leading(args, (verb,)) and _short_has("wg")(args):
+                return f"`security {verb}` with the secret shown"
+    if head == "unset" and _GITHUB_TOKEN_VARS.intersection(args):
+        return "`unset GH_TOKEN` (the session's own login gone, gh falls back to the stored one)"
+    if head == "env":
+        for k, t in enumerate(args):
+            name = args[k + 1] if t in ("-u", "--unset") and k + 1 < len(args) else (
+                t.split("=", 1)[1] if t.startswith("--unset=") else t[2:] if t.startswith("-u") else "")
+            if name in _GITHUB_TOKEN_VARS:
+                return f"`env -u {name}` (gh and git fall back to the stored login)"
+        if any(t in ("-i", "--ignore-environment", "-") for t in args):
+            run = _env_runs(args)
+            names = [os.path.basename(run[0])] if run else []
+            if run and os.path.basename(run[0]) in _NC_SHELLS and "-c" in run[1:-1]:
+                names = [os.path.basename(s[0]) for s in segments(run[run.index("-c", 1) + 1])]
+            if any(n in ("gh", "git") for n in names):
+                return "`env -i` in front of gh or git (they fall back to the stored login)"
     return None
 
 
@@ -1660,28 +1792,38 @@ def rule_secret_shell(ev: Event, cfg: dict) -> Optional[Decision]:
         target = target.strip("\"'`,;)")
         if secret_class(_expand(target, ev.cwd)) == "secret":
             writes.append(target)
+    if _EMPTY_TOKEN_RE.search(command):
+        return "deny", GITHUB_LOGIN_MSG.format(rule="secret-shell", what="an empty GH_TOKEN (gh and git fall back to "
+                                                                       "the stored login)")
     quiet = _quiet_reports(ev.command)
     first_quiet = collections.Counter(quiet)
     for seg in segments(command):
+        what = github_login_what(seg)
+        if what:
+            return "deny", GITHUB_LOGIN_MSG.format(rule="secret-shell", what=what)
         if _take_quiet(first_quiet, seg):
             continue
         # 0.9.0 (K3): the first pass leaves a search tool's pattern out as the reader pass does
         _secret_reader_seg(seg, ev.cwd, writes, reads)
     if writes:
-        return _secret_verdict(writes, reads)
+        return _secret_verdict(writes, reads, ev.cwd)
     # the reader pass adds to the same lists, so one message names every file of both passes; the reader gets
     # the here-documents and reads a body only where a shell runs it (0.8.0)
     stored: list[Decision] = []
 
     reader_quiet = collections.Counter(quiet)
 
-    def judge(seg: list[str]) -> None:
+    def judge(seg: list[str]) -> Optional[Decision]:
+        what = github_login_what(seg)
+        if what:
+            return "deny", GITHUB_LOGIN_MSG.format(rule="secret-shell", what=what)
         if _take_quiet(reader_quiet, seg):
-            return
+            return None
         _secret_reader_seg(seg, ev.cwd, writes, reads)
         what = secret_store_what(seg)  # 0.9.0: a stored secret printed (decision af)
         if what:
             stored.append(("ask", SECRET_STORE_MSG.format(what=what)))
+        return None
 
     read: list[bool] = []
     failed = reader_pass(ev.command, judge, "secret-shell", read=read)
@@ -1689,7 +1831,9 @@ def rule_secret_shell(ev: Event, cfg: dict) -> Optional[Decision]:
     # unread pipe, a crash of the judge); a line the reader could not read leaves `read` empty
     if read:
         reads.extend(p for p in nested_inputs(ev.command) if secret_class(_expand(p, ev.cwd)) == "secret")
-    return combine([d for d in (_secret_verdict(writes, reads), failed, *stored) if d])
+    if failed and failed[0] == "deny":
+        return failed
+    return combine([d for d in (_secret_verdict(writes, reads, ev.cwd), failed, *stored) if d])
 
 
 # ----------------------------------------------------------------------------
@@ -1943,8 +2087,9 @@ def _git_guard_seg(seg: list[str], cwd: str, protected: set, elsewhere: bool = F
         return "deny", GIT_MSG.format(what=f"`git {sub}` sets core.hooksPath for the call and skips the hooks")
     if sub == "config" and _git_config_writes_hooks_path(rest):
         return "ask", GIT_HOOKS_PATH_MSG
-    if sub != "push":
-        return None
+    rewrite = _git_ref_rewrite(sub, rest)
+    if sub != "push" or rewrite:
+        return rewrite
     if (any(t in _FORCE_FLAGS or t.startswith("--force-with-lease=") for t in rest) or "f" in shorts
             or _git_prefix(longs, _PUSH_FORCE_NAMES)):
         return "deny", GIT_MSG.format(what="force push")
@@ -1987,12 +2132,119 @@ def _git_guard_seg(seg: list[str], cwd: str, protected: set, elsewhere: bool = F
     return ("ask", GIT_ELSEWHERE_MSG.format(what="to HEAD")) if to_head else None
 
 
+# 0.10.0 (item #65, D9): the remote-tracking refs are what the guard and the tracker read as the remote's state.
+# Named limit: `git fetch . <sha>:<other ref>` forms and direct writes under .git/ match nothing.
+REF_REWRITE_MSG = ("git-guard: {what} rewrites the remote-tracking refs the guard reads (refs/remotes/); a session "
+                   "never does.")
+REF_SOURCE_MSG = ("git-guard: {what} changes where the remote-tracking refs the guard reads come from. Confirm the "
+                  "command.")
+_REMOTE_REFS = "refs/remotes/"
+_REMOTE_KEY_RE = re.compile(r"^(remote\.(.+\.)?(url|pushurl|fetch)|url\..+\.(push)?insteadof)$", re.IGNORECASE)
+
+
+def _git_config_writes_remote(rest: list[str]) -> bool:
+    """`git config` sets, adds or unsets remote.<name>.url|pushurl|fetch, or drops or renames a remote's section;
+    the reads (`--get`, the name alone, `--list`) are none."""
+    for k, t in enumerate(rest[:-1]):
+        if t in ("--remove-section", "--rename-section", "remove-section", "rename-section") \
+                and rest[k + 1].lower().startswith("remote."):
+            return True
+    keys = [k for k, t in enumerate(rest) if _REMOTE_KEY_RE.match(t)]
+    if not keys:
+        return False
+    before = rest[: keys[0]]
+    if any(t in ("--unset", "--unset-all", "unset", "--add", "--replace-all") for t in before):
+        return True
+    if any(t.startswith(("--get", "--list")) or t in ("-l", "get", "list") for t in before):
+        return False
+    return any(not t.startswith("-") for t in rest[keys[0] + 1 :])
+
+
+def _git_local_remote(word: str) -> bool:
+    """A push target that names a repository on this machine: a path (`.`, `..`, `.git`, `sub/repo`, `~/x`,
+    `$PWD`, `file:…`), not a URL, an scp-like `host:path` or a configured remote's bare name. Fails closed: a word
+    with a slash and no host part counts as a path."""
+    if word.startswith(("file:", "$", "`", "~", ".", "/")):
+        return True
+    if "://" in word or re.match(r"^[^/]+:", word):
+        return False
+    return "/" in word
+
+
+_LOOPBACK_HOSTS = frozenset(("localhost", "127.0.0.1", "::1"))
+
+
+def _git_remote_add_local(rest: list[str]) -> bool:
+    """`git remote add [-t <branch>] [-m <master>] [-f] … <name> <url>` with a url on this machine: anything but a
+    URL with `://` or an scp-like `host:path` (a bare word is a relative path to git here, not a remote name)."""
+    words, skip = [], False
+    for t in rest[rest.index("add") + 1:]:
+        if skip:
+            skip = False
+        elif t in ("-t", "--track", "-m", "--master"):
+            skip = True
+        elif not t.startswith("-"):
+            words.append(t)
+    if len(words) < 2:
+        return False
+    url = words[1]
+    if url.startswith("file:"):
+        return True
+    m = re.match(r"^[a-z][a-z0-9+.-]*://(?:[^@/]*@)?(\[[^\]]*\]|[^:/]*)", url, re.IGNORECASE) \
+        or re.match(r"^(?:[^@/:]*@)?(\[[^\]]*\]|[^:/]+):", url)
+    if not m:
+        return True  # no host part: a path
+    return m.group(1).lower().strip("[]") in _LOOPBACK_HOSTS  # ssh://localhost/…, 127.0.0.1:/…: this machine
+
+
+def _git_ref_rewrite(sub: str, rest: list[str]) -> Optional[Decision]:
+    """The git-guard verdict on a call that writes the remote-tracking refs (deny) or their source (ask)."""
+    operands = [t for k, t in enumerate(rest) if not t.startswith("-") and not (k and rest[k - 1] == "-m")]
+    remote = any(t.startswith(_REMOTE_REFS) for t in operands)
+    if sub == "update-ref" and remote:
+        return "deny", REF_REWRITE_MSG.format(what="`git update-ref`")
+    if sub == "push" and operands:
+        dests = [t.rsplit(":", 1)[1] if ":" in t else t.lstrip("+") for t in operands[1:]]
+        if any(d.lower().startswith((_REMOTE_REFS, "remotes/")) for d in dests):
+            return "deny", REF_REWRITE_MSG.format(what="`git push` into a remote-tracking ref")
+        # a push into this repository (or another local one) resolves a short name like `origin/main` against
+        # its refs, remote-tracking ones included: only refs/heads/ and refs/tags/ written out stay open
+        if _git_local_remote(operands[0]):
+            if "--delete" in rest or "-d" in rest or any(not d.startswith(("refs/heads/", "refs/tags/"))
+                                                          for d in dests if d):
+                return "deny", REF_REWRITE_MSG.format(
+                    what="`git push` into a local repository with a short or deleted destination")
+    if sub == "branch":
+        longs, shorts = _git_options(sub, rest)
+        if ("r" in shorts or _git_prefix(longs, ("remotes",))) and (
+                shorts & set("dDmMcC") or _git_prefix(longs, ("delete", "move", "copy"))):
+            return "deny", REF_REWRITE_MSG.format(
+                what="`git branch -r` deleting, renaming or copying a remote-tracking ref")
+    if sub == "replace" and rest and rest[0] not in ("-l", "--list") and not rest[0].startswith("--format"):
+        return "deny", REF_REWRITE_MSG.format(what="`git replace` (it swaps the objects every ref reads through)")
+    if sub == "symbolic-ref" and remote and (len(operands) > 1 or "-d" in rest or "--delete" in rest):
+        return "deny", REF_REWRITE_MSG.format(what="`git symbolic-ref`")
+    if sub == "remote" and operands[:1] == ["add"] and _git_remote_add_local(rest):
+        return "ask", REF_SOURCE_MSG.format(what="`git remote add` of a repository on this machine")
+    if sub == "remote" and operands[:1] in (["set-url"], ["rename"], ["remove"], ["rm"], ["set-branches"],
+                                            ["set-head"]):
+        return "ask", REF_SOURCE_MSG.format(what=f"`git remote {operands[0]}`")
+    if sub == "config" and _git_config_writes_remote(rest):
+        return "ask", REF_SOURCE_MSG.format(what="`git config` of a remote's url or fetch refspec")
+    if sub == "fetch" and any(":" in t and t.rsplit(":", 1)[1].startswith(_REMOTE_REFS) for t in operands):
+        return "ask", REF_SOURCE_MSG.format(what="`git fetch` into a named remote-tracking ref")
+    return None
+
+
 def rule_git_guard(ev: Event, cfg: dict) -> Optional[Decision]:
     if ev.event != "PreToolUse" or ev.kind != "shell" or not ev.command:
         return None
     protected = protected_branches(cfg)
     command = strip_heredocs(ev.command)
     asks = []  # 0.8.0: the first pass can ask (`git config core.hooksPath`); a later deny of the line still wins
+    if _REMOTE_REFS in ev.command and any(_git_subcommand(seg)[0] == "update-ref" and "--stdin" in seg
+                                          for seg in segments(command)):  # the refs it moves come from its input
+        return "deny", REF_REWRITE_MSG.format(what="`git update-ref --stdin` with refs/remotes/ on the line")
     for seg in segments(command):
         d = _git_guard_seg(seg, ev.cwd, protected)
         if d and d[0] == "deny":
@@ -2712,6 +2964,9 @@ def rule_fan_out(ev: Event, cfg: dict) -> Optional[Decision]:
 # ----------------------------------------------------------------------------
 
 _SETTINGS_RE = re.compile(r"^settings(\..+)?\.json$")
+# the files below tools/ that enforce a rule (0.10.0: the commit gate, the test guard, the tag scan, the tracker)
+_GUARDED_TOOLS = {"guard": "the guard itself", "testguard": "the test guard", "scan": "the tag scan",
+                  "tracker": "the tracker", "commit_msg.py": "the commit message gate"}
 GUARD_CONFIG_MSG = (
     "Guard-the-guard: {path} is {what}; it polices this very session, so a human confirms every change "
     "(and AGENTS.md rule 4 wants the why in DECISIONS.md)."
@@ -2743,18 +2998,132 @@ def _guard_config_as_written(path: str, home_claude: str) -> Optional[str]:
             return "the repo's hook configuration"
         if part == ".github" and nxt == "hooks":
             return "the repo's Copilot hook configuration"
-        if part == "tools" and nxt == "guard":
-            return "the guard itself"
+        if part == ".github" and nxt == "workflows" and not last:
+            return "a CI workflow"
+        if part == "tools" and nxt in _GUARDED_TOOLS and (nxt != "commit_msg.py" or last):
+            return _GUARDED_TOOLS[nxt]
     return None
 
 
 def rule_guard_config(ev: Event, cfg: dict) -> Optional[Decision]:
-    if ev.event != "PreToolUse" or ev.kind not in ("write", "edit"):
+    if ev.event != "PreToolUse":
+        return None
+    if ev.kind == "shell" and ev.command:
+        return _guard_config_shell(ev)
+    if ev.kind not in ("write", "edit"):
         return None
     what = guard_config_class(ev.abspath())
     if what is None:
         return None
     return "ask", GUARD_CONFIG_MSG.format(path=ev.path, what=what)
+
+
+# 0.10.0 (item #65, D7): shell writes to the same paths ask, as Write and Edit do. Named limits: a branch switch,
+# merge, pull, rebase or stash that changes these files; a patch whose target is not on the line; obfuscated code.
+GUARD_CONFIG_SHELL_MSG = (
+    "Guard-the-guard: `{head}` writes {path}, which is {what}; it polices this very session, so a human confirms "
+    "every change (and AGENTS.md rule 4 wants the why in DECISIONS.md)."
+)
+_GC_REDIRECT_RE = re.compile(r"(?<![<>])>{1,2}\|?\s*([^\s;&|]+)")
+_GC_DIFF_HEADER_RE = re.compile(r"^(?:\+\+\+|---) (?:[ab]/)?(\S+)", re.MULTILINE)
+_GC_INLINE = {"python": "-c", "node": "-e", "perl": "-e", "ruby": "-e"}
+_GC_WRITE_WORDS = ("'w'", '"w"', "'a'", '"a"', "write", "rename", "replace", "unlink", "remove", "copy", "move",
+                   "symlink", "chmod")
+_GC_PATH_RE = re.compile(r"[\w.~/$-]+")
+
+
+def _gc_class(path: str, cwd: str, below: bool = False) -> Optional[str]:
+    """guard_config_class of a word as the shell names a file; `below`: a directory a file is written into."""
+    full = _expand(path.strip("\"'`,;)"), cwd)
+    return guard_config_class(full) or (guard_config_class(os.path.join(full, "x")) if below else None)
+
+
+def _gc_operands(args: list[str]) -> list[str]:
+    return [t for t in args if not t.startswith("-") and t != "--"]
+
+
+def _gc_targets(seg: list[str]) -> list[tuple]:
+    """(word, below) for each file one simple command writes, as far as its words say."""
+    head = tool_name(seg[0])
+    args = seg[1:]
+    ops = _gc_operands(args)
+    if head in _WRITERS_LAST:
+        for k, t in enumerate(args):
+            if t in ("-t", "--target-directory") and k + 1 < len(args):
+                return [(args[k + 1], True)]
+            if t.startswith("--target-directory="):
+                return [(t.split("=", 1)[1], True)]
+        return [(ops[-1], True)] if len(ops) > 1 else []
+    if head in _WRITERS_ALL:
+        return [(t, False) for t in ops]
+    if head == "dd":
+        return [(t[3:], False) for t in args if t.startswith("of=")]
+    if head == "sed" and any(t.startswith("-i") or t.startswith("--in-place") for t in args):
+        return [(t, False) for t in ops]
+    if head == "perl" and any(re.match(r"^-[a-zA-Z]*i", t) for t in args):
+        return [(t, False) for t in ops]
+    if head in ("curl", "wget"):
+        names = ("-o", "--output") if head == "curl" else ("-O", "--output-document")
+        out = []
+        for k, t in enumerate(args):
+            if t in names and k + 1 < len(args):
+                out.append((args[k + 1], False))
+            elif t.startswith(tuple(n + "=" for n in names[1:])):
+                out.append((t.split("=", 1)[1], False))
+            elif t.startswith(names[0]) and len(t) > 2 and not t.startswith("--"):
+                out.append((t[2:], False))
+        return out
+    if head == "patch":
+        return [(t, False) for t in ops]
+    if head == "git":
+        sub, rest = _git_subcommand(seg)
+        if sub == "apply":
+            return [(t, False) for t in _gc_operands(rest)]
+        if sub == "checkout" and "--" in rest:
+            return [(t, True) for t in rest[rest.index("--") + 1 :]]
+        if sub == "restore" and not _restore_index_only(rest):
+            out = []
+            for k, t in enumerate(rest):
+                if t.startswith("-") or t == "--" or (k and rest[k - 1] in ("-s", "--source")):
+                    continue
+                out.append((t, True))
+            return out
+    key = "python" if _PYTHON_RE.match(head) else head
+    if key in _GC_INLINE:
+        opt = _GC_INLINE[key]
+        for k, t in enumerate(args[:-1]):
+            code = args[k + 1]
+            if t == opt and any(w in code for w in _GC_WRITE_WORDS):
+                return [(p, False) for p in _GC_PATH_RE.findall(code) if "/" in p]
+    return []
+
+
+def _guard_config_shell(ev: Event) -> Optional[Decision]:
+    hits: list[tuple] = []  # (path, class, head)
+    command = strip_heredocs(ev.command)
+    for target in _GC_REDIRECT_RE.findall(command.replace("\\\n", "")):
+        what = _gc_class(target, ev.cwd)
+        if what:
+            hits.append((target.strip("\"'`,;)"), what, ">"))
+
+    def judge(seg: list[str]) -> Optional[Decision]:
+        head = tool_name(seg[0])
+        for word, below in _gc_targets(seg):
+            what = _gc_class(word, ev.cwd, below)
+            if what:
+                hits.append((word, what, head))
+        if head == "patch" or (head == "git" and _git_subcommand(seg)[0] == "apply"):
+            for word in _GC_DIFF_HEADER_RE.findall(ev.command):  # the patch in a here-document
+                what = _gc_class(word, ev.cwd)
+                if what:
+                    hits.append((word, what, head))
+        return None
+
+    failed = reader_pass(ev.command, judge, "guard-config")
+    if hits:
+        path, what, head = hits[0]
+        return "ask", GUARD_CONFIG_SHELL_MSG.format(head=head, path=path, what=what)
+    return failed
 
 
 # ----------------------------------------------------------------------------
@@ -2820,6 +3189,8 @@ def _az_flag_on(seg: list[str], name: str) -> bool:
 # 0.9.0: a merge of a pull request is the owner's call; `--admin` skips the branch protection
 _MERGE_API_RE = re.compile(r"(^|/)repos/[^/\s]+/[^/\s]+/pulls/\d+/merge/?($|\?)")
 MERGE_ASK_MSG = "tracker-guard: {what} merges a pull request, which is the owner's call. Confirm the command."
+APPROVE_ASK_MSG = ("tracker-guard: {what} approves a pull request, and an approval counts as a person's, which is the "
+                   "owner's call. Confirm the command.")
 
 
 def _http_method(seg: list[str]) -> str:
@@ -3122,6 +3493,8 @@ def _tracker_seg(seg: list[str]) -> Optional[Decision]:
             return "deny", TRACKER_MSG.format(what="`gh pr merge --admin` bypasses the branch protection",
                                               use="a merge the protection allows, by the owner")
         return "ask", MERGE_ASK_MSG.format(what="`gh pr merge`")
+    if group == "pr" and verb == "review" and ("--approve" in seg or "-a" in seg) and not _help_probe(seg):
+        return "ask", APPROVE_ASK_MSG.format(what="`gh pr review --approve`")
     if group == "label" and verb in ("create", "edit", "delete", "clone"):
         return "deny", TRACKER_MSG.format(what=f"`gh label {verb}` bypasses the tracker",
                                           use="`tracker owner labels-sync` (a human runs it)")
@@ -3704,6 +4077,233 @@ def rule_host_install(ev: Event, cfg: dict) -> Optional[Decision]:
     # the local reading: what this machine runs; a container or remote tool ends the simple command. The reader
     # takes the here-document bodies out itself and reads one only where a local shell runs it (0.8.0)
     return reader_pass(ev.command, judge, "host-install", local=True)
+
+
+# ----------------------------------------------------------------------------
+# cloud-launch: no session starts work in the cloud (item #65, plan rev 3 row 1.7)
+# ----------------------------------------------------------------------------
+
+CLOUD_LAUNCH_MSG = ("cloud-launch: {what} starts work in the cloud, outside the boundary this session runs in; a "
+                    "session never starts it (plan rev 3, row 1.7). The owner starts cloud work.")
+CLOUD_UNREAD_MSG = "cloud-launch: {what}; the guard could not read whether it starts cloud work. Confirm the call."
+DESIGN_SYNC_MSG = ("cloud-launch: `{tool}` sends material to a service of the account, and the guard cannot read "
+                   "what; confirm the call.")
+_CLOUD_CLIS = frozenset({"claude"})
+_CLOUD_FLAGS = ("--cloud", "--remote")
+_REMOTE_ISOLATION_RE = re.compile(r"\[?[\"'`]?isolation[\"'`]?\]?\s*:\s*[\"'`]remote[\"'`]", re.IGNORECASE)
+
+
+def _cloud_seg(seg: list[str]) -> Optional[Decision]:
+    """The words from one command word: `claude` with --cloud/--remote, or an argument that runs /autofix-pr."""
+    if os.path.basename(seg[0]) not in _CLOUD_CLIS:
+        return None
+    for a in seg[1:]:
+        if a in _CLOUD_FLAGS or a.startswith(tuple(f + "=" for f in _CLOUD_FLAGS)):
+            return "deny", CLOUD_LAUNCH_MSG.format(what=f"`claude {a}`")
+        if a.lstrip(" \t\n'\"`").startswith("/autofix-pr"):
+            return "deny", CLOUD_LAUNCH_MSG.format(what="`claude /autofix-pr`")
+    return None
+
+
+WORKFLOW_SCRIPT_MAX = 1_000_000
+
+
+def _workflow_script(ev: Event) -> tuple:
+    """(script text or None, what could not be read or None) of a Workflow call; a `name` is not resolved."""
+    if "script" in ev.args:
+        script = ev.args["script"]
+        return (script, None) if isinstance(script, str) else (None, "a Workflow script that is not text")
+    if "scriptPath" in ev.args:
+        path = ev.args["scriptPath"]
+        if not isinstance(path, str) or not path:
+            return None, "a Workflow scriptPath that is not a path"
+        full = os.path.join(ev.cwd, os.path.expanduser(path))
+        try:  # a directory, a device, a FIFO or a huge file would raise or stall the hook: each asks
+            # a FIFO swapped in cannot block here, and a tty cannot become the controlling terminal
+            fd = os.open(full, os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_NOCTTY", 0))
+            with os.fdopen(fd, "rb") as fh:
+                info = os.fstat(fh.fileno())  # judged on what was opened, not on the name
+                if not stat.S_ISREG(info.st_mode):
+                    return None, f"the Workflow script {path} is not a regular file"
+                if info.st_size > WORKFLOW_SCRIPT_MAX:
+                    return None, f"the Workflow script {path} is larger than {WORKFLOW_SCRIPT_MAX} bytes"
+                data = fh.read(WORKFLOW_SCRIPT_MAX + 1)
+                if len(data) > WORKFLOW_SCRIPT_MAX:  # it grew after fstat: refuse, never judge a prefix
+                    return None, f"the Workflow script {path} is larger than {WORKFLOW_SCRIPT_MAX} bytes"
+                return data.decode("utf-8", errors="replace"), None
+        except OSError as exc:
+            return None, f"the Workflow script {path} could not be read ({type(exc).__name__})"
+    if isinstance(ev.args.get("name"), str):
+        return None, None  # a named workflow: step 1.2 reads it (named limit)
+    return None, "a Workflow call with no script, scriptPath or name"
+
+
+def rule_cloud_launch(ev: Event, cfg: dict) -> Optional[Decision]:
+    if ev.event != "PreToolUse":
+        return None
+    if ev.kind == "shell":
+        if not ev.command:
+            return None
+        for seg in segments(strip_heredocs(ev.command)):  # first: also a line the reader cannot read
+            d = _cloud_seg(seg)
+            if d:
+                return d
+        return reader_pass(ev.command, _cloud_seg, "cloud-launch")
+    if ev.kind == "cloud":
+        return "deny", CLOUD_LAUNCH_MSG.format(what=f"`{ev.tool}`")
+    if ev.kind == "design":
+        return "ask", DESIGN_SYNC_MSG.format(tool=ev.tool)
+    if ev.kind == "spawn" and "isolation" in ev.args:
+        iso = ev.args["isolation"]
+        if not isinstance(iso, str):
+            return "ask", CLOUD_UNREAD_MSG.format(what=f"`{ev.tool}` with an isolation that is not text")
+        return ("deny", CLOUD_LAUNCH_MSG.format(what=f"`{ev.tool}` with isolation remote")) if (
+            iso.lower() == "remote") else None
+    if ev.kind == "skill":
+        name = ev.args.get("skill")
+        if not isinstance(name, str) or not name:
+            return "ask", CLOUD_UNREAD_MSG.format(what="a Skill call without a skill name")
+        if name.rsplit(":", 1)[-1].lstrip("/").lower() == "schedule":
+            return "deny", CLOUD_LAUNCH_MSG.format(what="the `schedule` skill (cloud routines)")
+        return None
+    if ev.kind == "workflow":
+        script, unread = _workflow_script(ev)
+        if unread:
+            return "ask", CLOUD_UNREAD_MSG.format(what=unread)
+        if script and _REMOTE_ISOLATION_RE.search(script):
+            return "deny", CLOUD_LAUNCH_MSG.format(what="a Workflow whose agent asks for isolation remote")
+    return None
+
+
+# ----------------------------------------------------------------------------
+# github-tools: the harness's own GitHub tools get the verdict of the same act in a shell or a file tool (#65, D5)
+# ----------------------------------------------------------------------------
+
+GITHUB_TOOL_PREFIXES = ("mcp__github__", "github-mcp-server-")  # Claude Code; Copilot (unverified, fixtures only)
+GITHUB_TWIN_MSG = "github-tools: {tool} is the same act as {twin}: {reason}"
+GITHUB_UNKNOWN_MSG = "github-tools: {tool} has no known twin and is not named as a read or harmless; confirm this call."
+GITHUB_BROKEN_MSG = "github-tools: {tool} came with {what}, which the guard cannot read; confirm this call."
+_GITHUB_HARMLESS = frozenset(
+    "create_branch create_pull_request update_pull_request update_pull_request_branch request_copilot_review"
+    " create_pending_pull_request_review add_comment_to_pending_review"
+    " add_pull_request_review_comment_to_pending_review".split())
+_GITHUB_REVIEWS = frozenset(
+    "pull_request_review_write create_and_submit_pull_request_review submit_pending_pull_request_review".split())
+# op -> (gh words, the method that picks the verb from `method`): every one is a write tracker-guard denies
+_GITHUB_TRACKER = {
+    "issue_write": ("issue", {"create": "create"}, "edit"), "create_issue": ("issue", {}, "create"),
+    "update_issue": ("issue", {}, "edit"), "add_issue_comment": ("issue", {}, "comment"),
+    "sub_issue_write": ("issue", {}, "edit"), "assign_copilot_to_issue": ("issue", {}, "edit"),
+    "label_write": ("label", {"create": "create", "delete": "delete"}, "edit"),
+    "create_label": ("label", {}, "create"), "update_label": ("label", {}, "edit"),
+    "delete_label": ("label", {}, "delete"),
+}
+_GITHUB_PATH_RULES = ("secret-write", "guard-config", "scratch-md")
+
+
+class _Unreadable(Exception):
+    """Input of a GitHub tool the twin cannot be built from; the rule asks with the text."""
+
+
+def github_op(tool: str) -> Optional[str]:
+    """The op of a GitHub tool name (`mcp__github__merge_pull_request` -> `merge_pull_request`), or None."""
+    for prefix in GITHUB_TOOL_PREFIXES:
+        if tool.startswith(prefix) and len(tool) > len(prefix):
+            return tool[len(prefix) :]
+    return None
+
+
+def _gh_number(args: dict) -> str:
+    """The pull request or issue number as a word (empty when none is given); not an int or digits: unreadable."""
+    for key in ("pullNumber", "pull_number", "issue_number", "issueNumber"):
+        if key in args:
+            v = args[key]
+            if isinstance(v, int) and not isinstance(v, bool) and v >= 0:
+                return f" {v}"
+            if isinstance(v, str) and v.isdigit():
+                return f" {v}"
+            raise _Unreadable(f"a {key} that is not a number")
+    return ""
+
+
+def _gh_text(args: dict, key: str, required: bool) -> Optional[str]:
+    v = args.get(key)
+    if v is None and not required and key not in args:
+        return None
+    if not isinstance(v, str) or not v:
+        raise _Unreadable(f"a {key} that is not text" if key in args else f"no {key}")
+    return v
+
+
+def _github_twins(op: str, args: dict, cfg: dict) -> Optional[list]:
+    """[(twin as shown, tool, input, rules)] for a GitHub op; [] for a read or a harmless op, None for no twin."""
+    if op == "get_file_contents":
+        path = _gh_text(args, "path", True)
+        return [(f"a `Read` of {path}", "Read", {"file_path": path}, ("secret-read",))]
+    if op.startswith(("get_", "list_", "search_")) or op.endswith("_read") or op in _GITHUB_HARMLESS:
+        return []
+    if op in _GITHUB_REVIEWS:
+        event = args.get("event")
+        if event is not None and not isinstance(event, str):
+            raise _Unreadable("an event that is not text")
+        if str(event or "").upper() != "APPROVE":
+            return []
+        return [_shell_twin(f"gh pr review{_gh_number(args)} --approve", "tracker-guard")]
+    if op in ("merge_pull_request", "enable_pr_auto_merge"):
+        auto = " --auto" if op == "enable_pr_auto_merge" else ""
+        return [_shell_twin(f"gh pr merge{_gh_number(args)}{auto}", "tracker-guard")]
+    if op in _GITHUB_TRACKER:
+        group, by_method, verb = _GITHUB_TRACKER[op]
+        method = args.get("method")
+        verb = by_method.get(method, verb) if isinstance(method, str) else verb
+        return [_shell_twin(f"gh {group} {verb}{_gh_number(args)}", "tracker-guard")]
+    if op in ("create_or_update_file", "push_files", "delete_file"):
+        branch = _gh_text(args, "branch", False)
+        if op == "push_files":
+            files = args.get("files")
+            if not isinstance(files, list) or not files or not all(
+                    isinstance(f, dict) and isinstance(f.get("path"), str) and f["path"] for f in files):
+                raise _Unreadable("files that are not a list of objects with a path")
+            paths = [f["path"] for f in files]
+        else:
+            paths = [_gh_text(args, "path", True)]
+        twins = [(f"a `Write` of {p}", "Write", {"file_path": p, "content": ""}, _GITHUB_PATH_RULES) for p in paths]
+        if op == "delete_file":
+            twins.append(_shell_twin(f"git rm {shlex.quote(paths[0])}", "delete-guard"))
+        protected = sorted(protected_branches(cfg))
+        name = branch[len("refs/heads/"):] if branch and branch.lower().startswith("refs/heads/") else branch
+        # no branch: the API writes the default branch; a spelling of a protected name in another case counts
+        hit = next((b for b in protected if name is None or b.lower() == name.lower()), None)
+        if hit is not None:
+            twins.append(_shell_twin(f"git push origin HEAD:{'main' if name is None and 'main' in protected else hit}",
+                                     "git-guard"))
+        return twins
+    return None
+
+
+def _shell_twin(command: str, rule: str) -> tuple:
+    return f"`{command}`", "Bash", {"command": command}, (rule,)
+
+
+def rule_github_tools(ev: Event, cfg: dict) -> Optional[Decision]:
+    if ev.event != "PreToolUse" or ev.kind != "github":
+        return None
+    op = github_op(ev.tool) or ""
+    try:
+        twins = _github_twins(op, ev.args, cfg)
+    except _Unreadable as exc:
+        return "ask", GITHUB_BROKEN_MSG.format(tool=ev.tool, what=exc)
+    if twins is None:
+        return "ask", GITHUB_UNKNOWN_MSG.format(tool=ev.tool)
+    decisions = []
+    for shown, tool, tool_input, rules in twins:
+        twin = Event({"hook_event_name": "PreToolUse", "tool_name": tool, "tool_input": tool_input, "cwd": ev.cwd,
+                      "session_id": ev.session})
+        for name in rules:
+            d = RULES[name](twin, cfg)
+            if d:
+                decisions.append((d[0], GITHUB_TWIN_MSG.format(tool=ev.tool, twin=shown, reason=d[1])))
+    return combine(decisions)
 
 
 # ----------------------------------------------------------------------------
@@ -4696,7 +5296,7 @@ _FOLD_NAMES = frozenset(
         _OTHER_LLM_CLIS, _HI_TABLE, _HI_PAIRS, _HI_PAIRS_ONLY, _HI_BARE, _HI_SELF_FETCH, _HI_SHELLS, _HI_DOWNLOADERS,
         _HI_WRAPPERS, _HI_REMOTE, _NC_SHELLS, _NC_WRAPPERS, _NC_SUB_WRAPPERS, _NC_OPTION_RUNNERS, _NC_SCRIPT_OPTIONS,
         _NC_FD, _NC_ELSEWHERE, _NC_SCRIPT_WORDS, _NC_STDIN_SHELLS, _NC_AFTER_OPTION, _GNU_G_NAMES, _SECRET_STORES,
-        _NAMES_IN_CODE,
+        _NAMES_IN_CODE, _CLOUD_CLIS,
     ) for k in table if k == k.lower()
 )
 _FOLD_RUN_RE = re.compile(r"[^\s;|&()<>`]+")  # a candidate: a run of characters between the shell's separators
@@ -4783,9 +5383,11 @@ RULES: dict[str, Rule] = {
     "scratch-md": rule_scratch_md,
     "protected-branch": judged_twice("protected-branch", rule_protected_branch),
     "fan-out": rule_fan_out,
-    "guard-config": rule_guard_config,
+    "guard-config": judged_twice("guard-config", rule_guard_config),
     "tracker-guard": judged_twice("tracker-guard", rule_tracker_guard),
     "host-install": judged_twice("host-install", rule_host_install),
+    "cloud-launch": judged_twice("cloud-launch", rule_cloud_launch),
+    "github-tools": rule_github_tools,
 }
 PRE_RULES = list(RULES)
 
@@ -5023,6 +5625,23 @@ def run_post() -> int:
     return 0
 
 
+# The profile names where the session runs (D1 of item #65); step 1.0b adds `box`. Each entry: whether rules_off
+# counts, and what an ask becomes (None: it stays an ask). Every ask of a rule or of the guard itself passes
+# through the table where rules_off is applied: the combined ask is turned, so a deny keeps its own reasons.
+CLOUD_ASK_MSG = ("cloud session (CLAUDE_CODE_REMOTE): this would ask on the owner's machine, and nobody can answer "
+                 "here, so it is denied. {reason}")
+PROFILES = {
+    "host": {"rules_off": True, "ask": None},
+    "cloud": {"rules_off": False, "ask": CLOUD_ASK_MSG},
+}
+
+
+def profile(environ: Optional[Mapping[str, str]] = None) -> str:
+    """`cloud` when CLAUDE_CODE_REMOTE is true (the truth test of disposable_environment), else `host`."""
+    env = os.environ if environ is None else environ
+    return "cloud" if str(env.get("CLAUDE_CODE_REMOTE", "")).lower() not in ("", "0", "false") else "host"
+
+
 def run_hook(target: str, wrapper: Optional[str]) -> int:
     if target == "post":  # never blocks, so it runs without the budget
         return run_post()
@@ -5036,8 +5655,10 @@ def run_hook(target: str, wrapper: Optional[str]) -> int:
     if wrapper == "claude" and ev.harness == "copilot":
         return 0
     names = PRE_RULES if target == "pre" else [target]
-    # rules_off silences a rule's asks in an own repo; its denies stand, and any other boundary keeps everything
-    off = set(cfg["rules_off"]) if cfg.get("boundary") == "own" else set()
+    table = PROFILES[profile()]
+    # rules_off silences a rule's asks in an own repo where the profile lets it; its denies stand, and any other
+    # boundary keeps everything
+    off = set(cfg["rules_off"]) if table["rules_off"] and cfg.get("boundary") == "own" else set()
     if host_install_silent(cfg):  # its knob silences host-install under every boundary; logged as skipped below
         off.add("host-install")
     decisions: list[Decision] = []
@@ -5063,6 +5684,9 @@ def run_hook(target: str, wrapper: Optional[str]) -> int:
         decisions.append(("ask", msg.format(budget=HOOK_BUDGET_S, size=len(ev.command or ""), rules=late)))
         fired["budget"] = "ask"
     final = combine(decisions)
+    if final and final[0] == "ask" and table["ask"]:  # the profile's table; a deny keeps its own reasons
+        final = "deny", table["ask"].format(reason=final[1])
+        fired = {name: "deny" if v == "ask" else v for name, v in fired.items()}
     if final:
         log_decision(final, fired, ev, cfg)
     if skipped:
@@ -5087,6 +5711,7 @@ def log_decision(decision: Decision, fired: dict[str, str], ev: Event, cfg: dict
         "harness": ev.harness,
         "session": ev.session,
         "guard": VERSION,
+        "profile": profile(),
     }
     call = _call_id(ev)
     if call:

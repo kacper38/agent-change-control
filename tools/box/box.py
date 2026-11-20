@@ -15,7 +15,9 @@ none of the owner's home, no Docker socket and only these mounts. Tokens come on
 agent-box-claude and agent-box-github (plan section 7): never printed, never on a command line, never in the image
 or the repository; a missing, expired or revoked token stops the start with the entry's name, and nothing falls
 back to the owner's own gh login. A clone whose committed policy (.claude/guard.json at HEAD) does not say
-boundary own starts no box. Exit codes: 0 done, 1 refused or failed (the message names what to fix), 2 usage.
+boundary own starts no box. Inside, the judge's guard runs its profile `box` (guard 0.11.0): it logs or denies
+and never asks, so the wrapper no longer sets KZ_RULES_OFF (plan section 5, row 1, ended by step 1.0b).
+Exit codes: 0 done, 1 refused or failed (the message names what to fix), 2 usage.
 """
 import argparse
 import datetime as _dt
@@ -39,9 +41,6 @@ GITHUB_TOKEN = "agent-box-github"
 TOKEN_ENV = {CLAUDE_TOKEN: "CLAUDE_CODE_OAUTH_TOKEN", GITHUB_TOKEN: "GH_TOKEN"}
 MODEL = "claude-opus-5-5"  # plan section 6, decision 13: the wrapper pins the model; a brief cannot change it
 TRANSCRIPT_DAYS = 90  # decision 10
-# Plan section 5, row 1: for pull requests B and C, until the box profile of step 1.0b exists, the wrapper silences
-# the asks of these rules (their denies stand). Step 1.0b removes this line.
-RULES_OFF = "delete-guard,guard-config,scratch-md,fan-out,tracker-guard"
 PROJECT_DIR_FORM = '"${CLAUDE_PROJECT_DIR:-.}"'
 PIN_LINE = re.compile(r"([A-Z][A-Z0-9_]*)=(\S(?:.*\S)?)")
 NAME = re.compile(r"[a-z0-9][a-z0-9-]{0,39}")
@@ -288,8 +287,7 @@ def docker_argv(image: str, name: str, seat: str, judge_sha: str, mount_list: li
     argv += ["-it"] if tty else ["-i"]
     for key, value in (("BOX_NAME", name), ("BOX_SEAT", seat), ("BOX_IMAGE", image.split(":", 1)[1]),
                        ("BOX_JUDGE", judge_sha), ("BOX_HOST_HOME", os.path.expanduser("~")),
-                       ("CLAUDE_CONFIG_DIR", "/box-home"), ("KZ_TELEMETRY_DIR", "/box-home/telemetry"),
-                       ("KZ_RULES_OFF", RULES_OFF)):
+                       ("CLAUDE_CONFIG_DIR", "/box-home"), ("KZ_TELEMETRY_DIR", "/box-home/telemetry")):
         argv += ["-e", f"{key}={value}"]
     for var in TOKEN_ENV.values():
         argv += ["-e", var]  # by name: the value comes from the docker process's environment

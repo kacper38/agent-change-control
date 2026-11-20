@@ -186,12 +186,17 @@ DEFAULTS = {
 }
 
 
+BOUNDARIES = ("own", "client")
+
+
 def load_config(start: str) -> dict:
     """Merge DEFAULTS <- nearest .claude/guard.json (walking up) <- its sibling guard.local.json <- KZ_* env.
 
     guard.local.json is the owner's uncommitted override (gitignored): only its `rules_off` is read, so a
     session can silence rules without a diff in the reviewable policy and nothing else moves. rules_off is
-    dropped unless guard.json sits beside `.git` and says `boundary: own` itself (not the default)."""
+    dropped unless guard.json sits beside `.git` and says `boundary: own` itself (not the default) and the
+    effective boundary is own. The boundary only tightens (0.10.0): an unknown value counts as client, and
+    KZ_BOUNDARY=own leaves a committed client in force."""
     cfg = dict(DEFAULTS)
     d = os.path.abspath(start)
     relaxable = False  # rules_off counts only under a repo root whose committed guard.json says boundary own
@@ -207,6 +212,10 @@ def load_config(start: str) -> dict:
                     if isinstance(data, dict):
                         if path == candidate:
                             relaxable = data.get("boundary") == "own" and os.path.exists(os.path.join(d, ".git"))
+                            if data.get("boundary", "own") not in BOUNDARIES:  # an unknown value tightens
+                                print(f"guard: boundary {data['boundary']!r} in {path} is not own or client; "
+                                      "it counts as client", file=sys.stderr)
+                                data["boundary"] = "client"
                         else:  # the local file carries rules_off and nothing else
                             data = {k: v for k, v in data.items() if k == "rules_off"}
                         cfg.update(data)
@@ -224,8 +233,16 @@ def load_config(start: str) -> dict:
     if env:
         cfg["protected_branches"] = [b.strip() for b in env.split(",") if b.strip()]
     env = os.environ.get("KZ_BOUNDARY")
-    if env:
-        cfg["boundary"] = env.strip()
+    if env:  # it can only tighten: client sets client, own changes nothing, anything else counts as client
+        env = env.strip()
+        if env == "own" and cfg["boundary"] != "own":
+            print("guard: KZ_BOUNDARY=own does not loosen the committed boundary client", file=sys.stderr)
+        elif env != "own":
+            if env != "client":
+                print(f"guard: KZ_BOUNDARY {env!r} is no boundary (own or client); it counts as client",
+                      file=sys.stderr)
+            cfg["boundary"] = "client"
+    relaxable = relaxable and cfg["boundary"] == "own"
     env = os.environ.get("KZ_SCRATCH_MD")
     if env:
         cfg["scratch_md_mode"] = env.strip()

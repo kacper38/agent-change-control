@@ -186,9 +186,18 @@ VERIFIED = os.path.join(os.path.dirname(HERE), "orchestration", "verified.json")
 GATE = "hook-deny-checks-off"
 
 
-def probe_gate(pins: dict, path: str = VERIFIED) -> None:
-    """No session with permission checks off before the probe has shown, for this CLI version, that a hook's deny
-    blocks the call (criterion 2 of #63)."""
+def box_changed_since(sha: str) -> bool:
+    """True when tools/box differs between sha and HEAD, or sha is not a commit here."""
+    r = subprocess.run(["git", "diff", "--quiet", sha, "HEAD", "--", os.path.relpath(HERE, REPO)], cwd=REPO,
+                       capture_output=True)
+    return r.returncode != 0
+
+
+def probe_gate(pins: dict, path: str = VERIFIED, changed=box_changed_since) -> None:
+    """No session with permission checks off before the probe has shown that a hook's deny blocks the call, for
+    this CLI version and for the image as tools/box is now: the answer also rests on the image's settings and the
+    wrapper's rewrite of them, so any change under tools/box since the probed image asks for a new probe run
+    (criterion 2 of #63). A record made on an image with uncommitted changes never counts."""
     try:
         with open(path, encoding="utf-8") as fh:
             box = json.load(fh).get("box") or {}
@@ -199,6 +208,10 @@ def probe_gate(pins: dict, path: str = VERIFIED) -> None:
         raise BoxError(f"the probe has not shown that a hook's deny holds with permission checks off for CLI "
                        f"{pins.get('CLAUDE_CODE')} (record: CLI {box.get('cli_version')}, {GATE} {status}); "
                        f"run python3 tools/box/box_probe.py first")
+    probed = str(box.get("image", "")).split(":", 1)[-1]
+    if not re.fullmatch(r"[0-9a-f]{40}", probed) or changed(probed):
+        raise BoxError(f"tools/box changed since the probed image {box.get('image')}; run python3 "
+                       f"tools/box/box_probe.py again before a session starts")
 
 
 def boundary_of(text: str) -> str:

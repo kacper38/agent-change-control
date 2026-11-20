@@ -188,20 +188,27 @@ def test_prepare_refuses_bad_names_before_reading_any_token(box, monkeypatch, na
         box.prepare(name, seat)
 
 
-def gate_record(tmp_path, cli="2.1.323", status="holds"):
+PROBED = "agent-box:" + "a" * 40
+
+
+def gate_record(tmp_path, cli="2.1.323", status="holds", image=PROBED):
     path = tmp_path / "verified.json"
-    path.write_text(json.dumps({"canaries": {}, "box": {"cli_version": cli, "questions": {
+    path.write_text(json.dumps({"canaries": {}, "box": {"cli_version": cli, "image": image, "questions": {
         "hook-deny-checks-off": {"status": status}}}}), encoding="utf-8")
     return str(path)
 
 
+def unchanged(sha):
+    return False
+
+
 def test_probe_gate_passes_only_on_a_hold_for_the_pinned_cli(box, tmp_path):
     pins = {"CLAUDE_CODE": "2.1.323"}
-    box.probe_gate(pins, gate_record(tmp_path))
+    box.probe_gate(pins, gate_record(tmp_path), changed=unchanged)
     for cli, status in (("2.1.323", "not_run"), ("2.1.323", "fails"), ("2.1.323", "inconclusive"),
                         ("2.1.300", "holds")):
         with pytest.raises(box.BoxError, match="has not shown that a hook's deny holds"):
-            box.probe_gate(pins, gate_record(tmp_path, cli, status))
+            box.probe_gate(pins, gate_record(tmp_path, cli, status), changed=unchanged)
     with pytest.raises(box.BoxError, match="no probe record"):
         box.probe_gate(pins, str(tmp_path / "missing.json"))
 
@@ -260,6 +267,81 @@ def test_write_new_never_replaces_or_follows(box, tmp_path):
     assert target.read_text(encoding="utf-8") == "keep"
 
 
-def test_no_results_folder_reaches_the_container(box, tmp_path):
-    m = box.mounts(str(tmp_path), "b1", "/j", "/m.json")
-    assert not [dst for _, dst, _ in m if "result" in dst]
+def test_no_mount_source_holds_the_results_folder(box, tmp_path):
+    root = str(tmp_path)
+    results = os.path.join(root, "boxes", "b1", "results", "20261120T100000Z")
+    m = box.mounts(root, "b1", os.path.join(root, "judge", "x"), os.path.join(root, "boxes", "b1", "m.json"))
+    for src, dst, _ in m:
+        src = os.path.realpath(src)
+        assert not (results == src or results.startswith(src.rstrip(os.sep) + os.sep)), (src, dst)
+
+
+def test_probe_gate_refuses_when_tools_box_changed_or_the_record_was_dirty(box, tmp_path):
+    pins = {"CLAUDE_CODE": "2.1.323"}
+    with pytest.raises(box.BoxError, match="changed since the probed image"):
+        box.probe_gate(pins, gate_record(tmp_path), changed=lambda sha: True)
+    with pytest.raises(box.BoxError, match="changed since the probed image"):
+        box.probe_gate(pins, gate_record(tmp_path, image=PROBED + "-dirty"), changed=unchanged)
+
+
+def test_box_changed_since(box):
+    head = box.git("rev-parse", "HEAD")
+    assert box.box_changed_since(head) is False
+    assert box.box_changed_since("0" * 40) is True  # not a commit here: counts as changed
+
+
+def fake_box_run(box, monkeypatch, tmp_path, stdout_text, after_fails=False):
+    """run() with the containers faked: what it records from the container's stdout and the clone reads."""
+    root = tmp_path / "root"
+    monkeypatch.setattr(box, "box_root", lambda: str(root))
+    mounts_ = box.mounts(str(root), "b1", "/j", "/m.json")
+    monkeypatch.setattr(box, "prepare", lambda name, seat: ("agent-box:abc", "def", mounts_, {}))
+    heads = iter(["1" * 40, "2" * 40])
+
+    def facts(image, clone):
+        head = next(heads)
+        if after_fails and head.startswith("2"):
+            raise box.BoxError("cannot read the box's clone")
+        return {"head": head, "branch": "feat/x", "boundary": "own"}
+
+    monkeypatch.setattr(box, "clone_facts", facts)
+    seen = {}
+
+    def fake_run(argv, **kw):
+        seen["argv"], seen["stdin"] = argv, kw["stdin"].read()
+        kw["stdout"].write(stdout_text.encode())
+        return subprocess.CompletedProcess(argv, 0)
+
+    monkeypatch.setattr(box.subprocess, "run", fake_run)
+    brief = tmp_path / "brief.md"
+    brief.write_text("do the thing\n", encoding="utf-8")
+    out = io.StringIO()
+    code = box.run("b1", "b1", brief=str(brief), out=out)
+    path = out.getvalue().split("result ", 1)[1].strip()
+    return code, json.loads(open(path, encoding="utf-8").read()), seen
+
+
+RESULT = {"type": "result", "subtype": "success", "is_error": False, "total_cost_usd": 0.5, "num_turns": 3,
+          "session_id": "s1", "result": "done"}
+
+
+def test_run_records_the_last_stdout_line_and_both_heads(box, monkeypatch, tmp_path):
+    code, record, seen = fake_box_run(box, monkeypatch, tmp_path,
+                                      "firewall: set\n" + json.dumps(RESULT) + "\n")
+    assert code == 0 and record["result"]["session_id"] == "s1" and record["result"]["total_cost_usd"] == 0.5
+    assert (record["head_before"], record["head_after"], record["branch_after"]) == ("1" * 40, "2" * 40, "feat/x")
+    assert seen["stdin"] == b"do the thing\n" and seen["argv"][-len(box.HEADLESS):] == box.HEADLESS
+    assert record["brief_sha256"] and record["model"] == box.MODEL
+
+
+def test_run_fails_on_output_it_cannot_read(box, monkeypatch, tmp_path):
+    code, record, _ = fake_box_run(box, monkeypatch, tmp_path, "not json at all\n")
+    assert code == 1 and record["result"] is None
+    (tmp_path / "2").mkdir()
+    code, record, _ = fake_box_run(box, monkeypatch, tmp_path / "2", json.dumps(RESULT, indent=2) + "\n")
+    assert code == 1 and record["result"] is None  # multi-line JSON is not the CLI's form; it fails, never guesses
+
+
+def test_run_records_a_clone_it_cannot_read_after(box, monkeypatch, tmp_path):
+    code, record, _ = fake_box_run(box, monkeypatch, tmp_path, json.dumps(RESULT) + "\n", after_fails=True)
+    assert code == 0 and record["head_after"] is None and record["head_before"] == "1" * 40

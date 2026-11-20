@@ -3113,6 +3113,8 @@ def _az_flag_on(seg: list[str], name: str) -> bool:
 # 0.9.0: a merge of a pull request is the owner's call; `--admin` skips the branch protection
 _MERGE_API_RE = re.compile(r"(^|/)repos/[^/\s]+/[^/\s]+/pulls/\d+/merge/?($|\?)")
 MERGE_ASK_MSG = "tracker-guard: {what} merges a pull request, which is the owner's call. Confirm the command."
+APPROVE_ASK_MSG = ("tracker-guard: {what} approves a pull request, and an approval counts as a person's, which is the "
+                   "owner's call. Confirm the command.")
 
 
 def _http_method(seg: list[str]) -> str:
@@ -3415,6 +3417,8 @@ def _tracker_seg(seg: list[str]) -> Optional[Decision]:
             return "deny", TRACKER_MSG.format(what="`gh pr merge --admin` bypasses the branch protection",
                                               use="a merge the protection allows, by the owner")
         return "ask", MERGE_ASK_MSG.format(what="`gh pr merge`")
+    if group == "pr" and verb == "review" and ("--approve" in seg or "-a" in seg) and not _help_probe(seg):
+        return "ask", APPROVE_ASK_MSG.format(what="`gh pr review --approve`")
     if group == "label" and verb in ("create", "edit", "delete", "clone"):
         return "deny", TRACKER_MSG.format(what=f"`gh label {verb}` bypasses the tracker",
                                           use="`tracker owner labels-sync` (a human runs it)")

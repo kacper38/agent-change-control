@@ -146,7 +146,8 @@ class Event:
             self.harness = "claude"
         else:
             self.harness = "unknown"
-        self.kind = CLAUDE_TOOLS.get(self.tool) or COPILOT_TOOLS.get(self.tool) or "other"
+        self.kind = CLAUDE_TOOLS.get(self.tool) or COPILOT_TOOLS.get(self.tool) or (
+            "github" if self.tool.startswith(GITHUB_TOOL_PREFIXES) else "other")
         self.cwd = str(raw.get("cwd") or os.getcwd())
         self.session = str(raw.get("session_id") or raw.get("sessionId") or "")
         self.command = _first_str(self.args, "command", "cmd", "commandLine", "script")
@@ -4082,6 +4083,132 @@ def rule_cloud_launch(ev: Event, cfg: dict) -> Optional[Decision]:
 
 
 # ----------------------------------------------------------------------------
+# github-tools: the harness's own GitHub tools get the verdict of the same act in a shell or a file tool (#65, D5)
+# ----------------------------------------------------------------------------
+
+GITHUB_TOOL_PREFIXES = ("mcp__github__", "github-mcp-server-")  # Claude Code; Copilot (unverified, fixtures only)
+GITHUB_TWIN_MSG = "github-tools: {tool} is the same act as {twin}: {reason}"
+GITHUB_UNKNOWN_MSG = "github-tools: {tool} has no known twin and is not named as a read or harmless; confirm this call."
+GITHUB_BROKEN_MSG = "github-tools: {tool} came with {what}, which the guard cannot read; confirm this call."
+_GITHUB_HARMLESS = frozenset(
+    "create_branch create_pull_request update_pull_request update_pull_request_branch request_copilot_review"
+    " create_pending_pull_request_review add_comment_to_pending_review"
+    " add_pull_request_review_comment_to_pending_review".split())
+_GITHUB_REVIEWS = frozenset(
+    "pull_request_review_write create_and_submit_pull_request_review submit_pending_pull_request_review".split())
+# op -> (gh words, the method that picks the verb from `method`): every one is a write tracker-guard denies
+_GITHUB_TRACKER = {
+    "issue_write": ("issue", {"create": "create"}, "edit"), "create_issue": ("issue", {}, "create"),
+    "update_issue": ("issue", {}, "edit"), "add_issue_comment": ("issue", {}, "comment"),
+    "sub_issue_write": ("issue", {}, "edit"), "assign_copilot_to_issue": ("issue", {}, "edit"),
+    "label_write": ("label", {"create": "create", "delete": "delete"}, "edit"),
+    "create_label": ("label", {}, "create"), "update_label": ("label", {}, "edit"),
+    "delete_label": ("label", {}, "delete"),
+}
+_GITHUB_PATH_RULES = ("secret-write", "guard-config", "scratch-md")
+
+
+class _Unreadable(Exception):
+    """Input of a GitHub tool the twin cannot be built from; the rule asks with the text."""
+
+
+def github_op(tool: str) -> Optional[str]:
+    """The op of a GitHub tool name (`mcp__github__merge_pull_request` -> `merge_pull_request`), or None."""
+    for prefix in GITHUB_TOOL_PREFIXES:
+        if tool.startswith(prefix) and len(tool) > len(prefix):
+            return tool[len(prefix) :]
+    return None
+
+
+def _gh_number(args: dict) -> str:
+    """The pull request or issue number as a word (empty when none is given); not an int or digits: unreadable."""
+    for key in ("pullNumber", "pull_number", "issue_number", "issueNumber"):
+        if key in args:
+            v = args[key]
+            if isinstance(v, int) and not isinstance(v, bool) and v >= 0:
+                return f" {v}"
+            if isinstance(v, str) and v.isdigit():
+                return f" {v}"
+            raise _Unreadable(f"a {key} that is not a number")
+    return ""
+
+
+def _gh_text(args: dict, key: str, required: bool) -> Optional[str]:
+    v = args.get(key)
+    if v is None and not required and key not in args:
+        return None
+    if not isinstance(v, str) or not v:
+        raise _Unreadable(f"a {key} that is not text" if key in args else f"no {key}")
+    return v
+
+
+def _github_twins(op: str, args: dict, cfg: dict) -> Optional[list]:
+    """[(twin as shown, tool, input, rules)] for a GitHub op; [] for a read or a harmless op, None for no twin."""
+    if op == "get_file_contents":
+        path = _gh_text(args, "path", True)
+        return [(f"a `Read` of {path}", "Read", {"file_path": path}, ("secret-read",))]
+    if op.startswith(("get_", "list_", "search_")) or op.endswith("_read") or op in _GITHUB_HARMLESS:
+        return []
+    if op in _GITHUB_REVIEWS:
+        event = args.get("event")
+        if event is not None and not isinstance(event, str):
+            raise _Unreadable("an event that is not text")
+        if str(event or "").upper() != "APPROVE":
+            return []
+        return [_shell_twin(f"gh pr review{_gh_number(args)} --approve", "tracker-guard")]
+    if op in ("merge_pull_request", "enable_pr_auto_merge"):
+        auto = " --auto" if op == "enable_pr_auto_merge" else ""
+        return [_shell_twin(f"gh pr merge{_gh_number(args)}{auto}", "tracker-guard")]
+    if op in _GITHUB_TRACKER:
+        group, by_method, verb = _GITHUB_TRACKER[op]
+        method = args.get("method")
+        verb = by_method.get(method, verb) if isinstance(method, str) else verb
+        return [_shell_twin(f"gh {group} {verb}{_gh_number(args)}", "tracker-guard")]
+    if op in ("create_or_update_file", "push_files", "delete_file"):
+        branch = _gh_text(args, "branch", False)
+        if op == "push_files":
+            files = args.get("files")
+            if not isinstance(files, list) or not files or not all(
+                    isinstance(f, dict) and isinstance(f.get("path"), str) and f["path"] for f in files):
+                raise _Unreadable("files that are not a list of objects with a path")
+            paths = [f["path"] for f in files]
+        else:
+            paths = [_gh_text(args, "path", True)]
+        twins = [(f"a `Write` of {p}", "Write", {"file_path": p, "content": ""}, _GITHUB_PATH_RULES) for p in paths]
+        if op == "delete_file":
+            twins.append(_shell_twin(f"git rm {shlex.quote(paths[0])}", "delete-guard"))
+        if branch is None or branch in protected_branches(cfg):
+            twins.append(_shell_twin(f"git push origin HEAD:{branch or 'main'}", "git-guard"))
+        return twins
+    return None
+
+
+def _shell_twin(command: str, rule: str) -> tuple:
+    return f"`{command}`", "Bash", {"command": command}, (rule,)
+
+
+def rule_github_tools(ev: Event, cfg: dict) -> Optional[Decision]:
+    if ev.event != "PreToolUse" or ev.kind != "github":
+        return None
+    op = github_op(ev.tool) or ""
+    try:
+        twins = _github_twins(op, ev.args, cfg)
+    except _Unreadable as exc:
+        return "ask", GITHUB_BROKEN_MSG.format(tool=ev.tool, what=exc)
+    if twins is None:
+        return "ask", GITHUB_UNKNOWN_MSG.format(tool=ev.tool)
+    decisions = []
+    for shown, tool, tool_input, rules in twins:
+        twin = Event({"hook_event_name": "PreToolUse", "tool_name": tool, "tool_input": tool_input, "cwd": ev.cwd,
+                      "session_id": ev.session})
+        for name in rules:
+            d = RULES[name](twin, cfg)
+            if d:
+                decisions.append((d[0], GITHUB_TWIN_MSG.format(tool=ev.tool, twin=shown, reason=d[1])))
+    return combine(decisions)
+
+
+# ----------------------------------------------------------------------------
 # Command reader for deploy-ask and delete-guard (0.6.1): every simple command the shell would run, nested
 # scripts included, as tokens, so a variable, wrapper, option or nesting in front of a verb no longer hides it.
 # Built on the host-install lexer; segments() stays as it is for the git, tracker, secret and egress rules.
@@ -5162,6 +5289,7 @@ RULES: dict[str, Rule] = {
     "tracker-guard": judged_twice("tracker-guard", rule_tracker_guard),
     "host-install": judged_twice("host-install", rule_host_install),
     "cloud-launch": judged_twice("cloud-launch", rule_cloud_launch),
+    "github-tools": rule_github_tools,
 }
 PRE_RULES = list(RULES)
 

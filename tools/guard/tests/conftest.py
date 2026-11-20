@@ -35,4 +35,5 @@ def fixtures():
 def _isolated_telemetry(tmp_path, monkeypatch):
     monkeypatch.setenv("KZ_TELEMETRY_DIR", str(tmp_path / "telemetry"))
     monkeypatch.delenv("CLAUDE_PROJECT_DIR", raising=False)
+    monkeypatch.delenv("CLAUDE_CODE_REMOTE", raising=False)  # 0.10.0: the cloud profile only where a test sets it
     os.chdir(tmp_path)

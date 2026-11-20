@@ -1,0 +1,65 @@
+== 6b83c85 test(guard): pin the seventh round's --paginate and --config-env rules
+rows: 2190 | hold 2190 | red 0 | must-hold rows red: 0
+file rows: 36 | hold 36 | red 0
+tables in the test module: exit 0 | 22 of 22 as their files
+other string tables in the module: none
+
+-- unseen forms (HR due, HS must hold)
+heldout-b: HR red 0 of 124 | HS red 0 of 112
+heldout-b4: HR red 0 of 155 | HS red 0 of 102
+heldout-b5: HR red 0 of 38 | HS red 1 of 30
+RED HS [feat/x@own] shell expected silent, got delete-guard=ask | "echo brew UNINSTALL jq"
+heldout-c: HR red 0 of 12 | HS red 0 of 8
+heldout-b-fix: HR red 0 of 26 | HS red 0 of 15
+heldout-b-fix2: HR red 0 of 53 | HS red 0 of 18
+heldout-b-fix3: HR red 0 of 69 | HS red 0 of 74
+heldout-b-fix4: HR red 0 of 72 | HS red 0 of 41
+
+-- weaker than 0.8.0, each cell beside the due row that asks for it
+exit 1 | old 0.8.0 | new 0.9.0 | commands 6083 | cells 145992 | weaker 1343 | asked for by a due row, same context 120 | other context 162 | unexplained 1061 | crashes 0 same context, per id: F07 2, F08 3, F34 4, HR 21, K1 4, K10 3, K11 16, K2 5, K3 8, K4 11, K5 11, K6 12, K7 7, K8 5, K9 5, U4 2, X5 1 other context, per id: F34 8, HR 12, K1 8, K2 10, K3 16, K4 22, K5 22, K6 24, K7 14, K8 10, K9 10, U4 4, X
+cells no due row asks for: 1061 (list: <ORCH>/out-fix/6b83c85/weaker_cells.log); by kind:
+weaker cells no due row asks for: 1061 | distinct commands: 377
+== NO KIND | egress-guard | cells 1 | commands 1 | read before 1
+== NO KIND | secret-shell | cells 9 | commands 3 | read before 3
+== K1 find's pattern operand | host-install | cells 3 | commands 1 | read before 1
+== K10 command -v | egress-guard | cells 5 | commands 5 | read before 5
+== K11 quoted pattern | egress-guard | cells 32 | commands 32 | read before 32
+== K2 git restore --staged | delete-guard | cells 21 | commands 7 | read before 7
+== K3 search pattern | secret-shell | cells 69 | commands 23 | read before 23
+== K4 preview | delete-guard | cells 78 | commands 26 | read before 26
+== K4 preview | deploy-ask | cells 3 | commands 1 | read before 1
+== K5 help probe | delete-guard | cells 27 | commands 9 | read before 9
+== K5 help probe | deploy-ask | cells 3 | commands 1 | read before 1
+== K6 ls/stat/test | secret-shell | cells 261 | commands 87 | read before 87
+== K7 git report | secret-shell | cells 117 | commands 39 | read before 39
+== K8 exclude option | secret-shell | cells 18 | commands 6 | read before 6
+== K9 echo/printf text | secret-shell | cells 414 | commands 138 | read before 138
+
+-- every flag of the local search tools' help in front of a pattern and a secret file: must ask
+flag probes: 248 of 248 ask | silent: 0
+
+-- new prompts on the noise lists
+commands in context 240 | cells 1920 | stronger 25 | allowed stronger 0 | crashes 0
+
+-- cost: each rule called directly on 100 kB lines, limit 12 s per rule (client boundary)
+guard-6b83c85.py | size 100000 | branch main | boundary client | limit 12 s per rule
+gql-long             99998 B  total    0.7s  slow[secret-shell 0.4s]  tracker-guard=ask
+gql-long-caps        99998 B  total    1.2s  slow[secret-shell 0.6s]  tracker-guard=ask
+units: 14 | slowest total: 1.2 s
+-- cost: the real hook, 0.8.0 beside this commit, client boundary
+k11-many             99988 B |      315 ms ask     |      430 ms silent 
+k11-many-caps        99988 B |      603 ms ask     |      815 ms silent 
+
+== added on 2026-11-19 after the review of this folder: the three total lines of the weaker-cells check as it wrote them (line 19 above is cut at 400 characters by the script that printed it)
+old 0.8.0 | new 0.9.0 | commands 6083 | cells 145992 | weaker 1343 | asked for by a due row, same context 120 | other context 162 | unexplained 1061 | crashes 0
+same context, per id: F07 2, F08 3, F34 4, HR 21, K1 4, K10 3, K11 16, K2 5, K3 8, K4 11, K5 11, K6 12, K7 7, K8 5, K9 5, U4 2, X5 1
+other context, per id: F34 8, HR 12, K1 8, K2 10, K3 16, K4 22, K5 22, K6 24, K7 14, K8 10, K9 10, U4 4, X5 2
+
+== added on 2026-11-19 after the review of this folder: the commands under NO KIND, from the sorting script run again over the same cells without its list of commands already read (so "read before" is 0 here)
+== each line: the contexts (f a feature branch, m main; own or client boundary), the change, the command as data
+== NO KIND | egress-guard | cells 1 | commands 1 | read before 0
+  [f@client ask>silent] Grep -E 'a|openai|b' notes.txt
+== NO KIND | secret-shell | cells 9 | commands 3 | read before 0
+  [f@client,f@own,m@own ask>silent] gtest -f .env
+  [f@client,f@own,m@own ask>silent] gecho .env
+  [f@client,f@own,m@own ask>silent] gprintf .env

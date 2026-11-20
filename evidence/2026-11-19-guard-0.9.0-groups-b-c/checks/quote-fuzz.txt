@@ -1,0 +1,1 @@
+strings 400000 | masked and lexed 238768 | of them with a quoted word of separator characters 3591 | the mask gave up 19914 | not lexed 141318 | FAILURES 0

@@ -1,0 +1,14 @@
+unknown-git		foo 	git push --force
+unknown-GIT		foo 	GIT push --force
+unknown-git-many	mytool 	git 	push --force
+gql-long	gh api graphql -f query='mutation { 	a: addComment(input: {subjectId: "X", body: "b"}) { x } 	}'
+gql-long-caps	GH api graphql -f query='mutation { 	a: addComment(input: {subjectId: "X", body: "b"}) { x } 	}'
+wrap-noglob		noglob 	rm -rf x
+wrap-mixed		unshare gtimeout 5 noglob 	rm -rf x
+wrap-mixed-caps		UNSHARE GTIMEOUT 5 NOGLOB 	RM -rf x
+k11-many		grep -E 'a|ollama|b' f; 	true
+k11-many-caps		GREP -E 'a|OLLAMA|b' f; 	true
+quiet-many		ls .env; 	true
+fed-many		cat x | bash; 	true
+case-many	echo "$(	case x in a) echo;; esac; 	)"
+netpipe-many		foo git status | 	true

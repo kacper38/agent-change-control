@@ -1,0 +1,61 @@
+# guards, one letter each, in this order: 0.8.0 | a246385 (head of the sixth round) | 2a28378 (head of the seventh round) | 8f0a893 (the guard file of the head)
+# row: id, expectation, letters (s silent, a ask), pipe: and pty: with Z when zsh showed the marker and B when bash did, the command (`.env` is run as `secret.txt`)
+F71  ask    asaa pipe:-- pty:ZB | git -c core.pager='xargs cat' -p ls-files .env
+F71  ask    asaa pipe:-- pty:ZB | git -c core.pager='xargs cat' -p ls-files .env
+F71  ask    asaa pipe:-- pty:ZB | git -c core.pager='xargs cat' -p ls-files .env
+F71  ask    asaa pipe:-- pty:ZB | git -c core.pager='xargs cat' --paginate status -s .env
+F71  ask    asaa pipe:-- pty:ZB | git -c pager.ls-files='xargs cat' ls-files .env
+F71  ask    asaa pipe:-- pty:ZB | git -c pager.status='xargs cat' status -s .env
+F71  ask    asaa pipe:-- pty:ZB | git -c pager.status=true -c core.pager='xargs cat' status -s .env
+F71  ask    asaa pipe:-- pty:ZB | git -c pager.check-ignore='xargs cat' check-ignore --no-index .env
+F71  ask    asaa pipe:-- pty:ZB | git -C . -c core.pager='xargs cat' -p ls-files .env
+F71  ask    asaa pipe:-- pty:ZB | git --no-pager -c core.pager='xargs cat' -p ls-files .env
+F71  ask    asaa pipe:-- pty:ZB | export X='xargs cat'; git --config-env=pager.ls-files=X ls-files .env
+F71  ask    asaa pipe:-- pty:ZB | export X='xargs cat'; git --config-env pager.ls-files=X ls-files .env
+F71  ask    asaa pipe:-- pty:ZB | export GIT_PAGER='xargs cat'; git -p ls-files .env
+F71  ask    asaa pipe:-- pty:ZB | export GIT_PAGER='xargs cat'; git --paginate ls-files .env
+F71  ask    asaa pipe:-- pty:ZB | { git -c pager.ls-files='xargs cat' ls-files .env; }
+F71  ask    asaa pipe:-- pty:ZB | if git -c pager.ls-files='xargs cat' ls-files .env; then true; fi
+F71  ask    asaa pipe:-- pty:ZB | true && git -c core.pager='xargs cat' -p ls-files .env
+F72  ask    asaa pipe:-- pty:ZB | GIT_PAGER='xargs cat' git -p ls-files .env
+F72  ask    asaa pipe:-- pty:ZB | GIT_PAGER='xargs cat' git -p ls-files .env
+F72  ask    asaa pipe:-- pty:ZB | GIT_PAGER='xargs cat' git -p ls-files .env
+F72  ask    asaa pipe:-- pty:ZB | PAGER='xargs cat' git --paginate ls-files .env
+F72  ask    asaa pipe:-- pty:ZB | GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=pager.ls-files GIT_CONFIG_VALUE_0='xargs cat' git ls-files .env
+F72  ask    asaa pipe:-- pty:ZB | GIT_CONFIG_PARAMETERS="'pager.ls-files=xargs cat'" git ls-files .env
+F72  ask    asaa pipe:-- pty:ZB | GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=pager.status GIT_CONFIG_VALUE_0='xargs cat' git status -s .env
+F72  ask    asaa pipe:-- pty:ZB | if GIT_PAGER='xargs cat' git -p ls-files .env; then true; fi
+F72  ask    asaa pipe:-- pty:ZB | GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=pager.ls-files GIT_CONFIG_VALUE_0='xargs cat' git -C . ls-files .env
+F72  ask    asaa pipe:-- pty:ZB | X=1 2>/dev/null GIT_CONFIG_PARAMETERS="'pager.ls-files=xargs cat'" git ls-files .env
+F72  ask    asaa pipe:-- pty:ZB | if true; then GIT_CONFIG_PARAMETERS="'pager.ls-files=xargs cat'" git ls-files .env; fi
+F72  ask    asaa pipe:-- pty:ZB | ! GIT_CONFIG_PARAMETERS="'pager.ls-files=xargs cat'" git ls-files .env
+F72  ask    asaa pipe:-- pty:ZB | git ls-files .env; GIT_CONFIG_PARAMETERS="'pager.ls-files=xargs cat'" git ls-files .env
+F72  ask    asaa pipe:-- pty:ZB | GIT_CONFIG_PARAMETERS="'pager.ls-files=xargs cat'" git ls-files .env; git ls-files .env
+Fs   ask    asaa pipe:-- pty:-- | git -c color.ui=always status .env
+Fs   ask    asaa pipe:-- pty:-- | git -c core.quotepath=off ls-files .env
+Fs   ask    asaa pipe:-- pty:-- | git --no-optional-locks status .env
+Fs   ask    asaa pipe:-- pty:-- | git --literal-pathspecs ls-files .env
+Fs   ask    asaa pipe:-- pty:-- | git --git-dir=.git --work-tree=. status .env
+Fs   ask    asaa pipe:-- pty:-- | git -p status .env
+Fs   ask    asaa pipe:-- pty:-- | git -C. status .env
+Fs   ask    asaa pipe:-- pty:-- | git --no-pager=1 status .env
+Fs   ask    asaa pipe:-- pty:-- | LC_ALL=C git status .env
+Fs   ask    asaa pipe:-- pty:-- | GIT_OPTIONAL_LOCKS=0 git status --short .env
+Fs   ask    asaa pipe:-- pty:-- | X=1 >/dev/null git ls-files .env
+Fs   ask    asaa pipe:-- pty:-- | git --exec-path=/usr/bin ls-files .env
+Fs   silent asss pipe:-- pty:-- | git status .env
+Fs   silent asss pipe:-- pty:-- | git status --short .env
+Fs   silent asss pipe:-- pty:-- | git ls-files .env
+Fs   silent asss pipe:-- pty:-- | git check-ignore -v .env
+Fs   silent asss pipe:-- pty:-- | git --no-pager status .env
+Fs   silent asss pipe:-- pty:-- | git -P ls-files .env
+Fs   silent asss pipe:-- pty:-- | git -C . status .env
+Fs   silent asss pipe:-- pty:-- | git -C sub --no-pager ls-files .env
+Fs   silent asss pipe:-- pty:-- | git --no-pager -C sub -P check-ignore .env
+Fs   silent asss pipe:-- pty:-- | git status .env >/dev/null 2>&1
+Fs   silent asss pipe:-- pty:-- | if git ls-files .env; then true; fi
+Fs   silent asss pipe:-- pty:-- | ! git --no-pager check-ignore -q .env
+Fs   silent asss pipe:-- pty:-- | git -C -p ls-files .env
+Fs   silent asss pipe:-- pty:-- | > log=1.txt git ls-files .env
+Fs   silent asss pipe:-- pty:-- | LC_ALL=C ls -la .env
+Fs   silent asss pipe:-- pty:-- | TZ=UTC stat .env

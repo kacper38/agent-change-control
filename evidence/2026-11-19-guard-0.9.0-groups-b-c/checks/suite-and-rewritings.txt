@@ -1,0 +1,68 @@
+== the lint and the whole suite on Python 3.13 and 3.9 (the session's own run)
+== 6b83c85 feat/guard-0.9.0 | guard 0.9.0
+== ruff
+All checks passed!
+ruff exit 0
+== pytest on Python 3.13
+7541 passed, 9 skipped in 47.20s
+pytest 3.13 done in 48 s
+== pytest on Python 3.9
+7541 passed, 9 skipped in 70.65s (0:01:10)
+pytest 3.9 done in 72 s
+
+== the engineers' rewriting check (one guard, the 14 row files)
+  subpipe protected-branch  1
+turns: deny>ask 35
+== pipesub | git-guard | commands 2
+== subpipe | git-guard | commands 2
+== bracepipe | git-guard | commands 2
+== suberrpipe | git-guard | commands 2
+== subnlpipe | git-guard | commands 2
+== pipesub | protected-branch | commands 1
+== subpipe | protected-branch | commands 1
+== bracepipe | protected-branch | commands 1
+== suberrpipe | protected-branch | commands 1
+== subnlpipe | protected-branch | commands 1
+
+== plain verdicts beside the design probe, both ways (0 weaker cells each way means the same answers)
+head weaker than the probe: 0 cells | old 0.9.0 | new 0.9.0 | commands 5101 | cells 122424 | weaker 0 | asked for by a due row, same context 0 | other context 0 | unexplained 0 | crashes 0
+probe weaker than the head: 0 cells | old 0.9.0 | new 0.9.0 | commands 5101 | cells 122424 | weaker 0 | asked for by a due row, same context 0 | other context 0 | unexplained 0 | crashes 0
+-- the same beside the head before this round (2a28378): no verdict may differ
+head weaker than 2a28378: 0 cells | old 0.8.0 | new 0.9.0 | commands 5101 | cells 122424 | weaker 0 | asked for by a due row, same context 0 | other context 0 | unexplained 0 | crashes 0
+2a28378 weaker than the head: 177 cells | old 0.9.0 | new 0.8.0 | commands 5101 | cells 122424 | weaker 177 | asked for by a due row, same context 0 | other context 0 | unexplained 177 | crashes 0
+
+== multi-line check, plain and wrappers
+  subnlpipe protected-branch  6
+  subnlpipe tracker-guard     3
+  subpipe delete-guard      6
+  subpipe git-guard         21
+  subpipe protected-branch  6
+  subpipe tracker-guard     3
+... 1500 of 4941 commands, weaker cells so far 0
+... 2000 of 4941 commands, weaker cells so far 0
+guard 0.9.0 | commands 4941 | rewritings judged: sudo 7683, env 7683, command 7683, nohup 7683, timeout 7683, assign 7683, err 7683, dup 7683, semi 7683, space 7683, crlf 7683, tab 7683
+weaker cells 0 | distinct commands 0 | crashes 0
+
+== two-guard rewriting check, 0.8.0 beside 6b83c85
+old 0.8.0 | new 0.9.0 | commands 1236 of 4941 | texts judged 150201 | cells 5404 | crashes 0
+classes: A-new 3, A-old 79, B-inherited 5316, B-own 9
+old 0.8.0 | new 0.9.0 | commands 1235 of 4941 | texts judged 148932 | cells 5382 | crashes 0
+classes: A-new 3, A-old 82, B-inherited 5291, B-own 9
+old 0.8.0 | new 0.9.0 | commands 1235 of 4941 | texts judged 150843 | cells 4638 | crashes 0
+classes: A-new 15, A-old 106, B-inherited 4508, B-own 24
+old 0.8.0 | new 0.9.0 | commands 1235 of 4941 | texts judged 151017 | cells 4742 | crashes 0
+classes: A-new 6, A-old 89, B-inherited 4647, B-own 6
+cells per class: A-new 27 (7 commands), A-old 356 (58 commands), B-inherited 19762 (387 commands), B-own 48 (14 commands)
+=== A-new: rewritings and rules 4
+== A-new | cont1 | secret-shell | commands 6
+== A-new | contN | secret-shell | commands 1
+== A-new | tabs | secret-shell | commands 1
+== A-new | sp2 | secret-shell | commands 1
+=== B-own: rewritings and rules 6
+== B-own | cont1 | secret-shell | commands 6
+== B-own | qsubst | secret-shell | commands 4
+== B-own | contN | deploy-ask | commands 3
+== B-own | contN | secret-shell | commands 1
+== B-own | tabs | secret-shell | commands 1
+== B-own | sp2 | secret-shell | commands 1
+verify-head2 exit 0

@@ -1,0 +1,51 @@
+# line 6: GraphQL
+gh api graphql -f query='mutation { closeIssue(input: {issueId: "X"}) { clientMutationId } }'
+gh api graphql -f query='mutation{closeIssue(input:{issueId:"X"}){clientMutationId}}'
+gh api graphql -f query='mutation M { x: closeIssue(input: {issueId: "X"}) { clientMutationId } }'
+gh api graphql --raw-field query='mutation { closeIssue(input: {issueId: "X"}) { clientMutationId } }'
+gh api graphql --raw-field 'query=mutation { closeIssue(input: {issueId: "X"}) { clientMutationId } }'
+gh api graphql -F query=@q.graphql
+gh api graphql --input body.json
+gh api graphql -f query="$Q"
+gh api /graphql -f query='mutation { closeIssue(input: {issueId: "X"}) { clientMutationId } }'
+gh api https://api.github.com/graphql -f query='mutation { closeIssue(input: {issueId: "X"}) { clientMutationId } }'
+gh api graphql/ -f query='mutation { closeIssue(input: {issueId: "X"}) { clientMutationId } }'
+gh api -X POST graphql -f query='mutation { closeIssue(input: {issueId: "X"}) { clientMutationId } }'
+gh api --method POST /graphql -f query='mutation { closeIssue(input: {issueId: "X"}) { clientMutationId } }'
+gh api graphql -f query=$'mutation { closeIssue(input: {issueId: "X"}) { id } }'
+gh api graphql -f query=$'mut\x61tion { closeIssue(input: {issueId: "X"}) { id } }'
+gh api graphql -f query='mut''ation { closeIssue(input: {issueId: "X"}) { id } }'
+gh api graphql -f query=mut"ation { closeIssue(input: {issueId: \"X\"}) { id } }"
+gh api graphql -f query='# q
+mutation { closeIssue(input: {issueId: "X"}) { id } }'
+gh api graphql -f query='mutation { addComment(input: {subjectId: "X", body: "} {"}) { clientMutationId } }'
+gh api graphql -f query='mutation { addComment(input: {subjectId: "X", body: "a"}) { x } } mutation B { closeIssue(input: {issueId: "X"}) { id } }'
+gh api graphql -f query='mutation { a: addComment(input: {subjectId: "X", body: """ { """}) { x } closeIssue(input: {issueId: "X"}) { id } }'
+gh api graphql -f query='mutation { # }
+closeIssue(input: {issueId: "X"}) { id } }'
+gh api graphql -f query='mutation($i: ID!) { closeIssue(input: {issueId: $i}) { id } }' -f i=X
+gh api graphql -f query='mutation { updateIssue(input: {id: "X", state: CLOSED}) { issue { id } } }'
+gh api graphql -f query='mutation { updateProjectV2ItemFieldValue(input: {}) { x } }'
+gh api graphql -f query='mutation { addLabelsToLabelable(input: {}) { x } }'
+gh api graphql -f query='mutation { transferIssue(input: {}) { x } }'
+gh api graphql -f query='mutation { mergePullRequest(input: {pullRequestId: "X"}) { x } }'
+gh api graphql -f query='{ viewer { login } }'
+gh api graphql -f query='query { repository(owner: "o", name: "r") { issues(first: 5) { nodes { title } } } }'
+gh api graphql -f query='query { search(query: "mutation testing", type: ISSUE, first: 1) { issueCount } }'
+gh api graphql --paginate -f query='query($endCursor: String) { viewer { repositories(first: 100, after: $endCursor) { nodes { name } } } }'
+curl -X POST https://api.github.com/graphql -d '{"query":"mutation { closeIssue(input: {issueId: \"X\"}) { id } }"}'
+curl https://api.github.com/graphql --data-raw '{"query":"mutation { closeIssue(input: {issueId: \"X\"}) { id } }"}'
+curl https://api.github.com/graphql --json '{"query":"mutation { closeIssue(input: {issueId: \"X\"}) { id } }"}'
+curl https://api.github.com/graphql --data-binary @q.json
+curl https://API.GITHUB.COM/graphql -d '{"query":"mutation { closeIssue(input: {issueId: \"X\"}) { id } }"}'
+curl https://api.github.com/graphql -d '{"query":"query { viewer { login } }"}'
+curl -H "Authorization: bearer x" https://api.github.com/graphql -d '{"query":"query { viewer { login } }"}'
+http POST https://api.github.com/graphql query='mutation { closeIssue(input: {issueId: "X"}) { id } }'
+http https://api.github.com/graphql query:='"mutation { closeIssue(input: {issueId: \"X\"}) { id } }"'
+http https://api.github.com/graphql < q.json
+curl https://api.github.com/graphql -d @-
+wget --post-data='{"query":"mutation { closeIssue(input: {issueId: \"X\"}) { id } }"}' https://api.github.com/graphql
+xh https://api.github.com/graphql query='mutation { closeIssue(input: {issueId: "X"}) { id } }'
+gh api graphql -f query=@q.graphql
+gh api graphql -F query=@-
+gh api graphql -f query="$(cat q.graphql)"

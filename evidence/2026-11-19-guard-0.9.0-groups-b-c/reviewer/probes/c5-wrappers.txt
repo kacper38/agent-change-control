@@ -1,0 +1,84 @@
+# line 3: tools that run a command
+unshare -S 0 -G 0 rm -rf x
+unshare --setuid 0 rm -rf x
+unshare -w /tmp rm -rf x
+unshare --root /x rm -rf x
+nsenter -t 1 -m rm -rf x
+nsenter --target 1 rm -rf x
+runuser -u bob -- rm -rf x
+runuser -u bob rm -rf x
+taskset -c 0 rm -rf x
+taskset 0x1 rm -rf x
+chrt -f 10 rm -rf x
+chrt 10 rm -rf x
+ltrace -o out rm -rf x
+ltrace -e malloc rm -rf x
+valgrind --tool=memcheck rm -rf x
+gdb --args rm -rf x
+gdb -q -ex run --args rm -rf x
+lldb -- rm -rf x
+lldb /bin/rm -- -rf x
+firejail --private rm -rf x
+systemd-run --user -p X=y rm -rf x
+systemd-run --unit foo rm -rf x
+watchexec -e py -- rm -rf x
+watchexec -w src rm -rf x
+entr -s 'rm -rf x'
+entr rm -rf x
+sshpass -p pw rm -rf x
+xcrun --sdk macosx rm -rf x
+faketime '2020-01-01' rm -rf x
+faketime -f '+1d' rm -rf x
+lockf -t 10 lockfile rm -rf x
+lockf lockfile rm -rf x
+gosu bob rm -rf x
+ssh-agent rm -rf x
+ssh-agent -a sock rm -rf x
+ssh-agent -t 60 rm -rf x
+fakeroot -s save rm -rf x
+unbuffer -p rm -rf x
+pkexec --user root rm -rf x
+noglob rm -rf x
+- rm -rf x
+hyperfine 'rm -rf x'
+hyperfine -w 3 'rm -rf x'
+hyperfine --prepare 'rm -rf x' 'ls'
+hyperfine -p 'rm -rf x' ls
+hyperfine --setup 'rm -rf x' ls
+hyperfine --cleanup 'rm -rf x' ls
+hyperfine -N 'rm -rf x'
+hyperfine --shell=bash 'rm -rf x'
+hyperfine -S bash 'rm -rf x'
+watchexec 'rm -rf x'
+op run --env-file .env -- rm -rf x
+op run -- rm -rf x
+aws-vault exec prod -- rm -rf x
+aws-vault exec --duration 1h prod -- rm -rf x
+aws-vault exec prod rm -rf x
+doppler run -- rm -rf x
+doppler run --command 'rm -rf x'
+dotenv run -- rm -rf x
+dotenv -f .env run rm -rf x
+launchctl submit -l lab -- rm -rf x
+launchctl asuser 501 rm -rf x
+noglob unshare rm -rf x
+sudo noglob rm -rf x
+timeout 5 hyperfine 'rm -rf x'
+unshare git push --force origin main
+hyperfine 'git push --force'
+op run -- git push --force
+watchexec -- git push --force
+sudo -u bob hyperfine 'rm -rf x'
+env FOO=1 ssh-agent rm -rf x
+xcrun -sdk macosx rm -rf x
+gdb ./a.out
+valgrind --version
+hyperfine --help
+op run --help
+lldb ./a.out
+watchexec --help
+entr -h
+ssh-agent -k
+op item list
+taskset -p 123
+- ls

@@ -40,7 +40,7 @@ CASES: dict = {
             "git push origin :old-branch", "find . -name '*.pyc' -delete", "kubectl delete pod web-0",
             "docker system prune -af", "rclone sync remote:a remote:b", "psql -c \"DELETE FROM users WHERE id = 1\"",
             "python3 -c \"import shutil; shutil.rmtree('x')\"", "npm uninstall lodash", "cd dist && rm bundle.js",
-            "git -C ../repo clean -fd", "truncate -s 0 app.log", "git restore --staged main.py", "git stash drop",
+            "git -C ../repo clean -fd", "truncate -s 0 app.log", "git restore main.py", "git stash drop",
         ),
         *shell(
             "allow",
@@ -99,6 +99,10 @@ CASES: dict = {
         *shell("allow", "git checkout -b feat origin/feat"),
         # guard 0.8.0: a script fed to a shell on standard input is read as a script
         *shell("ask", "echo 'rm -rf build' | bash"),
+        # guard 0.9.0, group C (rows K2): `git restore --staged` changes the index only; it asked before
+        *shell("allow", "git restore --staged main.py"),
+        # guard 0.9.0: emptying a download cache the offline checks run from (rows R3)
+        *shell("ask", "uv cache clean"),
     ],
     "secret-write": [
         ("deny", "write", {"path": ".env", "content": "TOKEN=abc"}),
@@ -366,12 +370,14 @@ CASES: dict = {
             "allow",
             "gh issue view 1", "gh issue list --state open", "gh issue status", "gh api repos/o/r/issues/1",
             "gh api repos/o/r/issues --jq '.[].number'", "curl https://api.github.com/repos/o/r/issues/1",
-            "gh pr create --fill", "gh pr merge 3 --rebase", "gh label list",
+            "gh pr create --fill", "gh pr view 3", "gh label list",
             "tracker claim 4 --branch step-5", "python3 tools/tracker/tracker.py new --title x",
             "tracker list --status ready", "gh issue list --label handoff",
             "gh issue view 9 --comments", "gh api -X POST repos/o/r/pulls -f title=x",
             "echo 'gh issue close 1'",
         ),
+        # guard 0.9.0: a merge is the owner's call (rows W3); it passed before
+        *shell("ask", "gh pr merge 3 --rebase"),
         # Azure DevOps (ADO port step A3): work items are issues, tags are labels
         *shell(
             "deny",
@@ -414,6 +420,9 @@ CASES: dict = {
             "git commit -q -F - <<'EOF'\ndocs: x\n\nnever send bypassRules=true\nEOF",
             "az --output table boards work-item show --id 12",  # a global option before a read
         ),
+        # guard 0.9.0: a GraphQL mutation of an issue is the REST write's twin (rows L1)
+        *shell("deny",
+               "gh api graphql -f query='mutation { closeIssue(input: {issueId: \"I_1\"}) { clientMutationId } }'"),
     ],
     # the rule asks whatever the mode; run_hook silences it (off, auto in a container or CI): test_host_install.py
     "host-install": [

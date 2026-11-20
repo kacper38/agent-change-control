@@ -209,8 +209,45 @@ variables (`KZ_TRACKER_REPO`, `KZ_TRACKER_AREA`, `KZ_TRACKER_ADO_MODE`,
   `nix develop -c`) and inside a container (`docker run|exec`, `compose`,
   `kubectl exec|debug`); an install inside a container stays silent, because
   that is the agreed route for installs. The guard reads text and prompts; it
-  is no sandbox, and `DECISIONS.md` (2026-11-16, 2026-11-17 and 2026-11-18)
-  lists the forms it does not see.
+  is no sandbox, and `DECISIONS.md` (2026-11-16, 2026-11-17, 2026-11-18 and
+  2026-11-19) lists the forms it does not see.
+- Since guard 0.9.0 the tables reach the tools, verbs and secret stores they
+  did not name, and eleven kinds of false asks are gone. `deploy-ask` asks
+  when a cloud CLI runs a command on a live host or container
+  (`aws ssm send-command`, `az vm run-command invoke`) and for every `az` call
+  whose verb is no known read. `delete-guard` asks when a package, a tool
+  version or a download cache is removed (`uv remove`, `gem uninstall`,
+  `uv cache clean`, `brew cleanup`). Thirty more tools that run the command
+  after them are read like `timeout` (`unshare`, `noglob`, `op run --`,
+  `hyperfine '…'`), and the Homebrew names of the GNU tools are the tools
+  (`grm`, `gcp`, `genv`). Behind a command no table knows, `git`, `gh` and
+  `az` are still judged, and the answer is an ask
+  (`mytool git push --force origin feat`). `tracker-guard` denies a GraphQL
+  mutation that names an issue or a label, asks for any other mutation and for
+  a document it cannot read (`gh api graphql`, `curl`, `wget`, httpie); it
+  asks for a merge of a pull request (`gh pr merge 3`, a `PUT` to
+  `…/pulls/3/merge`) and denies `gh pr merge --admin`. `protected-branch`
+  denies `git update-ref` on a protected branch. A shell that reads its
+  program from a pipe the guard cannot read asks (`cat run.sh | bash`), and
+  the rest of that line is still read. `secret-shell` asks for a command that
+  prints a secret from a store (`vault kv get`, `op read`,
+  `kubectl get secret -o yaml`, `gh auth token`). A capital letter no longer
+  passes in the guard's own paths, in the GitHub API host or in a verb of
+  `brew` and `gem`. Gone are the asks for a secret file's name that is only
+  text, a test or a lookup (`ls -la .env`, `test -f .env`,
+  `echo .env >> .gitignore`, `grep -rn .env docs`, `git status .env`,
+  `tar --exclude .env`), for a preview or a help probe (`git clean -n`,
+  `kubectl delete --dry-run=client`, `rm --help`), for
+  `git restore --staged` and `find . -name yarn`, and inside a client
+  boundary for `command -v codex` and for a search pattern that names another
+  vendor's tool. Such a report stays silent only on a line the guard reads
+  the way the shell does, only when the command is that report for certain,
+  and only while its output goes to no other command: `ls .env | xargs cat`,
+  `cat $(echo .env)` and `git -c core.pager='xargs cat' -p ls-files .env`
+  keep asking. A git report is silent only beside other such reports, `cd`,
+  `true` and `false`, because any other command of the line could name the
+  program git hands its output to: `cd . && git status .env` is silent,
+  `git add -A && git status .env` asks.
 - Since guard 0.8.0 a guarded form written another way is read like the plain
   one. `secret-shell` reads a secret path glued to an option, behind `@` or as
   the source of `<` (`--env-file=.env`, `curl -d @.env`, `cat <.env`), and

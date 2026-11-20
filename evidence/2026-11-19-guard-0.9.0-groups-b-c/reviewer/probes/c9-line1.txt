@@ -1,0 +1,30 @@
+# line 1: other changed readers
+git commit -m "$(echo case x in a)" --no-verify
+git commit -m "$(echo case in a)" --no-verify
+git commit -m "$(echo 'case x in a)')" --no-verify
+echo "$(echo case x in a)"; git push --force origin main
+echo $(echo case x in a); git push --force origin main
+echo "$(echo case x in a)" && rm -rf x
+git commit --no-verify -m "$(echo case x in a)"
+echo `echo case x in a)`; git push --force origin main
+"git commit -m \"$(cat <<'EOF'\ncase x in\nEOF\n)\" --no-verify"
+ssh host -o ProxyCommand='git push --force' ls
+ssh host -oProxyCommand='git push --force' ls
+ssh -o ProxyCommand='git push --force' host ls
+ssh host -o 'ProxyCommand=git push --force origin main'
+ssh host -p 22 git push --force
+ssh host -l me git push --force
+ssh host -N git push --force
+ssh host -- git push --force
+ssh host -T git push --force
+eval 'export HUSKY=0'; git commit -m x
+eval export LEFTHOOK=false; git commit -m x
+eval "set -a"; HUSKY=0; git commit -m x
+LEFTHOOK=FALSE git commit -m x
+LEFTHOOK=False git commit -m x
+LEFTHOOK=off git commit -m x
+LEFTHOOK=no git commit -m x
+HUSKY=false git commit -m x
+cat run.sh | HUSKY=0 bash
+cat -- run.sh | bash
+cat - | bash

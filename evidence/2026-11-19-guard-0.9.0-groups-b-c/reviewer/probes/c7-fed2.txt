@@ -1,0 +1,22 @@
+cat run.sh | (bash)
+cat run.sh | { bash; }
+cat run.sh | exec bash
+cat run.sh | command bash
+cat run.sh | bash -l
+cat run.sh | bash --norc
+cat run.sh | bash -o pipefail
+cat run.sh | bash --
+cat run.sh | bash -c "$(cat)"
+cat run.sh | if true; then bash; fi
+cat run.sh | ( cd x && bash )
+cat run.sh | { cd x; bash; }
+cat run.sh | noglob bash
+cat run.sh | unshare bash
+cat run.sh | hyperfine bash
+cat run.sh | gtimeout 5 bash
+cat run.sh | genv bash
+cat run.sh | sh -s -e
+cat run.sh | bash -i
+cat run.sh | bash +x
+cat run.sh | bash -O extglob
+cat run.sh | bash --rcfile x

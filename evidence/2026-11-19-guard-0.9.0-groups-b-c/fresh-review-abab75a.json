@@ -1,0 +1,50 @@
+{
+  "base": "d1052b1",
+  "base_sha": "d1052b1bdd91f76b23a7903c187536ef3fb3c2c0",
+  "cost_usd": 1.295416,
+  "diff_sha256": "9440113083141ed8e3d49cfbb8a2510c1dec0ff2aad4a13e76df72550c6ce2c6",
+  "duration_ms": 55835,
+  "findings": [
+    {
+      "file": "tools/guard/guard.py",
+      "line": 3634,
+      "severity": "MAJOR",
+      "summary": "Fail-open default. `_nc_read(..., unread: Optional[list] = None)` and `_nc_fed(..., unread=None)` used to raise `CommandNotRead(_PIPE_NOT_READ)` unconditionally. Now `if cmds is not None and unread is not None and _nc_compound_pipe(...)` (line 3686) and `if unread is not None and _nc_pipe_shell(piped)` (line 3911) drop the check without a word when no list is passed. Only `_nc_cached` passes one today. Any other or future caller of `_nc_read`/`_nc_fed` passes a shell-from-pipe line unread. Fix: make `unread` required, or raise when it is None."
+    },
+    {
+      "file": "tools/guard/tests/test_table_forms.py",
+      "line": 2105,
+      "severity": "MAJOR",
+      "summary": "A verification was swapped, not added to. The old `assert took < 2, f\"{took:.2f} s: a slow hook fails open\"` bounded the real safety property: the hook has a 5 s timeout and fails open. The new `assert len(readings) == 1` only proves that `_pattern_places` runs once. Any other slow path on a 20 kB line now passes the suite. Keep a generous time bound (e.g. < 4 s) next to the count, or record in DECISIONS.md why the timing check is dropped."
+    },
+    {
+      "file": "tools/guard/guard.py",
+      "line": 1425,
+      "severity": "MINOR",
+      "summary": "`if failed is None or failed == _pipe_ask(\"secret-shell\")` matches only when the unread-pipe ask is the only reader verdict. If `reader_pass` combines it with another ask (e.g. a NET_MSG ask), `nested_inputs` is skipped. A secret read like `cat < .env` on that line is then not added to `reads`, so its own verdict can be lost. Check that the decision is not a deny, rather than testing equality with one message."
+    },
+    {
+      "file": "tools/guard/guard.py",
+      "line": 2840,
+      "severity": "MINOR",
+      "summary": "`return httpie, None` replaces the F05 `<` check. The F38 row makes `http POST \u2026/graphql query='query {\u2026}' < q.json` silent where it asked before. This loosening rests on a measurement noted in a row comment (\"httpie refuses a request item beside a body on standard input\"). This diff adds no DECISIONS.md line for it."
+    },
+    {
+      "file": "tools/guard/guard.py",
+      "line": 3584,
+      "severity": "MINOR",
+      "summary": "Behaviour change with no record in this diff: an unread pipe no longer ends the read (it was `CommandNotRead`). The reader now reads on and asks only when no deny is found (F40). The docstrings cite 'decision ad' and an 'addendum', but this diff updates neither DECISIONS.md nor the guard's changelog/version."
+    }
+  ],
+  "model_requested": "opus",
+  "models": [
+    "claude-opus-5-5"
+  ],
+  "prompt_file": "tools/review/prompt.md",
+  "prompt_sha256": "81ce77580a087fa6fb733a1feb8b9522411d8216e76475cffc3f87e3ca3c0a77",
+  "sha": "abab75ae267b467e383b8b0b291d174dda31deff",
+  "summary": "No BLOCKERs. The second fix round and its addendum add 400+ pinned rows, and the logic changes close real gaps (ports, doubled slashes, `command -p`/`time` export, httpie `--raw`/stdin, backslash-newline redirect targets, quiet reports failing closed on brackets). There are two MAJOR findings. First, an unread pipe used to raise `CommandNotRead`. It now only adds a mark when the caller passes `unread`, so the default fails open. Second, a timing bound in a test was swapped for a call count, and the count pins only one cause of slowness. Minor points: one equality check is fragile, and the behaviour changes and one loosening have no DECISIONS.md line in this diff.",
+  "ts": "2026-11-19T14:49:55Z",
+  "verdict": "COMMENT",
+  "verdict_as_answered": "COMMENT"
+}

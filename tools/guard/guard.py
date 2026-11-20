@@ -786,6 +786,97 @@ def rule_delete_guard(ev: Event, cfg: dict) -> Optional[Decision]:
     return combine([("ask", DELETE_MSG.format(what=w)) for w in (what, pipe) if w])
 
 
+# 0.11.0 (item #66, D6): in a box a delete-guard ask is logged only when everything the rule flagged is local to
+# the box: files and the local repository. These read the call again with the rule's own expressions and readers
+# and look for any form that is not local; a form not named as local here counts as not local.
+_BOX_SHELL_RE = re.compile(SHELL_RE, re.MULTILINE)
+_BOX_TOOL_RE = re.compile(TOOL_RE, re.MULTILINE)
+# a push that deletes or rewrites remote refs; a :ref or +ref refspec
+_BOX_PUSH_RE = re.compile(_GIT + r"push\s.*(--force|-f(\s|$)|--delete|--prune|--mirror|\s:\S|\s\+\S)", re.MULTILINE)
+_BOX_UPDATE_REF_RE = re.compile(_GIT + r"update-ref\s+-d\b\s*(\S*)", re.MULTILINE)
+_BOX_PUSH_LONGS = ("delete", "prune", "mirror", "force", "force-with-lease", "force-if-includes")
+
+
+def _box_local_text(text: str) -> bool:
+    """No form of the text pass in `text` reaches past the box: no SQL, no tool of TOOL_RE (the coreutils
+    `truncate` at a command's start excepted), no push that deletes or forces, no `update-ref -d` outside
+    refs/heads/. The local forms (SHELL_RE, FIND_RE, CODE_RE, the rest of GIT_RE) need no check of their own."""
+    if _SQL_TRUNCATE_RE.search(text) and _SQL_CLIENT_RE.search(text):
+        return False
+    if any(_SQL_TRUNCATE_RE.search(m.group(4)) for m in _HEREDOC_RE.finditer(text)):
+        return False
+    for m in _BOX_TOOL_RE.finditer(text):
+        word = m.group(0)
+        if "truncate" not in word or "table" in word.lower() or not _BOX_SHELL_RE.match(text, m.start()):
+            return False
+    if _BOX_PUSH_RE.search(text):
+        return False
+    return all(m.group(2).startswith("refs/heads/") for m in _BOX_UPDATE_REF_RE.finditer(text))
+
+
+def _box_local_tokens(text: str) -> bool:
+    """The token pass of delete_what over every simple command, without stopping at the first finding: the `rm`
+    class and git's local verbs are local; any tool of _DELETE_TOOLS that deletes, a push that deletes or forces,
+    an `update-ref -d` outside refs/heads/ and a `truncate` word that is no command word are not."""
+    for toks in nested_commands(text):
+        at_word = command_word_indexes(toks)
+        named = 0
+        for i, t in enumerate(toks):
+            name = tool_name(t)
+            if _OPEN_WORD_RE.match(t) and not (i in at_word and name == "truncate"):
+                return False
+            entry = _DELETE_TOOLS.get("pip" if _PIP_RE.match(name) else name)
+            if name != "git" and not entry:
+                continue
+            named += 1
+            if named > _MAX_TOOL_WORDS:
+                return False
+            if name == "git":
+                sub, rest = _git_subcommand(list(toks[i:]))
+                if sub == "push":
+                    longs, shorts = _git_options(sub, rest)
+                    if ("d" in shorts or "f" in shorts or _git_prefix(longs, _BOX_PUSH_LONGS)
+                            or any(r.startswith((":", "+")) for r in rest)):
+                        return False
+                if sub == "update-ref" and ("-d" in rest or _git_prefix(_git_options(sub, rest)[0], ("delete",))):
+                    refs = [r for r in rest if not r.startswith("-")]
+                    if not refs or not refs[0].startswith("refs/heads/"):
+                        return False
+                continue
+            hit = subcommand_hit(caps_verbs(name, list(toks[i + 1 :])), *entry)
+            if hit and (name not in _DELETE_ONLY_WITH or _delete_only_with(name, list(toks[i + 1 :]))):
+                return False
+    return True
+
+
+def _box_local_delete(ev: Event) -> bool:
+    """D6: True only when every delete the call holds is local to the box: ExitWorktree's remove, or a shell call
+    whose text, folded text, every script it names and every simple command hold only local forms. A shell that
+    reads its script from a pipe, a line the readers cannot read and any error answer False (fail closed)."""
+    try:
+        if ev.kind == "worktree":
+            return ev.event == "PreToolUse" and ev.args.get("action") == "remove"
+        if ev.kind != "shell" or not ev.command:
+            return False
+        folded = fold_names(ev.command)
+        for text in dict.fromkeys((ev.command, folded)):
+            if _unread_pipe(text) or not _box_local_text(text) or not _box_local_tokens(text):
+                return False
+            for m in SCRIPT_RE.finditer(text):
+                script = m.group(3)
+                path = script if os.path.isabs(script) else os.path.join(ev.cwd, script)
+                try:
+                    with open(path, encoding="utf-8", errors="replace") as fh:
+                        content = fh.read()
+                except (OSError, ValueError):  # not a readable file: the rule scanned nothing there either
+                    continue
+                if not (_box_local_text(content) and _box_local_text(fold_names(content))):
+                    return False
+        return True
+    except Exception:  # CommandNotRead or a crash: not shown to be local
+        return False
+
+
 
 # ----------------------------------------------------------------------------
 # Shell helpers

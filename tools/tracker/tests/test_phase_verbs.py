@@ -180,6 +180,10 @@ def test_accept_all_prints_asks_once_ticks_and_records(tracker, fb, tmp_path):
         assert done["criteria"] == "accepted-all"
         assert ("Acceptance criteria accepted by agent in one confirmation for 2 items (#1, #2)."
                 in issue.comments[-1].body)
+    assert tracker.marks(fb.get_issue(1), "done")[-1]["ticked"] == [1, 2]
+    assert tracker.marks(fb.get_issue(2), "done")[-1]["ticked"] == [2], "a box ticked in the UI is not claimed"
+    assert "Ticked by this confirmation: criteria 1, 2." in fb.get_issue(1).comments[-1].body
+    assert "Ticked by this confirmation: criterion 2." in fb.get_issue(2).comments[-1].body
     assert [e[0] for e in fb.log if e[1] == 1] == ["body", "comment", "add", "remove", "close"]
 
 
@@ -199,6 +203,43 @@ def test_accept_all_refuses_other_problems_before_any_print(tracker, fb, tmp_pat
     assert "not merged" in out and "unchecked" not in out
     assert "Type" not in out and "Do the thing" not in out
     assert writes(fb) == []
+
+
+def test_accept_all_rereads_and_never_overwrites_a_body_edited_during_the_prompt(tracker, fb, tmp_path):
+    in_review(tracker, fb, tmp_path, 2)
+    edited = fb.issues[1].body + "\n\nScope added while the prompt waited.\n"
+
+    def ask():
+        fb.issues[1].body = edited
+        return "accept 2"
+
+    out = io.StringIO()
+    code = tracker.main(["owner", "done", "1", "2", "--accept-all"], backend=fb, human=True, out=out, ask=ask)
+    out = out.getvalue()
+    assert code == 1 and "#1" in out and "body changed" in out and "not touched: #2" in out
+    assert fb.issues[1].body == edited, "the edit made during the prompt survives"
+    assert writes(fb) == []
+    assert all(fb.get_issue(n).state == "open" for n in (1, 2))
+
+
+def test_accept_all_takes_ticks_made_during_the_prompt(tracker, fb, tmp_path):
+    in_review(tracker, fb, tmp_path, 1)
+
+    def ask():
+        fb.issues[1].body = fb.issues[1].body.replace("- [ ] tests pass", "- [x] tests pass")
+        return "accept 1"
+
+    out = io.StringIO()
+    assert tracker.main(["owner", "done", "1", "--accept-all"], backend=fb, human=True, out=out, ask=ask) == 0
+    assert tracker.marks(fb.get_issue(1), "done")[-1]["ticked"] == [2]
+
+
+def test_the_real_reader_strips_the_line_end_and_raises_on_eof(tracker, monkeypatch):
+    monkeypatch.setattr("sys.stdin", io.StringIO("accept 2\r\n"))
+    assert tracker.read_line() == "accept 2"
+    monkeypatch.setattr("sys.stdin", io.StringIO(""))
+    with pytest.raises(EOFError):
+        tracker.read_line()
 
 
 def test_without_the_flag_unchecked_criteria_still_refuse(tracker, fb, tmp_path):

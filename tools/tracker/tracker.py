@@ -868,6 +868,7 @@ class Tracker:
             for c in facts["checks"]:
                 self.say(f"  {c['name']}: {c['conclusion']}")
         count = len(items)
+        seen = {issue.number: body_hash(issue.body) for issue, _ in items}  # the bodies the owner is shown
         self.out.write(f'Type "accept {count}" to accept every criterion of these {count} items: ')
         self.out.flush()
         try:
@@ -879,17 +880,26 @@ class Tracker:
             return 2
         accepted = (f"Acceptance criteria accepted by {self.b.whoami()} in one confirmation for {count} items "
                     f"({', '.join(f'#{i.number}' for i, _ in items)}).")
-        self._write_all(items, lambda issue, facts: self._write_done(issue, facts, accepted))
+        self._write_all(items, lambda issue, facts: self._write_done(issue, facts, accepted, seen[issue.number]))
         return 0
 
-    def _write_done(self, issue: Issue, facts: dict, accepted: str = "") -> None:
+    def _write_done(self, issue: Issue, facts: dict, accepted: str = "", seen: str = "") -> None:
         number, waived = issue.number, facts["waived"]
         if accepted:
-            ticked = _AC_RE.sub(lambda m: m.group(0).replace("[ ]", "[x]", 1) if m.group(1) == " " else m.group(0),
-                                issue.body)
-            if ticked != issue.body:
-                self.b.set_body(number, ticked)
-            facts = {**facts, "criteria": "accepted-all"}
+            # The prompt may have waited: read the body again, and never write over an edit made meanwhile.
+            body = self.b.get_issue(number).body
+            if body_hash(body) != seen:
+                raise TrackerError(f"body changed since the check (shown {seen}, now {body_hash(body)}); "
+                                   "nothing written for it, run the verb again")
+            ticked = [k for k, (checked, _) in enumerate(parse_ac(body), 1) if not checked]
+            new = _AC_RE.sub(lambda m: m.group(0).replace("[ ]", "[x]", 1) if m.group(1) == " " else m.group(0),
+                             body)
+            if new != body:
+                self.b.set_body(number, new)
+            facts = {**facts, "criteria": "accepted-all", "ticked": ticked}
+            if ticked:
+                word = "criterion" if len(ticked) == 1 else "criteria"
+                accepted += f"\nTicked by this confirmation: {word} {', '.join(map(str, ticked))}."
         me = self.b.whoami()
         lines = [mark("done", by=me, ts=utcnow(), **{k: v for k, v in facts.items() if k != "checks"}),
                  f"Done by {me}. PR {facts['pr']} merged as {facts['merge_sha']} by {facts['merged_by']}.",

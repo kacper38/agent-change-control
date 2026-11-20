@@ -329,7 +329,10 @@ variables (`KZ_TRACKER_REPO`, `KZ_TRACKER_AREA`, `KZ_TRACKER_ADO_MODE`,
   `agent-box-claude` (from `claude setup-token`) and `agent-box-github` (a
   fine-grained token for this repository: Contents, Pull requests and Issues
   read and write, 30 days), each with `security add-generic-password -U -a
-  "$USER" -s <name> -w`. A missing, expired or revoked token stops the start
+  "$USER" -s <name> -w`. `setup-token` prints its token wrapped over two
+  lines and the prompt stops at the first line break, so join it into one
+  line before pasting (`pbpaste | tr -d ' \n' | wc -c` counts it; 108
+  characters on 2.1.323). A missing, expired or revoked token stops the start
   with its name; nothing falls back to the owner's own login.
 - It is not: an image in a registry, a scanned image, a box for a client or
   secret repository (the wrapper refuses one whose committed `guard.json`

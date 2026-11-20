@@ -622,6 +622,16 @@ def scrub(value, paths: list):
     return value
 
 
+def keep_box_key(path: str) -> dict:
+    """The "box" key of the record at path, which tools/box/box_probe.py writes; a canary run must not drop it."""
+    try:
+        with open(path, encoding="utf-8") as fh:
+            old = json.load(fh)
+    except FileNotFoundError:
+        return {}
+    return {"box": old["box"]} if isinstance(old, dict) and "box" in old else {}
+
+
 def main(argv: list, out=None) -> int:
     out = out or sys.stdout
     if argv[:1] == ["hook"]:
@@ -694,11 +704,12 @@ def main(argv: list, out=None) -> int:
         # Reasons can carry exception text or a stderr excerpt; the terminal above keeps the real paths.
         record = scrub(record, local_paths(given_workdir))
         try:
+            record = {**record, **keep_box_key(ns.out)}
             with open(ns.out + ".tmp", "w", encoding="utf-8") as fh:
                 json.dump(record, fh, indent=2)
                 fh.write("\n")
             os.replace(ns.out + ".tmp", ns.out)
-        except OSError as exc:
+        except (OSError, ValueError) as exc:  # ValueError: the old record is unreadable, so its box key is unknown
             out.write(f"probe: cannot write {ns.out}: {exc}\n")
             return 2
         tail = f"wrote {ns.out}"

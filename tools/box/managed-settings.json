@@ -1,0 +1,18 @@
+{
+  "_about": "Fail-closed placeholder (plan step 1.0a). tools/box/box.py mounts the real managed settings over this file, generated at the box's start from the judge's .claude/settings.json. A box started without them denies every tool call.",
+  "allowManagedHooksOnly": true,
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo 'box: started without its judge; every tool call is denied' >&2; exit 2",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

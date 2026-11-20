@@ -1,0 +1,8 @@
+# The box's egress list (plan step 1.0a): host names allowed on TCP 443, resolved once at the box's start.
+# GitHub's published web, API and git ranges are added by firewall.py. The first name is the self-check target.
+# A name joins this list only with a probe result in tools/orchestration/verified.json ("box", cli-hosts).
+api.anthropic.com
+github.com
+api.github.com
+codeload.github.com
+objects.githubusercontent.com

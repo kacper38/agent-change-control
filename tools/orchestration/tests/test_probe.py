@@ -683,3 +683,13 @@ def test_only_the_ledger_canary_runs_its_source_run_and_finds_the_transcript(pro
     lines = text.splitlines()
     assert lines[0] == "holds         ledger-own-cost               $0.0030"
     assert lines[-1].endswith("1 of 1 canaries hold, $0.0030; not written (--only)")
+
+
+def test_keep_box_key(probe, tmp_path):
+    import json
+    path = tmp_path / "verified.json"
+    assert probe.keep_box_key(str(path)) == {}
+    path.write_text(json.dumps({"canaries": {}}), encoding="utf-8")
+    assert probe.keep_box_key(str(path)) == {}
+    path.write_text(json.dumps({"canaries": {}, "box": {"schema": "box-probe/1"}}), encoding="utf-8")
+    assert probe.keep_box_key(str(path)) == {"box": {"schema": "box-probe/1"}}

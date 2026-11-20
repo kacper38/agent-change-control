@@ -140,7 +140,7 @@
     "date": "2026-11-20",
     "cli_version": "2.1.323",
     "runtime": "Docker Engine - Community 29.8.2 linux/arm64 (context orbstack)",
-    "image": "agent-box:51520801aa67c32be45c36c92a5b176f17b79301",
+    "image": "agent-box:28254f096d31f0d6a54d537320238251aeb98e03",
     "model": "haiku",
     "cost_usd": 0,
     "questions": {
@@ -190,6 +190,7 @@
         "expect": "the entrypoint's firewall leaves the model API and GitHub reachable and example.com not, the user has no capabilities, and a box without NET_ADMIN starts no session",
         "observed": {
           "net": {
+            "1.1.1.1:53": false,
             "api.anthropic.com": true,
             "example.com": false,
             "github.com": true

@@ -1,0 +1,82 @@
+# line 11: merges, capitals, eval exports
+gh pr merge 3
+gh pr merge
+gh pr merge --squash --delete-branch
+gh pr merge 3 --admin
+gh pr merge 3 --admin=true
+gh pr merge 3 --admin=false
+gh pr merge 3 --auto
+gh pr merge -R o/r 3
+gh --repo o/r pr merge 3
+gh pr -R o/r merge 3
+gh pr merge --help
+gh pr merge 3 -h
+GH pr merge 3
+gh PR merge 3
+gh pr MERGE 3
+gh pr merge 3 --disable-auto
+gh pr view 3
+gh pr checks 3
+gh api -X PUT repos/o/r/pulls/3/merge
+gh api --method PUT repos/o/r/pulls/3/merge
+gh api -XPUT repos/o/r/pulls/3/merge
+gh api -X put repos/o/r/pulls/3/merge
+gh api /repos/o/r/pulls/3/merge -X PUT
+gh api repos/o/r/pulls/3/merge -X PUT -f merge_method=squash
+gh api repos/o/r/pulls/3/merge -f merge_method=squash
+gh api repos/o/r/pulls/3/merge --input body.json
+gh api repos/o/r/pulls/3/merge
+gh api repos/o/r/pulls/3/merge/
+gh api 'repos/o/r/pulls/3/merge?x=1' -X PUT
+gh api repos/{owner}/{repo}/pulls/3/merge -X PUT
+gh api https://api.github.com/repos/o/r/pulls/3/merge -X PUT
+gh api repos/o/r/pulls/3/reviews -X POST -f event=APPROVE
+gh api repos/o/r/pulls/3/update-branch -X PUT
+gh api repos/o/r/merges -f base=main -f head=x
+gh api repos/o/r/pulls/3
+curl -X PUT https://api.github.com/repos/o/r/pulls/3/merge
+curl -XPUT https://api.github.com/repos/o/r/pulls/3/merge
+curl --request PUT https://api.github.com/repos/o/r/pulls/3/merge
+curl -X put https://api.github.com/repos/o/r/pulls/3/merge
+curl -X PUT https://API.GITHUB.COM/repos/o/r/pulls/3/merge
+curl -X PUT HTTPS://api.github.com/repos/o/r/pulls/3/merge
+curl -X PUT api.github.com/repos/o/r/pulls/3/merge
+curl -X PUT 'https://api.github.com/repos/o/r/pulls/3/merge?x=1'
+curl -X PUT https://api.github.com//repos/o/r/pulls/3/merge
+curl https://api.github.com/repos/o/r/pulls/3/merge -T body.json
+curl https://api.github.com/repos/o/r/merges -d '{"base":"main","head":"x"}'
+http PUT https://api.github.com/repos/o/r/pulls/3/merge
+http put https://api.github.com/repos/o/r/pulls/3/merge
+https PUT api.github.com/repos/o/r/pulls/3/merge
+xh PUT https://api.github.com/repos/o/r/pulls/3/merge
+wget --method=PUT https://api.github.com/repos/o/r/pulls/3/merge
+wget --method PUT https://api.github.com/repos/o/r/pulls/3/merge
+curl -X PATCH https://API.github.com/repos/o/r/issues/3 -d x
+curl -X PATCH https://api.GitHub.com/repos/o/r/issues/3 -d x
+curl -X PATCH https://api.github.com./repos/o/r/issues/3 -d x
+curl -X PATCH https://notapi.github.com/repos/o/r/issues/3 -d x
+curl https://api.github.com.evil.example/repos/o/r/issues/3
+brew UNINSTALL jq
+BREW UNINSTALL jq
+brew Uninstall jq
+gem UNINSTALL x
+brew CLEANUP
+brew REINSTALL jq
+gem INSTALL x
+brew install JQ
+eval "export HUSKY=0" && git commit -m x
+eval 'declare -x HUSKY=0'; git commit -m x
+eval 'typeset -x LEFTHOOK=0'; git commit -m x
+eval 'set -o allexport'; HUSKY=0; git commit -m x
+eval -- 'export HUSKY=0'; git commit -m x
+eval 'export HUSKY=0; true'; git commit -m x
+eval 'true && export HUSKY=0'; git commit -m x
+eval 'if true; then export HUSKY=0; fi'; git commit -m x
+eval '{ export HUSKY=0; }'; git commit -m x
+eval "$(echo export HUSKY=0)"; git commit -m x
+builtin eval 'export HUSKY=0'; git commit -m x
+command eval 'export HUSKY=0'; git commit -m x
+eval eval 'export HUSKY=0'; git commit -m x
+source <(echo export HUSKY=0); git commit -m x
+. /dev/stdin <<< 'export HUSKY=0'; git commit -m x
+export HUSKY; HUSKY=0; git commit -m x

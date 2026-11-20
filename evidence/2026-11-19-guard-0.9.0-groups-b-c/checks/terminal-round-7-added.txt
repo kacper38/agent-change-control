@@ -1,0 +1,10 @@
+# guards, one letter each, in this order: 0.8.0 | a246385 (head of the sixth round) | 2a28378 (head of the seventh round) | 8f0a893 (the guard file of the head) | 8f0a893 with `--paginate` on the list of plain options | 8f0a893 with `--config-env` taken like `-C`
+# row: id, expectation, letters (s silent, a ask), pipe: and pty: with Z when zsh showed the marker and B when bash did, the command (`.env` is run as `secret.txt`)
+Fm   ask    asaasa pipe:-- pty:-- | git --paginate ls-files .env
+Fm   ask    asaasa pipe:-- pty:-- | git --paginate ls-files .env
+Fm   ask    asaasa pipe:-- pty:-- | git --paginate ls-files .env
+Fm   ask    asaasa pipe:-- pty:-- | git --paginate status -s .env
+Fm   ask    asaasa pipe:-- pty:-- | true; git --paginate ls-files .env
+Fm   ask    asaaas pipe:-- pty:-- | git --config-env pager.ls-files=X ls-files .env
+Fm   ask    asaaas pipe:-- pty:-- | cd . && git --config-env pager.status=X status -s .env
+Fm   ask    asaaas pipe:-- pty:-- | git -C . --config-env pager.ls-files=X ls-files .env

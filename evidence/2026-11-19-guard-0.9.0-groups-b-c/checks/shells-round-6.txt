@@ -1,0 +1,14 @@
+rows file: rows-b-fix6.txt | distinct commands 85
+  F61  expects ask    | content printed by bash only | 1 commands
+  F61  expects ask    | content printed by both      | 13 commands
+  F61  expects ask    | content printed by zsh only  | 5 commands
+  F62  expects ask    | content printed by bash only | 7 commands
+  F63  expects ask    | content printed by bash only | 4 commands
+  F63  expects ask    | content printed by both      | 1 commands
+  F64  expects ask    | content printed by both      | 8 commands
+  F65  expects ask    | content printed by both      | 4 commands
+  Fs   expects ask    | content printed by bash only | 1 commands
+  Fs   expects ask    | content printed by both      | 3 commands
+  Fs   expects ask    | content printed by none      | 16 commands
+  Fs   expects silent | content printed by none      | 22 commands
+ROWS AGAINST THE SHELLS: 0 disagree

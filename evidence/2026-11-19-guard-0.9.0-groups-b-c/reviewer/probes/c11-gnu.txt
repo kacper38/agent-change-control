@@ -1,0 +1,69 @@
+# line 4: Homebrew g names
+grm -rf x
+GRM -rf x
+gunlink x
+gshred x
+gtruncate -s 0 f
+grmdir x
+gfind . -delete
+GFIND . -delete
+gfind . -exec rm {} +
+gxargs rm < list
+GXARGS rm < list
+gcp x .env
+gmv x .env
+gtee .env
+gdd if=x of=.env
+ginstall x .env
+gln -sf x .env
+gcat .env
+ghead .env
+gtail .env
+gsed -i s/a/b/ .env
+gsed -n p .env
+gtar -czf o.tgz .env
+gtar --exclude .env -czf o.tgz .
+genv git push --force
+gnice git push --force
+gnohup git push --force
+gstdbuf -o0 git push --force
+gtimeout 5 git push --force
+gchroot / git push --force
+gtime git push --force
+GTIME git push --force
+gtimeout 5 rm -rf x
+ggrep -rn .env docs
+ggrep password .env
+gegrep x .env
+gfgrep x .env
+gzgrep x .env
+gls .env | xargs cat
+gstat .env
+gtest -f .env
+gecho .env
+gprintf .env
+gtruncate -s0 .env
+gsplit .env
+gbase64 .env
+gsort .env
+gwc -c .env
+gsha256sum .env
+gxargs -a .env echo
+gtime -o .env ls
+# reverse: must stay as their own tools
+gh pr list
+go clean -cache
+gem list
+gzip x
+gdb ./a.out
+gpg -d x.gpg
+gcloud auth list
+gradle build
+gofmt -l .
+gopls version
+gunzip x.gz
+grep x f
+git status
+gsutil rm gs://b/x
+gcc -o x x.c
+gmake clean

@@ -1,0 +1,20 @@
+rows file: rows-b-fix5.txt | distinct commands 137
+  F51  expects ask    | content printed by zsh only  | 11 commands
+  F52  expects ask    | content printed by bash only | 2 commands
+  F52  expects ask    | content printed by both      | 1 commands
+  F52  expects ask    | content printed by zsh only  | 4 commands
+  F53  expects ask    | content printed by bash only | 3 commands
+  F53  expects ask    | content printed by both      | 11 commands
+  F54  expects ask    | content printed by bash only | 3 commands
+  F54  expects ask    | content printed by both      | 5 commands
+  F54  expects ask    | content printed by zsh only  | 1 commands
+  F55  expects ask    | content printed by both      | 7 commands
+  F56  expects ask    | content printed by bash only | 1 commands
+  F56  expects ask    | content printed by both      | 12 commands
+  F57  expects ask    | content printed by both      | 16 commands
+  F57  expects ask    | content printed by zsh only  | 1 commands
+  Fs   expects ask    | content printed by both      | 11 commands
+  Fs   expects ask    | content printed by none      | 5 commands
+  Fs   expects ask    | content printed by zsh only  | 4 commands
+  Fs   expects silent | content printed by none      | 39 commands
+ROWS AGAINST THE SHELLS: 0 disagree

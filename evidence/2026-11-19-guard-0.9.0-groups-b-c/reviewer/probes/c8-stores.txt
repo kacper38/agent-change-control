@@ -1,0 +1,116 @@
+# line 9: secret stores
+vault kv get secret/app
+vault kv get -field=pw secret/app
+vault kv get -format=json secret/app
+vault -namespace=x kv get secret/app
+vault kv -mount=secret get app
+vault kv get -mount secret app
+vault read -field=x secret/app
+vault kv patch secret/app a=b
+vault kv metadata get secret/app
+vault kv list secret
+vault status
+vault kv get -h
+vault kv get secret/app --help
+vault kv -address=https://v get app
+vault kv get-ish
+op read op://v/i/f
+op read --no-newline op://v/i/f
+op --account x read op://v/i/f
+op inject -i tpl -o out
+op item get NAME --format json
+op item get NAME --fields label=password
+op item get NAME --reveal
+op items get NAME --reveal
+op item list
+op document get NAME
+op document get NAME --output out
+op whoami
+kubectl get secret app -o yaml
+kubectl get secrets -ojson
+kubectl get secret/app -o=jsonpath='{.data}'
+kubectl get secret app --output yaml
+kubectl -n prod get secret app -o yaml
+kubectl get secret app -o name
+kubectl get secret app
+kubectl get pods,secrets -o yaml
+kubectl get Secret app -o yaml
+kubectl get SECRETS -o yaml
+kubectl get secret.v1 app -o yaml
+kubectl get secrets.v1. app -o yaml
+kubectl get all -o yaml
+kubectl describe secret app
+kubectl get secret app -o go-template='{{.data}}'
+kubectl get secret app --template='{{.data}}'
+kubectl config view --raw
+kubectl config view --raw=true
+kubectl config view --flatten
+kubectl config view
+kubectl get secret app -o wide
+kubectl edit secret app
+kubectl get --raw /api/v1/namespaces/default/secrets
+gh auth token
+gh auth token --user x
+gh auth status --show-token
+gh auth status -t
+gh auth status
+gh --repo o/r auth token
+GH auth token
+aws secretsmanager get-secret-value --secret-id x
+aws --profile p secretsmanager get-secret-value --secret-id x
+aws secretsmanager batch-get-secret-value --secret-id-list x
+aws ssm get-parameter --name x --with-decryption
+aws ssm get-parameter --name x
+aws configure export-credentials
+aws configure get aws_secret_access_key
+aws configure get default.aws_secret_access_key
+aws configure get profile.p.aws_secret_access_key
+aws configure list
+aws secretsmanager list-secrets
+aws sts get-caller-identity
+gcloud secrets versions access latest --secret x
+gcloud auth print-access-token
+gcloud --project p secrets versions access 1 --secret x
+gcloud secrets list
+gcloud auth list
+security find-generic-password -s x -w
+security find-generic-password -ws x
+security find-generic-password -s x -g
+security find-generic-password -s x
+security find-internet-password -s x -w
+security dump-keychain -d
+security dump-keychain
+pass show x
+pass x
+pass ls
+pass -c x
+pass show -c x
+pass otp x
+pass git log
+doppler secrets get X
+doppler secrets download --no-file
+doppler secrets
+doppler secrets --raw
+doppler secrets list
+sops -d x.yaml
+sops --decrypt x.yaml
+sops decrypt x.yaml
+sops x.yaml
+sops exec-env x.yaml env
+ansible-vault view x.yml
+ansible-vault decrypt x.yml
+ansible-vault edit x.yml
+git credential fill
+git credential-osxkeychain get
+git credential approve
+az keyvault secret show --name x --vault-name v
+az keyvault secret download --name x --vault-name v --file f
+az keyvault secret list --vault-name v
+az account get-access-token
+az storage account keys list -n x
+az storage account show-connection-string -n x
+echo $(vault kv get secret/app)
+sudo vault kv get secret/app
+env VAULT_ADDR=x vault kv get secret/app
+bash -c 'vault kv get secret/app'
+op run -- vault kv get secret/app

@@ -17,6 +17,8 @@ Usage:
   guard.py rules | help | version
 """
 
+import bisect
+import collections
 import copy
 import datetime as _dt
 import functools
@@ -33,7 +35,7 @@ import time
 from collections.abc import Mapping
 from typing import Callable, Optional
 
-VERSION = "0.8.0"
+VERSION = "0.9.0"
 
 # ----------------------------------------------------------------------------
 # Harness normalization
@@ -346,14 +348,45 @@ _DOCKER_DELETE_PAIRS = {
 }
 _DOCKER_DELETE = (frozenset({"rm", "rmi"}), _DOCKER_DELETE_PAIRS)
 # tool basename -> (verbs, pairs as first word -> second words); pip3.12-style names count as pip
+# 0.9.0: the verbs that remove a package or a tool version, empty a download cache or the installed set (the
+# offline checks of this kit run from these caches), each from the tool's own help: npm 10 (`prune`, `cache
+# clean`), pnpm 9 (`prune`, `store prune`), yarn 1 (`global remove`, `cache clean`), Homebrew 4 (`untap`, `cleanup`,
+# `autoremove`), pip 24 (`cache purge|remove`), cargo 1.8x (`remove`), uv 0.5 (`remove`, `cache clean|prune`,
+# `python uninstall`); the tools below them are new
 _DELETE_TOOLS: dict = {
     "mise": (frozenset({"uninstall", "prune"}), {}),
-    "npm": (frozenset({"uninstall", "rm", "un", "r", "unlink"}), {}),
-    "pnpm": (frozenset({"remove", "rm", "uninstall"}), {}),
-    "yarn": (frozenset({"remove"}), {}),
-    "brew": (frozenset({"uninstall", "remove", "rm"}), {}),
-    "pip": (frozenset({"uninstall"}), {}),
-    "cargo": (frozenset({"uninstall"}), {}),
+    "npm": (frozenset({"uninstall", "rm", "un", "r", "unlink", "prune"}), {"cache": frozenset({"clean"})}),
+    "pnpm": (frozenset({"remove", "rm", "uninstall", "prune"}), {"store": frozenset({"prune"})}),
+    "yarn": (frozenset({"remove"}), {"global": frozenset({"remove"}), "cache": frozenset({"clean"})}),
+    "brew": (frozenset({"uninstall", "remove", "rm", "untap", "cleanup", "autoremove"}), {}),
+    "pip": (frozenset({"uninstall"}), {"cache": frozenset({"purge", "remove"})}),
+    "cargo": (frozenset({"uninstall", "remove", "rm"}), {}),
+    "poetry": (frozenset({"remove"}), {"env": frozenset({"remove"}), "cache": frozenset({"clear"})}),  # poetry 1.8
+    "conda": (frozenset({"remove", "uninstall", "clean"}), {"env": frozenset({"remove"})}),  # conda 24
+    "mamba": (frozenset({"remove", "uninstall", "clean"}), {"env": frozenset({"remove"})}),  # mamba 1.5
+    "micromamba": (frozenset({"remove", "uninstall", "clean"}), {"env": frozenset({"remove"})}),
+    "gem": (frozenset({"uninstall", "cleanup"}), {}),  # RubyGems 3.5
+    "bundle": (frozenset({"remove", "clean"}), {}),  # Bundler 2.5
+    "bun": (frozenset({"remove", "rm"}), {}),  # bun 1.1
+    "pdm": (frozenset({"remove"}), {"cache": frozenset({"clear", "remove"})}),  # pdm 2
+    "pipenv": (frozenset({"uninstall", "clean"}), {}),  # pipenv 2024
+    "pyenv": (frozenset({"uninstall"}), {}),  # pyenv 2.4
+    "nvm": (frozenset({"uninstall"}), {"cache": frozenset({"clear"})}),  # nvm 0.40
+    "fnm": (frozenset({"uninstall"}), {}),  # fnm 1.37
+    "volta": (frozenset({"uninstall"}), {}),  # volta 2
+    "asdf": (frozenset({"uninstall"}), {"plugin": frozenset({"remove"})}),  # asdf 0.14
+    "rustup": (frozenset({"uninstall"}), {"toolchain": frozenset({"uninstall", "remove"}),  # rustup 1.27
+                                          "self": frozenset({"uninstall"}), "target": frozenset({"remove"}),
+                                          "component": frozenset({"remove"})}),
+    "apt-get": (frozenset({"remove", "purge", "autoremove", "autopurge", "clean", "autoclean"}), {}),  # apt 2.6
+    "apt": (frozenset({"remove", "purge", "autoremove", "autopurge"}), {}),
+    "dnf": (frozenset({"remove", "erase", "autoremove"}), {}),  # dnf 4
+    "yum": (frozenset({"remove", "erase", "autoremove"}), {}),
+    "apk": (frozenset({"del"}), {}),  # apk-tools 2
+    "snap": (frozenset({"remove"}), {}),  # snapd 2.6
+    "go": (frozenset({"clean"}), {}),  # go 1.23: only with -modcache (_DELETE_ONLY_WITH)
+    "uv": (frozenset({"remove"}), {"pip": frozenset({"uninstall"}), "tool": frozenset({"uninstall"}),
+                                   "cache": frozenset({"clean", "prune"}), "python": frozenset({"uninstall"})}),
     "docker": _DOCKER_DELETE,
     "podman": _DOCKER_DELETE,
     "nerdctl": _DOCKER_DELETE,
@@ -364,8 +397,26 @@ _DELETE_TOOLS: dict = {
     "rclone": (frozenset({"delete", "purge", "sync"}), {}),
     "prisma": (frozenset(), {"migrate": frozenset({"reset"})}),
     "pipx": (frozenset({"uninstall", "uninstall-all"}), {}),
-    "uv": (frozenset(), {"pip": frozenset({"uninstall"}), "tool": frozenset({"uninstall"})}),
 }
+# a verb of _DELETE_TOOLS that deletes only with one of these options (`go clean` cleans the build output; Go's
+# flag package takes one dash or two)
+_DELETE_ONLY_WITH = {"go": frozenset({"-modcache", "--modcache"})}
+# F27: Go's flag package takes a boolean flag with a value too (`-modcache=true`); strconv.ParseBool reads these
+# as false, and any other value (true, 1, T, or one the line does not show) is read as true
+_GO_BOOL_FALSE = frozenset({"0", "f", "F", "false", "FALSE", "False"})
+
+
+def _delete_only_with(name: str, args: list[str]) -> bool:
+    """The options of _DELETE_ONLY_WITH for `name` are given: bare, or as `-flag=value` with a value that is not
+    false (F27)."""
+    flags = _DELETE_ONLY_WITH[name]
+    for t in args:
+        flag, eq, value = t.partition("=")
+        if t in flags or (eq and flag in flags and value not in _GO_BOOL_FALSE):
+            return True
+    return False
+
+
 _SWITCH_DISCARDS = frozenset({"--discard-changes", "-f", "--force"})
 
 
@@ -406,7 +457,7 @@ def delete_what(command: str) -> Optional[str]:
         at_word = command_word_indexes(toks)
         named = 0
         for i, t in enumerate(toks):
-            name = os.path.basename(t)
+            name = tool_name(t)
             if name in _RM_CLASS and i in at_word:
                 return f"`{name}` deletes files"
             entry = _DELETE_TOOLS.get("pip" if _PIP_RE.match(name) else name)
@@ -421,8 +472,8 @@ def delete_what(command: str) -> Optional[str]:
                             or _git_push_deletes(sub, rest)):
                     return f"`git {sub}` discards work"
                 continue
-            hit = subcommand_hit(list(toks[i + 1 :]), *entry)
-            if hit:
+            hit = subcommand_hit(caps_verbs(name, list(toks[i + 1 :])), *entry)
+            if hit and (name not in _DELETE_ONLY_WITH or _delete_only_with(name, list(toks[i + 1 :]))):
                 return f"`{name} {hit}` deletes"
     return None
 
@@ -440,8 +491,138 @@ def _truncate_in_the_open(command: str) -> bool:
     return any(_OPEN_WORD_RE.match(t) for toks in nested_commands(command) for t in toks)
 
 
+_DELETE_HELP = frozenset({"--help", "-h", "--version"})
+
+
+def _long_dry(t: str) -> Optional[str]:
+    """How a long option of git's dry-run family reads (git 2.55 parse-options, measured: a long option may be
+    shortened to any unambiguous prefix, `--no-` takes it back): "dry" for `--dry-run` and its prefixes (`--d`,
+    `--dry-r`), "wet" for `--no-dry-run` and its prefixes down to `--no-d`, "unplaced" for `--n`, `--no` and
+    `--no-` (which negation they mean the line does not show), None for any other word."""
+    if len(t) < 3 or not t.startswith("--") or "=" in t:
+        return None
+    if "--dry-run".startswith(t):
+        return "dry"
+    if "--no-dry-run".startswith(t):
+        return "wet" if len(t) >= len("--no-d") else "unplaced"
+    return None
+
+
+def _git_dry(rest: list[str], flag_shorts: str, value_shorts: str, flag_longs: tuple, value_longs: tuple) -> bool:
+    """A git call of the dry-run family (`git clean`, `git worktree prune`) that previews only: the last of
+    -n / --dry-run and --no-dry-run wins (git 2.55, measured: `git clean -n --no-dry-run` deletes), and the scan
+    stops at `--`. A short cluster ends at a letter of `value_shorts` (its value follows, glued or as the next
+    word); the word after a long option of `value_longs` is its value (`--exclude=x` holds it). Any option this
+    cannot place reads as no preview: a word of the dry-run family it cannot tell apart, and (F24) any other long
+    option or short letter outside the lists, since git takes a unique prefix (`--excl -n` is `--exclude -n`)."""
+    dry = False
+    skip = False
+    for t in rest:
+        if skip:
+            skip = False
+            continue
+        if t == "--":
+            break
+        state = _long_dry(t)
+        if state == "unplaced":
+            return False
+        if state is not None:
+            dry = state == "dry"
+        elif t.startswith("--"):
+            name, glued, _value = t.partition("=")
+            if name in value_longs:
+                skip = not glued
+            elif name not in flag_longs or glued:
+                return False
+        elif t.startswith("-") and len(t) > 1:
+            letters = t[1:]
+            for i, c in enumerate(letters):
+                if c in value_shorts:
+                    skip = i == len(letters) - 1
+                    break
+                if c not in flag_shorts:
+                    return False
+                if c == "n":
+                    dry = True
+    return dry
+
+
+def _git_clean_dry(rest: list[str]) -> bool:
+    """`git clean` with -n or --dry-run (also in a cluster, `-fdn`) that no later --no-dry-run takes back; the
+    letters after an `e` in a cluster, and the word after `-e`, are an exclude pattern (`-f -e -n` deletes).
+    Options: git-clean(1), git 2.55: -d, -f/--force, -i/--interactive, -n/--dry-run, -q/--quiet,
+    -e/--exclude <pattern>, -x, -X."""
+    return _git_dry(rest, "dfinqxX", "e", ("--force", "--interactive", "--quiet"), ("--exclude",))
+
+
+def _restore_index_only(rest: list[str]) -> bool:
+    """`git restore` that touches the index only: --staged (or -S) and no word that can mean the work tree.
+    git 2.55 parse-options (measured) takes any unambiguous prefix of a long option, so `--w`, `--work`, `--wor`
+    are --worktree; `--n`, `--no`, `--no-` and the prefixes of `--no-staged` may take --staged back. The words
+    after `--` are paths."""
+    staged = False
+    for t in rest:
+        if t == "--":
+            break
+        if t.startswith("--"):
+            name = t.split("=", 1)[0]
+            if len(name) >= 3 and ("--worktree".startswith(name) or "--no-staged".startswith(name)):
+                return False
+            staged = staged or name == "--staged"
+        elif t.startswith("-") and len(t) > 1:
+            letters = t[1:].split("s", 1)[0]  # -s takes the source as its value, glued or as the next word
+            if "W" in letters:
+                return False
+            staged = staged or "S" in letters
+    return staged
+
+
+def _delete_preview(toks) -> bool:
+    """Group C (decision 3a, rows K2, K4, K5): a simple command that names a deleting tool and deletes nothing:
+    `git restore --staged` (the index only), a preview (`git clean -n`, `git worktree prune -n`, `kubectl delete
+    --dry-run=client`), or a help probe as the sole argument after the tool and its deleting verb (`rm --help`,
+    `git clean -h`, `docker system prune --help`)."""
+    toks = list(toks)
+    if not toks:
+        return False
+    name = tool_name(toks[0])
+    if toks[-1] in _DELETE_HELP and not any(t.startswith("-") for t in toks[1:-1]):
+        if name in _RM_CLASS:
+            return len(toks) == 2
+        if name == "git":
+            return len(toks) == 3
+        entry = _DELETE_TOOLS.get(name)
+        hit = subcommand_hit(toks[1:-1] + ["x"], *entry) if entry else None
+        return bool(hit) and hit.split() == toks[1:-1]
+    if name == "git":
+        sub, rest = _git_subcommand(toks)
+        if sub == "restore":
+            return _restore_index_only(rest)
+        if sub == "clean":
+            return _git_clean_dry(rest)
+        if sub == "worktree" and rest[:1] == ["prune"]:
+            # git-worktree(1), git 2.55: prune takes -n/--dry-run, -v/--verbose, --expire <time>
+            return _git_dry(rest[1:], "nv", "", ("--verbose",), ("--expire",))
+        return False
+    if name == "kubectl":
+        return _dry_run("kubectl", toks[1:])
+    return False
+
+
+def _single_preview(command: str) -> bool:
+    """The whole line is one simple command, with nothing nested, that _delete_preview finds harmless: then the
+    text pass, which cannot tell a preview, is not asked either. Any other line is read as before."""
+    try:
+        cmds = nested_commands(command)
+    except CommandNotRead:  # an unread line is judged by the passes below, which ask for it
+        return False
+    return len(cmds) == 1 and _delete_preview(cmds[0])
+
+
 def _delete_judge(ev: Event) -> Optional[str]:
     """What the command would delete: the text pass, the scan of a script it names, then the token pass."""
+    if _single_preview(ev.command):
+        return None
     if DELETE_RE.search(ev.command) or (
         _SQL_TRUNCATE_RE.search(ev.command)
         and (_SQL_CLIENT_RE.search(ev.command) or _truncate_in_the_open(ev.command))
@@ -463,13 +644,15 @@ def _delete_judge(ev: Event) -> Optional[str]:
 def rule_delete_guard(ev: Event, cfg: dict) -> Optional[Decision]:
     if ev.event != "PreToolUse" or ev.kind != "shell" or not ev.command:
         return None
+    pipe = None
     try:
         what = _delete_judge(ev)
+        pipe = _PIPE_NOT_READ if _unread_pipe(ev.command) else None  # read past it, asked for with the rest
     except CommandNotRead as exc:  # too deep or too many tools: ask rather than pass it unread
         what = str(exc)
     except Exception as exc:  # main() turns a crash into exit 1, which both harnesses let run silently: ask instead
         what = f"the command could not be read ({type(exc).__name__})"
-    return ("ask", DELETE_MSG.format(what=what)) if what else None
+    return combine([("ask", DELETE_MSG.format(what=w)) for w in (what, pipe) if w])
 
 
 
@@ -480,6 +663,40 @@ def rule_delete_guard(ev: Event, cfg: dict) -> Optional[Decision]:
 _SEP_RE = re.compile(r"\|\||&&|[;|]|\n")
 _WRAPPERS = {"sudo", "env", "command", "exec", "time", "nohup", "doas", "builtin"}
 _ASSIGN_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+# 0.9.0: Homebrew installs the GNU tools with a `g` in front (`grm`, `gfind`, `gsed`); `g` + one of these names is
+# that tool. The names are the file lists of the formulae coreutils 9.5, findutils 4.10, grep 3.11, gnu-sed 4.9,
+# gnu-tar 1.35 and gnu-time 1.9. Only these: `gh`, `git`, `go`, `gem`, `grep`, `gzip` and `gdb` are tools of
+# their own, and none of them is `g` + a name of this list.
+_GNU_NAMES = frozenset(
+    "[ b2sum base32 base64 basename basenc cat chcon chgrp chmod chown chroot cksum comm cp csplit cut date dd df"
+    " dir dircolors dirname du echo env expand expr factor false fmt fold groups head hostid id install join kill"
+    " link ln logname ls md5sum mkdir mkfifo mknod mktemp mv nice nl nohup nproc numfmt od paste pathchk pinky pr"
+    " printenv printf ptx pwd readlink realpath rm rmdir runcon seq sha1sum sha224sum sha256sum sha384sum"
+    " sha512sum shred shuf sleep sort split stat stdbuf stty sum sync tac tail tee test timeout touch tr true"
+    " truncate tsort tty uname unexpand uniq unlink uptime users vdir wc who whoami yes"
+    " find xargs locate updatedb grep egrep fgrep sed tar time".split()
+)
+_GNU_G_NAMES = frozenset("g" + n for n in _GNU_NAMES)
+
+
+# 0.9.0: these tools take a verb written all in capitals as the verb (`brew UNINSTALL jq`, measured:
+# SC semantics4.log); gh, npm, uv, poetry, go, kubectl and pip refuse one, so their verbs are compared as written
+_CAPS_VERB_TOOLS = frozenset({"brew", "gem"})
+
+
+def caps_verbs(name: str, args: list[str]) -> list[str]:
+    """The arguments of a call of `name`, with a plain word that holds a capital in lower case when the tool
+    takes such a verb (F20: any capitals, measured: `brew Uninstall --help` and `gem Uninstall --help` print the
+    help of uninstall); options and every other tool's words stay as written."""
+    if name not in _CAPS_VERB_TOOLS:
+        return args
+    return [t.lower() if t != t.lower() and not t.startswith("-") else t for t in args]
+
+
+def tool_name(word: str) -> str:
+    """The tool a command word names: its basename, with Homebrew's `g` taken off a GNU tool (`grm` -> `rm`)."""
+    name = os.path.basename(word)
+    return name[1:] if name in _GNU_G_NAMES else name
 
 
 def tokens(text: str) -> list[str]:
@@ -504,6 +721,9 @@ def _segments_cached(command: str) -> tuple[tuple[str, ...], ...]:
         toks = tokens(part)
         i = 0
         while i < len(toks) and (_ASSIGN_RE.match(toks[i]) or toks[i] in _WRAPPERS):
+            if toks[i] == "command" and toks[i + 1 : i + 2] in (["-v"], ["-V"]):
+                i = len(toks)  # 0.9.0 (K10): `command -v codex` is a lookup and runs nothing, as the reader reads it
+                break
             i += 1
             while i < len(toks) and toks[i].startswith("-") and toks[i] != "--":
                 i += 1
@@ -624,6 +844,9 @@ _WRITERS_ALL = {"tee", "truncate", "touch", "chmod", "chown"}
 # grep, rg, fd, ag, git ls-files): `tar --exclude=.env` stays silent
 _PATTERN_VALUE_OPTIONS = frozenset("--exclude --exclude-dir --exclude-from --include --glob --iglob --ignore"
                                    " --filter".split())
+# 0.9.0 (K8): the options whose value, in the next word, is a name to leave out; an option that selects the files
+# a tool reads (`--include`, `--glob`) or names a file it reads (`--exclude-from`) names a path
+_EXCLUDE_VALUE_OPTIONS = frozenset({"--exclude", "--exclude-dir"})
 # the reader marks an unquoted input redirection `<` with \x01 (_hi_prepare), so a quoted `'<.env'` is none:
 # `<f`, `0<f`, `<>f` (read and write); not `<<`, `<<<`, `<&3`, `<(…)`
 _INPUT_REDIRECT_RE = re.compile(r"^\d*<\x01>?(\S+)$")
@@ -659,7 +882,9 @@ def _path_candidates(t: str) -> list[str]:
 def _secret_reads(seg: list[str], cwd: str, skip: list[str]) -> list[str]:
     """The secret files the argument words of one simple command name, past those in `skip` (written ones)."""
     out = []
-    for t in seg[1:]:
+    for k, t in enumerate(seg[1:], 1):
+        if seg[k - 1] in _EXCLUDE_VALUE_OPTIONS:  # 0.9.0 (K8): `tar --exclude .env`, the value in the next word
+            continue
         for p in _path_candidates(t):
             if p and p not in skip and secret_class(_expand(p, cwd)) == "secret":
                 out.append(p)
@@ -668,7 +893,7 @@ def _secret_reads(seg: list[str], cwd: str, skip: list[str]) -> list[str]:
 
 def _secret_seg(seg: list[str], cwd: str, writes: list[str], reads: list[str]) -> None:
     """Add the secret files one simple command writes and reads to the two lists."""
-    head = os.path.basename(seg[0])
+    head = tool_name(seg[0])
     paths = [t for t in seg[1:] if not t.startswith("-") and t != "--"]
     targets: list[str] = []
     if head in _WRITERS_LAST and paths:
@@ -697,7 +922,7 @@ def _search_pattern(seg: list[str], k: int) -> tuple[Optional[int], list[str]]:
     `-rnf`), and the glued values of -f/--file (files it reads). The pattern is the first word that is not an
     option; an option's value taken for it (`-A 3`) leaves the real pattern read as a path, which errs towards
     asking."""
-    name = os.path.basename(seg[k])
+    name = tool_name(seg[k])
     start = k + 1
     if name == "git":
         sub, rest = _git_subcommand(seg[k:])
@@ -724,20 +949,138 @@ def _search_pattern(seg: list[str], k: int) -> tuple[Optional[int], list[str]]:
                     files.append(t[at + 1 :])
     if named:
         return None, files
+    table = _SEARCH_OPTIONS.get("grep" if name in ("egrep", "fgrep", "zgrep") else name)
+    value_next = False  # 0.9.0: the word after an option that takes a value is that value, not the pattern
     for m in range(start, len(seg)):
         t = seg[m]
+        if value_next:
+            value_next = False
+            continue
         if t == "--":  # grep: the pattern follows; git grep: paths follow, the pattern came before
             return (m + 1 if name != "git" and m + 1 < len(seg) else None), files
-        if not t.startswith("-"):
+        if not t.startswith("-") or t == "-":
             return m, files
+        reading = _search_option(t, table) if table else "unknown"
+        if reading == "unknown":  # F22: what it takes is not known, so neither is the pattern (as 0.8.0)
+            return None, files
+        value_next = reading == "next"
     return None, files
+
+
+class _SearchTable:
+    """The options of one search tool: short letters and long names that take no value (flags; an option whose
+    value can only be glued, `--color[=WHEN]`, is one), short letters and long names that take a value (glued
+    or the next word), and short letters whose optional value can only be glued (git grep -O)."""
+
+    def __init__(self, flag_shorts: str, value_shorts: str, flag_longs: str, value_longs: str,
+                 glued_shorts: str = "", glued_longs: str = "") -> None:
+        self.flag_shorts = flag_shorts
+        self.value_shorts = value_shorts
+        self.glued_shorts = glued_shorts
+        self.flag_longs = frozenset(flag_longs.split())
+        self.value_longs = frozenset(value_longs.split())
+        # long options known with a glued value only; written bare, the tools read them two ways
+        self.glued_longs = frozenset(glued_longs.split())
+
+
+# Fix pass, F22: three readings of an option, not two. Sources: each tool's own --help, as listed in the fix
+# order's options.tsv: ripgrep 15, GNU grep 3.12 (`ggrep`, also for grep, egrep, fgrep, zgrep), git grep 2.55. An
+# option in neither list (a newer flag, a unique prefix such as `--no-mess`, a flag of the BSD grep of macOS such as
+# -S) leaves the pattern of the call unknown: no word is left out of the secret check, no pattern is protected for
+# egress-guard (what 0.8.0 did). For ag and ack the order holds no help text: the flags of the 0.9.0 build stay
+# (the silver searcher 2.2, ack 3.7) and no value option is known, so any other option leaves the pattern unknown.
+_SEARCH_OPTIONS: dict = {
+    "grep": _SearchTable(
+        "EFGPiwxzsvVbnHhoqaIrRLlcTZU0123456789", "efmdDBAC",
+        "--extended-regexp --fixed-strings --basic-regexp --perl-regexp --ignore-case --no-ignore-case"
+        " --word-regexp --line-regexp --null-data --no-messages --invert-match --version --help --byte-offset"
+        " --line-number --line-buffered --with-filename --no-filename --only-matching --quiet --silent --text"
+        " --recursive --dereference-recursive --files-without-match --files-with-matches --count --initial-tab"
+        " --null --no-group-separator --binary --color --colour",
+        "--regexp --file --max-count --label --binary-files --directories --devices --include --exclude"
+        " --exclude-from --exclude-dir --before-context --after-context --group-separator",
+        # F25: GNU grep 3.12 takes `--context NUM`, the BSD grep 2.6.0 of macOS only `--context[=num]` (the next
+        # word is its pattern, measured): bare, the pattern is not known
+        glued_longs="--context"),
+    "rg": _SearchTable(
+        "zsFivxUPSawLubhnN0opqHIclV", "efEmjgdtTABCMr",
+        "--search-zip --case-sensitive --crlf --fixed-strings --ignore-case --invert-match --line-regexp --mmap"
+        " --multiline --multiline-dotall --no-unicode --null-data --pcre2 --smart-case --stop-on-nonmatch --text"
+        " --word-regexp --auto-hybrid-regex --no-pcre2-unicode --binary --follow --glob-case-insensitive --hidden"
+        " --ignore-file-case-insensitive --no-ignore --no-ignore-dot --no-ignore-exclude --no-ignore-files"
+        " --no-ignore-global --no-ignore-parent --no-ignore-vcs --no-require-git --one-file-system --unrestricted"
+        " --block-buffered --byte-offset --column --heading --help --include-zero --line-buffered --line-number"
+        " --no-line-number --max-columns-preview --null --only-matching --passthru --pretty --quiet --trim"
+        " --vimgrep --with-filename --no-filename --sort-files --count --count-matches --files-with-matches"
+        " --files-without-match --json --debug --no-ignore-messages --no-messages --stats --trace --files"
+        " --no-config --pcre2-version --type-list --version",
+        "--regexp --file --pre --pre-glob --dfa-size-limit --encoding --engine --max-count --regex-size-limit"
+        " --threads --glob --iglob --ignore-file --max-depth --max-filesize --type --type-not --type-add"
+        " --type-clear --after-context --before-context --color --colors --context --context-separator"
+        " --field-context-separator --field-match-separator --hostname-bin --hyperlink-format --max-columns"
+        " --path-separator --replace --sort --sortr --generate"),
+    "git": _SearchTable(
+        "viwaIrEGFPnhHlLzocpWq0123456789", "CBAfem",
+        "--cached --no-cached --no-index --index --untracked --no-untracked --exclude-standard"
+        " --no-exclude-standard --recurse-submodules --no-recurse-submodules --invert-match --no-invert-match"
+        " --ignore-case --no-ignore-case --word-regexp --no-word-regexp --text --no-text --textconv --no-textconv"
+        " --recursive --no-recursive --extended-regexp --no-extended-regexp --basic-regexp --no-basic-regexp"
+        " --fixed-strings --no-fixed-strings --perl-regexp --no-perl-regexp --line-number --no-line-number"
+        " --column --no-column --full-name --no-full-name --files-with-matches --no-files-with-matches"
+        " --name-only --no-name-only --files-without-match --no-files-without-match --null --no-null"
+        " --only-matching --no-only-matching --count --no-count --break --no-break --heading --no-heading"
+        " --show-function --no-show-function --function-context --no-function-context --and --or --not --quiet"
+        " --no-quiet --all-match --no-all-match --ext-grep --no-ext-grep"
+        # optional values, glued only (`--[no-]color[=<when>]`, `--[no-]open-files-in-pager[=<pager>]`), and the
+        # negations of options with a value, which take none (git parse-options: `--[no-]context <n>`)
+        " --color --no-color --open-files-in-pager --no-open-files-in-pager --no-context --no-threads"
+        " --no-max-count",
+        "--max-depth --context --before-context --after-context --threads --max-count",
+        glued_shorts="O"),
+    "ag": _SearchTable(
+        "acfHilLnQsStuUvwz0", "",
+        "--hidden --literal --nocolor --case-sensitive --smart-case --files-with-matches --files-without-matches"
+        " --follow --skip-vcs-ignores --unrestricted --search-binary --stats --nobreak --noheading --heading"
+        " --column --numbers --nonumbers --vimgrep --one-device --search-zip --print-long-lines --filename"
+        " --nofilename --all-types --all-text --print0 --silent --ignore-case --word-regexp --invert-match"
+        " --count --version --help",
+        ""),
+    "ack": _SearchTable(
+        "cfhHiIlLnosvwx1", "",
+        "--smart-case --nocolor --nocolour --column --nocolumn --heading --noheading --break --nobreak --group"
+        " --nogroup --follow --nofollow --flush --literal --passthru --print0 --sort-files --show-types --noenv"
+        " --nopager --known-types --nofilter --ignore-case --word-regexp --invert-match --count --version --help",
+        ""),
+}
+
+
+def _search_option(t: str, table: _SearchTable) -> str:
+    """How a search tool reads one option word: "flag" (passed over; also any option whose value is glued to it,
+    `--color=always`, `-A3`, `-rnA3`), "next" (its value is the next word: `-A 3`, `-rnA 3`, `--glob x`), or
+    "unknown" (an option, or a letter of a short cluster, in neither list)."""
+    if t.startswith("--"):
+        name, glued, _value = t.partition("=")
+        if name in table.glued_longs:
+            return "flag" if glued else "unknown"
+        if name in table.value_longs:
+            return "flag" if glued else "next"
+        return "flag" if name in table.flag_longs else "unknown"
+    for n, c in enumerate(t[1:], 1):
+        if c in table.flag_shorts:
+            continue
+        if c in table.glued_shorts:
+            return "flag"
+        if c in table.value_shorts:
+            return "next" if n == len(t) - 1 else "flag"
+        return "unknown"
+    return "flag"
 
 
 def _secret_reader_seg(seg: list[str], cwd: str, writes: list[str], reads: list[str]) -> None:
     """The reader pass of secret-shell: _secret_seg without the pattern operand of a search tool at any
     command word of the words, plus the files a glued -f/--file reads."""
     drop = set()
-    if any(os.path.basename(t) in _SEARCH_TOOLS or os.path.basename(t) == "git" for t in seg):
+    if any(tool_name(t) in _SEARCH_TOOLS or os.path.basename(t) == "git" for t in seg):
         for k in command_word_indexes(seg):
             pattern, files = _search_pattern(seg, k)
             if pattern is not None:
@@ -754,26 +1097,599 @@ def _secret_verdict(writes: list[str], reads: list[str]) -> Optional[Decision]:
     return None
 
 
+# 0.9.0 (decision af): commands that print a stored secret. Tool -> (leading words, condition on the arguments);
+# a leading word is a string or a predicate, found past the tool's options as subcommand_hit finds a verb. The
+# list, status and metadata calls of the same tools stay silent. Sources: the CLIs' own help: HashiCorp Vault
+# 1.17, 1Password CLI 2, kubectl 1.31, gh 2.6x, AWS CLI v2, gcloud 49x, macOS security(1), pass 1.7, Doppler CLI
+# 3, sops 3.9, ansible-vault 2.17; az and git are read by their own functions below.
+_KUBECTL_QUIET_OUTPUT = frozenset({"name", "wide"})  # these print no secret data
+
+
+def _has(*names: str) -> Callable[[list[str]], bool]:
+    """A condition: one of these options is given, bare or with a value (`--fields x`, `--fields=x`)."""
+    return lambda args: any(t in names or t.split("=", 1)[0] in names for t in args)
+
+
+def _short_has(letters: str) -> Callable[[list[str]], bool]:
+    """A condition: one of these short options is given, alone or in a cluster (`-w`, `-ws`: security(1), macOS
+    15, takes its short options in one word; F06)."""
+    return lambda args: any(t.startswith("-") and not t.startswith("--") and any(c in letters for c in t[1:])
+                            for t in args)
+
+
+def _kubectl_raw_secrets(args: list[str]) -> bool:
+    """`kubectl get --raw PATH` with a path of the secrets API (F06: `--raw` asks the API path; kubectl 1.36)."""
+    for k, t in enumerate(args):
+        if t == "--raw":
+            value = args[k + 1] if k + 1 < len(args) else ""
+        elif t.startswith("--raw="):
+            value = t[len("--raw=") :]
+        else:
+            continue
+        return "secret" in value.lower()
+    return False
+
+
+# Doppler CLI 3 (`doppler secrets --help`): the verbs under `secrets`; with none, `doppler secrets` prints the
+# names and values (Doppler's docs, "Names and values"), with --only-names the names only (F06)
+_DOPPLER_SECRETS_VERBS = frozenset("get set upload download delete substitute notes".split())
+
+
+def _doppler_secrets_bare(args: list[str]) -> bool:
+    """`doppler secrets` with no verb after it (an option's value is no verb) and without --only-names."""
+    if _has("--only-names")(args):
+        return False
+    rest = args[args.index("secrets") + 1 :] if "secrets" in args else []
+    return not any(t in _DOPPLER_SECRETS_VERBS for t in rest if not t.startswith("-"))
+
+
+def _kubectl_output(args: list[str]) -> bool:
+    """kubectl prints the data of the objects: an output format other than name and wide (`-o yaml`, `-ojson`,
+    `--output=jsonpath=…`), or a Go template (`--template=…`, F06)."""
+    if _has("--template")(args):
+        return True
+    for k, t in enumerate(args):
+        if t in ("-o", "--output"):
+            value = args[k + 1] if k + 1 < len(args) else ""
+        elif t.startswith("--output="):
+            value = t[len("--output=") :]
+        elif t.startswith("-o") and not t.startswith("--"):
+            value = t[2:].lstrip("=")
+        else:
+            continue
+        return value.split("=", 1)[0] not in _KUBECTL_QUIET_OUTPUT
+    return False
+
+
+def _names_secret(word: str) -> bool:
+    """A kubectl resource word that names secrets: `secret`, `secrets/app`, `pods,secrets`; F06: in any case
+    (`Secret`, `SECRETS`) and with its version or group (`secret.v1`), as kubectl 1.36 reads them."""
+    return any(r.split("/", 1)[0].lower().split(".", 1)[0] in ("secret", "secrets") for r in word.split(","))
+
+
+_SECRET_STORES: dict = {
+    "vault": [(("kv", "get"), None), (("read",), None)],
+    # F06: every `op item get` of an item asks (the table of docs/HANDOVER-2026-11-17.md)
+    "op": [(("read",), None), (("inject",), None), (("item", "get"), None)],
+    "kubectl": [(("get", _names_secret), _kubectl_output), (("get",), _kubectl_raw_secrets),
+                (("config", "view"), _has("--raw", "--flatten"))],
+    "gh": [(("auth", "token"), None), (("auth", "status"), _has("--show-token", "-t"))],
+    "aws": [(("secretsmanager", "get-secret-value"), None), (("secretsmanager", "batch-get-secret-value"), None),
+            (("ssm", "get-parameter"), _has("--with-decryption")),
+            (("ssm", "get-parameters"), _has("--with-decryption")),
+            (("ssm", "get-parameters-by-path"), _has("--with-decryption")),
+            (("configure", "export-credentials"), None),
+            # F06: also the dotted names of the same value (`default.aws_secret_access_key`, `profile.p.…`)
+            (("configure", "get", lambda w: w.lower().rsplit(".", 1)[-1] in ("aws_secret_access_key",
+                                                                          "aws_session_token")), None),
+            (("ecr", "get-login-password"), None), (("sts", "get-session-token"), None)],
+    "gcloud": [(("secrets", "versions", "access"), None), (("auth", "print-access-token"), None),
+               (("auth", "print-identity-token"), None),
+               (("auth", "application-default", "print-access-token"), None)],
+    "security": [(("find-generic-password",), _short_has("wg")), (("find-internet-password",), _short_has("wg")),
+                 (("dump-keychain",), _short_has("d"))],
+    "pass": [(("show",), None), (("otp",), None), (("grep",), None)],
+    "doppler": [(("secrets", "get"), None), (("secrets", "download"), None), (("secrets",), _doppler_secrets_bare)],
+    "sops": [(("decrypt",), None)],
+    "ansible-vault": [(("view",), None), (("decrypt",), None)],
+}
+# a pass(1) word that is a subcommand; any other first word is the name of an entry, and `pass NAME` shows it
+_PASS_SUBS = frozenset("init ls list find search show insert add edit generate rm remove delete mv rename cp copy git"
+                       " help version grep otp".split())
+# az: the last leading words of a call that prints a secret (Azure CLI 2.6x reference)
+_AZ_SECRET_TAILS = (("keyvault", "secret", "show"), ("keyvault", "secret", "download"), ("account", "get-access-token"),
+                    ("keys", "list"), ("show-connection-string",), ("credential", "show"),
+                    ("list-publishing-profiles",), ("list-publishing-credentials",))
+
+
+def _leading(args: list[str], words: tuple) -> bool:
+    """The arguments start with these words past the options; a plain word after an option without `=` may be its
+    value and is skipped once (subcommand_hit's rule)."""
+    k = 0
+    may_be_value = False
+    for t in args:
+        if k == len(words):
+            return True
+        if t == "--":
+            return False
+        if t.startswith("-") and len(t) > 1:
+            may_be_value = "=" not in t
+            continue
+        want = words[k]
+        if (t == want) if isinstance(want, str) else want(t):
+            k, may_be_value = k + 1, False
+            continue
+        if not may_be_value:
+            return False
+        may_be_value = False
+    return k == len(words)
+
+
+def secret_store_what(seg: list[str]) -> Optional[str]:
+    """The call when one simple command prints a stored secret (`vault kv get`, `gh auth token`), or None."""
+    head = tool_name(seg[0])
+    args = drop_redirections(seg[1:])
+    if head == "git":
+        sub, rest = _git_subcommand(seg)
+        if (sub == "credential" and "fill" in rest) or (sub and sub.startswith("credential-") and "get" in rest):
+            return f"`git {sub}` prints a stored credential"
+        return None
+    if head == "az":
+        lead = tuple(_az_leading_words(args))
+        if not _help_probe(args) and any(lead[-len(tail) :] == tail for tail in _AZ_SECRET_TAILS):
+            return f"`az {' '.join(lead)}` prints a secret"
+        return None
+    if head == "sops" and ("-d" in args or "--decrypt" in args):
+        return "`sops --decrypt` prints the plaintext"
+    if head == "pass":
+        first = next((t for t in args if not t.startswith("-")), None)
+        if first is not None and first not in _PASS_SUBS:
+            return "`pass NAME` prints a stored password"
+    # F04: under `gh auth`, -h is --hostname, no help word (`gh auth token --help`, gh 2.92.0)
+    if _help_probe([t for t in args if t != "-h"] if head == "gh" and _leading(args, ("auth",)) else args):
+        return None
+    for words, cond in _SECRET_STORES.get(head, ()):
+        if _leading(args, words) and (cond is None or cond(args)):
+            shown = " ".join(w for w in words if isinstance(w, str))
+            return f"`{head} {shown}` prints a stored secret"
+    return None
+
+
+SECRET_STORE_MSG = ("secret-shell: {what}. A secret printed into the session leaves the vault; confirm the command "
+                    "(AGENTS.md: secrets stay in the vault).")
+
+
+# 0.9.0, group C (K6, K7, K9): commands that name a secret path and read nothing of it: they print their words,
+# list or test the file, or report git's view of the name
+_REPORT_HEADS = frozenset({"echo", "printf", "ls", "stat", "test", "[", "[["})
+_REPORT_GIT_SUBS = frozenset({"check-ignore", "ls-files", "status"})
+# second fix round: a separator is read by its characters; without spaces and line breaks these are plain, any
+# other (`|`, `|&`, an operator the check does not know) hands the output on
+_PLAIN_SEPS = frozenset({"", ";", "&&", "||", "&"})
+
+
+def _report_words(toks) -> tuple:
+    """The words of a simple command without leading assignments and shell words and without redirections: the
+    form both passes of secret-shell compare."""
+    words = drop_redirections(list(toks))
+    k = 0
+    while k < len(words) and (_ASSIGN_RE.match(words[k]) or words[k] in _NC_SHELL_WORDS):
+        k += 1
+    return tuple(words[k:])
+
+
+# fifth fix round: `$_` in any spelling of a parameter expansion (`${_:-x}`, `${_%y}`)
+_LAST_ARG_RE = re.compile(r"\$_(?![A-Za-z0-9_])|\$\{[^}]*(?<![A-Za-z0-9_])_(?![A-Za-z0-9_])")
+_COMPOUND_OPENERS = frozenset({"{", "if", "while", "until", "for", "case", "select"})
+_COMPOUND_CLOSERS = frozenset({"}", "fi", "done", "esac"})
+
+
+_GROUP_CLOSER = {"{": "}", "if": "fi", "while": "done", "until": "done", "for": "done", "select": "done"}
+# fifth fix round: the quiet reading is strict; a line it cannot read with certainty has no quiet report.
+# In `$[…]` a quote is no quote for the shell, and a character of the private plane would pass for a quoted one.
+# (`$'…'`, whose escapes the lexer does not know, and `$((…))` are turned down where the quotes are read.)
+# sixth fix round: a carriage return is a blank for the lexer and a plain character for the shell (`}\r` closes
+# nothing there)
+_QUIET_UNREAD_RE = re.compile("\\$\\[|\r|[\U000f0000-\U000ffffd]")
+# sixth fix round: a report's name written with a path is the report only in a system folder (`./ls`, `script/test`
+# are other programs)
+_REPORT_DIRS = frozenset({"/bin", "/usr/bin", "/usr/local/bin", "/opt/homebrew/bin"})
+# sixth fix round: what the first argument of a quiet `printf` may hold outside quotes; anything else a shell could
+# expand to the option `-v` (a parameter, braces, a pattern, a tilde). A backslash is left in a masked word only
+# inside double quotes.
+_PRINTF_PLAIN_RE = re.compile("[A-Za-z0-9%_./:,+@=\\\\\U000f0000-\U000ffffd-]*")
+_QUOTED_OFFSET = 0xF0000
+_QUOTE_MARK = "\U000ffffd"  # behind every opening quote: a word with an empty quoted part (`{''`) is no bare word
+_BRACKET_WORDS = frozenset({"{", "}", "[", "]", "[[", "]]"})
+
+
+def _plain_sep(sep: str) -> bool:
+    """The lexer's separator hands no output on: read by its characters, never compared whole (`|⏎` is a pipe)."""
+    return sep.replace(" ", "").replace("\n", "") in _PLAIN_SEPS
+
+
+def _quoted_char(c: str) -> str:
+    return chr(ord(c) + _QUOTED_OFFSET) if c and ord(c) < 0xFFFD else c
+
+
+# sixth fix round: `case` is a word by its neighbours, not by blanks (`$(true;case x in x) …)`): the `)` of its
+# pattern does not end the substitution
+_CASE_WORD_RE = re.compile(r"(?<![A-Za-z0-9_])case(?![A-Za-z0-9_])")
+
+
+def _quiet_sub_end(text: str, i: int) -> Optional[int]:
+    """Index of the character that closes the substitution opened at text[i] inside a double-quoted string, or
+    None when the check cannot tell where the shell ends it. A backtick ends at the next backtick that is not
+    escaped. `$(` ends at the first `)` when the body up to it holds no bracket, backtick, `${`, `$'` or `case`
+    (a word by its neighbours, not by blanks: `$(true;case x in x) …)`, sixth fix round), no `#` outside
+    quotes, and quotes that pair up: then that `)` is quoted for no shell. (A here-document, which could hide it
+    too, is turned down for the whole line.)"""
+    if text[i] == "`":
+        j = i + 1
+        while j < len(text):
+            if text[j] == "`":
+                return j
+            j += 2 if text[j] == "\\" else 1
+        return None
+    end = text.find(")", i + 2)
+    body = text[i + 2 : max(end, 0)]
+    if end < 0 or any(x in body for x in ("(", "`", "${", "$'")) or _CASE_WORD_RE.search(body):
+        return None
+    quote = ""
+    k = 0
+    while k < len(body):
+        c = body[k]
+        if c == "\\" and quote != "'":
+            if k + 1 >= len(body):
+                return None  # the `)` itself is escaped
+            k += 2
+            continue
+        if quote:
+            quote = "" if c == quote else quote
+        elif c in "'\"":
+            quote = c
+        elif c == "#":
+            return None
+        k += 1
+    return None if quote else end
+
+
+def _quiet_mask(text: str) -> Optional[str]:
+    """The prepared line with every quoted or escaped character moved to the private plane, by the lexer's own
+    quoting rules: a brace, a bracket or a reserved word the line spells with a quote or a backslash (`'{'`, `\\}`,
+    `"fi"`) is then none for the check, as it is none for the shell. The lexer takes a quote inside a substitution
+    of a double-quoted string for the string's own (`"$(grep -c "x" f)"`); the check lets that stand only where
+    it shows the lexer no separator and the string ends for the lexer where it ends for the shell. None for any
+    other such substitution, and when a double-quoted string ends inside a `${`: the shell reads on to the `}`,
+    the lexer stops at the quote (`"${X:-"a"}"`)."""
+    out: list[str] = []
+    quote = ""
+    depth = 0
+    sub_end = -1  # the last character of the substitution at hand
+    i, n = 0, len(text)
+    while i < n:
+        c = text[i]
+        if i == sub_end and quote != '"':
+            return None  # the lexer is not back in the string where the shell ends the substitution
+        if quote == '"' and i > sub_end and (c == "`" or (c == "$" and text[i + 1 : i + 2] == "(")):
+            end = _quiet_sub_end(text, i)
+            if end is None:
+                return None
+            sub_end = end
+        if c == "\\" and quote != "'":
+            nxt = text[i + 1 : i + 2]
+            # inside "…" the lexer takes the backslash off `\"` and `\\` only; these two stay as they are
+            out.append(c + (nxt if quote and nxt in ('"', "\\") else _quoted_char(nxt)))
+            i += 2
+            continue
+        if not quote and i <= sub_end and c in _HI_PUNCT:
+            return None  # a separator of the lexer inside the substitution, where the shell has none
+        if quote:
+            if c == quote:
+                if depth:
+                    return None
+                quote = ""
+                out.append(c)
+            else:
+                if quote == '"' and c == "$" and text[i + 1 : i + 2] == "{":
+                    depth += 1
+                elif quote == '"' and c == "}" and depth:
+                    depth -= 1
+                out.append(_quoted_char(c))
+        else:
+            if c in "'\"":
+                if c == "'" and out and out[-1] == "$":
+                    return None  # `$'…'`: its escapes (`\\'`) are none for the lexer. `'^a$'` ends a string and stays
+                quote, depth = c, 0
+                c += _QUOTE_MARK
+            out.append(c)
+        i += 1
+    return "".join(out)
+
+
+def _quiet_unmask(word: str) -> str:
+    return "".join(chr(ord(c) - _QUOTED_OFFSET) if 0xF0000 <= ord(c) < 0xFFFFD else c
+                   for c in word if c != _QUOTE_MARK)
+
+
+def _printf_format(first: str) -> bool:
+    """The first argument of a `printf` (masked, as the lexer gave it) is its format for certain: it is no
+    option, and it holds nothing a shell expands, so no `-v` can come out of it (`printf $X x`, `printf {-v,x}`,
+    `printf "$(echo -v)" x` store their words in a variable). After `--` no word is an option."""
+    plain = _quiet_unmask(first)
+    if plain == "--":
+        return True
+    return (not plain.startswith("-") and "$" not in plain and "`" not in plain
+            and _PRINTF_PLAIN_RE.fullmatch(first) is not None)
+
+
+def _compound_outputs(cmds: list) -> Optional[tuple[list, dict]]:
+    """For each simple command of the lexer's list, the groups and compounds around it (each by a number of its
+    own, counted in the order they open), and for each of these whether its output is handed on by the separator
+    behind its closer; a construct that never closes counts as handed on. None when a closer is not the word of
+    the construct it would close (the line is not read completely). The caller has turned down every line with a
+    bracket, so neither subshells nor `case` reach this. Fourth fix round: a key per construct, not per opening
+    command, because zsh closes a group at a `}` that is no first word (`{ { ls .env; true } | xargs cat; }`):
+    the check does not see that closer, and the construct it leaves open must not take the answer of a
+    neighbour opened by the same command. Fifth fix round, the strict reading: also None for a closer with more
+    than redirections behind it (`} always {`, `fi fi`, `} }`), a closer behind a shell word (`else fi`, which
+    zsh takes) and a `}` among the words of a command (zsh closes a group there). With every closer the shell
+    sees seen here, an opener the check does not know (`time {`, `repeat 1 {`) leaves one closer too many, which
+    is None too; so no list of such words is kept."""
+    stack: list[tuple[int, str]] = []
+    enclosing: list = []
+    handed_on: dict = {}
+    opened = 0
+    for k, (_sep, toks) in enumerate(cmds):
+        j = 0
+        if toks[:1] and toks[0] in _COMPOUND_CLOSERS:
+            # fifth round: behind a closer only redirections; `} always {`, `fi fi` and `} }` open or close unseen
+            if not stack or stack[-1][1] != toks[0] or drop_redirections(toks[1:]):
+                return None
+            # one construct, one closing: its own key, so a neighbour's answer never stands for it
+            handed_on[stack.pop()[0]] = not _plain_sep(cmds[k + 1][0] if k + 1 < len(cmds) else "")
+            j = len(toks)
+        # `{ { ls .env; }; }`, `then if true`: the leading words of one command can open more than one construct;
+        # each gets a number of its own, so one zsh closes unseen stays open here and counts as handed on
+        while j < len(toks):
+            t = toks[j]
+            if t in _GROUP_CLOSER:
+                stack.append((opened, _GROUP_CLOSER[t]))
+                opened += 1
+                j += 1
+                if t in ("for", "select"):
+                    break
+            elif t in _NC_SHELL_WORDS:
+                j += 1
+            elif t in _COMPOUND_CLOSERS:
+                return None  # fifth round: `else fi`, `do done`, `{ }`: a closer behind a shell word, which zsh takes
+            else:
+                break
+        # fifth round: zsh closes a group at a `}` among the words of a command. With every closer seen, an opener
+        # the check does not see (`time {`, `repeat 1 {`, `always {`) leaves one closer too many, and that is None
+        if "}" in toks[j:]:
+            return None
+        enclosing.append([o for o, _ in stack])
+    return enclosing, handed_on
+
+
+def _quiet_reports(command: str) -> tuple:
+    """The report commands (_REPORT_HEADS, `git check-ignore|ls-files|status`) whose output goes to no other
+    command: `ls .env | xargs cat` and `cat $(ls .env)` read the file. Second fix round: a report is quiet only
+    on a line the check reads completely; a line with a here-document, `$_`, a backtick, a bracket in a separator
+    (subshell, substitution, function, `case` pattern, array) or a `function` or `coproc` has none. Fifth fix
+    round: a report is quiet only on a line the check reads the way the shell does, and where it cannot be sure
+    the line has none (fail closed). The structure is read from the masked line (_quiet_mask: a quoted or escaped
+    brace, reserved word or separator is none); a line has no quiet report with `$[`, a character of the private
+    plane, `$_` in any spelling, quoting the lexer reads otherwise than the shell (_quiet_mask gives up), more
+    `[[` than `]]` or a word with unbalanced braces or brackets in one command (the lexer split inside `[[ ]]`,
+    `${ }` or a subscript), or a structure _compound_outputs turns down. `printf -v` and `[[ … =~ … ]]` hand
+    their words on in a variable and are never quiet. Sixth fix round: a quiet report is a command the check is
+    certain about. A `printf` is one only when its first argument is a format for certain (_printf_format: no
+    option, nothing a shell expands, so no `-v` can come out of it); `$_` is looked for in every word as the
+    shell reads it too (`eval 'cat $'_`); a line with a carriage return (a blank for the lexer, a character for
+    the shell) has none; a report's name with a path in front counts only in a system folder (_REPORT_DIRS:
+    `./ls` is another program). Seventh fix round: a git report is quiet only when it hands its output to no pager
+    for certain (_git_report_plain: between `git` and the subcommand only `-C <dir>`, `--no-pager` and `-P`, and
+    no assignment in front of `git`). Eighth fix round: and only when nothing else on the line can set the
+    environment or the configuration git takes a pager from: no word that runs a command while it is expanded
+    (_WORD_RUNS_RE), and beside it only other quiet reports and the commands of _sets_nothing."""
+    if "<<" in command or _LAST_ARG_RE.search(command):  # F13: `$_` hands the last word of a report on
+        return ()
+    if _QUIET_UNREAD_RE.search(command):
+        return ()
+    # F23: the lexer ends a command at the `&` of `2>&1`, `>&1`, `<&0`, `2>&-`, so the pipe behind it belonged to a
+    # command `1`; _hi_prepare takes that `&` out, as the reader has it
+    masked = _quiet_mask(_hi_prepare(command)[0])
+    cmds = None if masked is None else _hi_lex(masked)
+    if cmds is None:  # F12: a line the lexer cannot split shows no pipe; no report of it is quiet
+        return ()
+    for sep, toks in cmds:
+        if any(c in sep for c in "()`"):
+            return ()
+        if _report_words(toks)[:1] in (("function",), ("coproc",)):
+            return ()
+        # fifth round: the lexer split inside `[[ … ]]`, `${…}` or a subscript, where the shell does not
+        # (`[[ a && { ]]`, `${X:-a; }`, `a[x ; { ]=1`): what looks like a first word there is none
+        if toks.count("[[") != toks.count("]]"):
+            return ()
+        if any(t not in _BRACKET_WORDS and (t.count("{") != t.count("}") or t.count("[") != t.count("]"))
+               for t in toks):
+            return ()
+        # sixth round: `$_` in a word as the shell reads it, whatever quotes split it in the text (`eval 'cat $'_`)
+        if any(_LAST_ARG_RE.search(_quiet_unmask(t)) for t in toks):
+            return ()
+    outputs = _compound_outputs(cmds)
+    if outputs is None:
+        return ()
+    enclosing, handed_on = outputs
+    out = []
+    git_at: dict = {}  # eighth round: the git reports by their place on the line
+    beside: set = set()  # eighth round: the places of the other reports that are their words alone
+    for k, (sep, toks) in enumerate(cmds):
+        if not _plain_sep(sep) or not _plain_sep(cmds[k + 1][0] if k + 1 < len(cmds) else ""):
+            continue
+        if any(handed_on.get(o, True) for o in enclosing[k]):  # F11: `{ ls .env; } | xargs cat`
+            continue
+        masked_words = _report_words(toks)
+        words = tuple(_quiet_unmask(w) for w in masked_words)
+        if not words:
+            continue
+        head = tool_name(words[0])
+        # sixth round: a name with a path in front is the report only in a system folder
+        if "/" in words[0] and os.path.dirname(words[0]) not in _REPORT_DIRS:
+            continue
+        # fifth round: `printf -v x` and `[[ … =~ … ]]` hand their words on in a variable; sixth round: the option
+        # can only be the first argument, and that argument must be a format for certain (_printf_format)
+        if head == "printf" and len(words) > 1 and not _printf_format(masked_words[1]):
+            continue
+        if head == "[[" and "=~" in words:
+            continue
+        if head in _REPORT_HEADS:
+            out.append(words)
+            if _words_alone(toks):
+                beside.add(k)
+        elif head == "git":
+            sub, rest = _git_subcommand(list(words))
+            if (sub in _REPORT_GIT_SUBS and not (sub == "status" and _git_status_verbose(rest))
+                    and _git_report_plain(toks, words, rest)):
+                git_at[k] = words
+    # eighth round: a git report is quiet only when nothing else on the line can set what git reads: no word that
+    # runs a command while it is expanded, and no other command but those of _sets_nothing
+    if (git_at and not _WORD_RUNS_RE.search(command)
+            and all(k in git_at or k in beside or _sets_nothing(toks) for k, (_sep, toks) in enumerate(cmds))):
+        out.extend(git_at.values())
+    return tuple(out)
+
+
+# eighth fix round: the commands that may stand beside a quiet git report, apart from other quiet reports: they
+# set no variable and write no file (a closer has only redirections behind it: _compound_outputs)
+_BESIDE_GIT_REPORT = frozenset({"cd", "true", "false"}) | _COMPOUND_CLOSERS
+# eighth fix round: a word that can run a command while the shell expands it, quoted or not: `$( )`, a backtick,
+# and `${`, which opens `${ cmd; }` in bash 5.3 and the flags of zsh; read from the text of the line, so a
+# literal one in single quotes counts too. The forms that open with a bare bracket are not listed and need not
+# be (`<( )`, `>( )`, zsh's `=( )`, a glob qualifier such as `*(e:'…':)`): the lexer ends a command at the bracket,
+# and a line with a bracket in a separator has no quiet report (second fix round, in _quiet_reports; rows F84)
+_WORD_RUNS_RE = re.compile(r"\$[({]|`")
+
+
+def _words_alone(toks) -> bool:
+    """Eighth fix round: behind its leading shell words the command is its words alone: no redirection and no
+    assignment."""
+    k = 0
+    while k < len(toks) and toks[k] in _NC_SHELL_WORDS:
+        k += 1
+    return tuple(toks[k:]) == _report_words(toks)
+
+
+def _sets_nothing(toks) -> bool:
+    """Eighth fix round: a command beside a git report that sets nothing git reads. git takes a pager and other
+    programs from its environment and its configuration, and any other command of the line can set either, in a
+    loop one behind the report too (`export GIT_CONFIG_COUNT=1 …; git ls-files .env`,
+    `git config pager.ls-files 'xargs cat'`, `echo … >> .git/config`). So beside a quiet git report stand only
+    other quiet reports that are their words alone, shell words, a closer, and `cd`, `true` and `false`, each
+    without a redirection and without an assignment. (What an earlier call left in the configuration or the
+    environment is not seen. That holds for the folder a `cd` of the line or `-C <dir>` names as well: the report
+    runs under the configuration of the repository there, and the guard does not read it.)"""
+    if not _words_alone(toks):
+        return False
+    words = _report_words(toks)
+    return not words or words[0] in _BESIDE_GIT_REPORT
+
+
+# seventh fix round: the options of git itself a quiet report may carry in front of its subcommand, beside
+# `-C <dir>`. Any other is not known to hand nothing on.
+_REPORT_GIT_OPTIONS = frozenset({"--no-pager", "-P"})
+
+
+def _git_report_plain(toks, words: tuple, rest: list) -> bool:
+    """Seventh fix round: a git report hands its output to no pager for certain. On a terminal git pipes a
+    report into the program that an option in front of the subcommand or a variable set for the command names
+    (`-c core.pager='xargs cat' -p`, `-c pager.ls-files=…`, `--config-env`, `GIT_PAGER=… git -p`, `GIT_CONFIG_…`),
+    and `-c core.fsmonitor=…` runs a program outright. So between `git` and the subcommand stand only `-C <dir>`,
+    `--no-pager` and `-P`, and no assignment stands in front of `git`. `toks` are the command's words as the
+    lexer gave them, `words` the same without redirections and leading words, `rest` the words behind the
+    subcommand. (A pager the configuration or the environment names without a word of this command is not seen.)"""
+    lead = drop_redirections(list(toks))
+    if any(_ASSIGN_RE.match(t) for t in lead[: len(lead) - len(words)]):
+        return False
+    front = list(words[1 : len(words) - len(rest) - 1])
+    while front:
+        if front[0] == "-C":
+            del front[:2]
+        elif front[0] in _REPORT_GIT_OPTIONS:
+            del front[:1]
+        else:
+            return False
+    return True
+
+
+def _git_status_verbose(rest: list[str]) -> bool:
+    """F26: `git status -v` prints the staged change of the paths it names, `-vv` the change in the work tree:
+    content, not names (measured, git 2.55). A `v` in a short cluster (`-bv`), or a long option that is a prefix
+    of --verbose (git takes a unique prefix: `--v`), before `--`."""
+    for t in rest:
+        if t == "--":
+            return False
+        if t.startswith("--"):
+            name = t.partition("=")[0]
+            if len(name) >= 3 and "--verbose".startswith(name):
+                return True
+        elif t.startswith("-") and "v" in t[1:]:
+            return True
+    return False
+
+
+def _take_quiet(quiet: "collections.Counter", seg) -> bool:
+    """The simple command is one of the quiet reports: count it off, so a twin nested elsewhere is still read."""
+    words = _report_words(seg)
+    if quiet.get(words, 0) > 0:
+        quiet[words] -= 1
+        return True
+    return False
+
+
 def rule_secret_shell(ev: Event, cfg: dict) -> Optional[Decision]:
     if ev.event != "PreToolUse" or ev.kind != "shell" or not ev.command:
         return None
     writes: list[str] = []
     reads: list[str] = []
     command = strip_heredocs(ev.command)
-    for target in _REDIRECT_RE.findall(command):
+    # addendum: the targets on the line as the shell joins it (`echo x > \⏎.env` writes .env); only here
+    for target in _REDIRECT_RE.findall(command.replace("\\\n", "")):
         target = target.strip("\"'`,;)")
         if secret_class(_expand(target, ev.cwd)) == "secret":
             writes.append(target)
+    quiet = _quiet_reports(ev.command)
+    first_quiet = collections.Counter(quiet)
     for seg in segments(command):
-        _secret_seg(seg, ev.cwd, writes, reads)
+        if _take_quiet(first_quiet, seg):
+            continue
+        # 0.9.0 (K3): the first pass leaves a search tool's pattern out as the reader pass does
+        _secret_reader_seg(seg, ev.cwd, writes, reads)
     if writes:
         return _secret_verdict(writes, reads)
     # the reader pass adds to the same lists, so one message names every file of both passes; the reader gets
     # the here-documents and reads a body only where a shell runs it (0.8.0)
-    failed = reader_pass(ev.command, lambda seg: _secret_reader_seg(seg, ev.cwd, writes, reads), "secret-shell")
-    if failed is None:  # the read went through, so its input redirections are known (`cat <.env`)
+    stored: list[Decision] = []
+
+    reader_quiet = collections.Counter(quiet)
+
+    def judge(seg: list[str]) -> None:
+        if _take_quiet(reader_quiet, seg):
+            return
+        _secret_reader_seg(seg, ev.cwd, writes, reads)
+        what = secret_store_what(seg)  # 0.9.0: a stored secret printed (decision af)
+        if what:
+            stored.append(("ask", SECRET_STORE_MSG.format(what=what)))
+
+    read: list[bool] = []
+    failed = reader_pass(ev.command, judge, "secret-shell", read=read)
+    # the read went through, so its input redirections are known (`cat <.env`), whatever the pass answers (an
+    # unread pipe, a crash of the judge); a line the reader could not read leaves `read` empty
+    if read:
         reads.extend(p for p in nested_inputs(ev.command) if secret_class(_expand(p, ev.cwd)) == "secret")
-    return combine([d for d in (_secret_verdict(writes, reads), failed) if d])
+    return combine([d for d in (_secret_verdict(writes, reads), failed, *stored) if d])
 
 
 # ----------------------------------------------------------------------------
@@ -854,7 +1770,9 @@ _KIT_HOOKS = ".githooks"
 GIT_HOOKS_PATH_MSG = ("git-guard: `git config core.hooksPath` changes where the commit gate's hooks run. "
                       "The kit installs `.githooks`; confirm any other change.")
 # the hook managers' own off switches (husky, lefthook, pre-commit's SKIP) and the git calls whose hooks they skip
-_HOOK_ENV_OFF = {"HUSKY": "0", "LEFTHOOK": "0"}
+# the values that switch a hook runner off: husky 9 `HUSKY=0`; lefthook 1.x `LEFTHOOK=0` or `LEFTHOOK=false` (its
+# documentation; 0.9.0)
+_HOOK_ENV_OFF = {"HUSKY": frozenset({"0"}), "LEFTHOOK": frozenset({"0", "false"})}
 _HOOK_ENV_SUBS = frozenset("commit push merge pull rebase am cherry-pick revert".split())
 
 
@@ -902,7 +1820,7 @@ def _git_env_bypass(env: list[str], seg: list[str]) -> Optional[str]:
         return None
     for word in env:
         name, _eq, value = word.partition("=")
-        if sub in _HOOK_ENV_SUBS and (_HOOK_ENV_OFF.get(name) == value or name == "SKIP"):
+        if sub in _HOOK_ENV_SUBS and (value in _HOOK_ENV_OFF.get(name, ()) or name == "SKIP"):
             return f"`{word}` in the environment of `git {sub}` skips the hooks"
         if ((name.startswith("GIT_CONFIG_KEY_") and value.lower() == _HOOKS_PATH_KEY)
                 or (name == "GIT_CONFIG_PARAMETERS" and _HOOKS_PATH_KEY in value.lower())):
@@ -917,26 +1835,65 @@ def _git_env_gate(command: str) -> Optional[Decision]:
     try:
         exported: list[str] = []
         assigned: dict = {}  # NAME -> `NAME=value` of a plain assignment, which an `export NAME` exports later
-        allexport = False  # `set -a`: every later assignment is exported
-        for toks, inherited in zip(nested_commands(command), nested_envs(command)):
+        export_names: set = set()  # F19: a name exported before it is assigned; a later assignment is exported
+        allexport = [False]  # `set -a`: every later assignment is exported
+
+        def environment(toks) -> bool:
+            """Take an assignment, export or `set -a` line into the state; False for any other command."""
+            # F19: `builtin eval …`, `command export …` run the builtin itself (bash(1), "builtin", "command");
+            # `command -v` is a lookup and stays. Second fix round: also behind `command -p`, `--`, a shell word
+            # (`{`, `then`, `do`, `!`) and `time [-p]`: each exports to the commands after it (bash 5.3, zsh 5.9, sh)
+            toks = list(toks)
+            while toks:
+                if toks[0] in _NC_SHELL_WORDS:
+                    toks = toks[1:]
+                elif toks[0] == "time":
+                    toks = toks[2:] if toks[1:2] == ["-p"] else toks[1:]
+                elif toks[0] in ("builtin", "command"):
+                    k = 1
+                    while k < len(toks) and toks[k] in (("-p", "--") if toks[0] == "command" else ("--",)):
+                        k += 1
+                    if k >= len(toks) or toks[k].startswith("-"):
+                        break
+                    toks = toks[k:]
+                else:
+                    break
+            if not toks:
+                return False
             if all(_ASSIGN_RE.match(t) for t in toks):
                 for t in toks:
                     assigned[t.partition("=")[0]] = t
-                if allexport:
+                if allexport[0]:
                     exported.extend(toks)
-                continue
+                else:
+                    exported.extend(t for t in toks if t.partition("=")[0] in export_names)
+                return True
             if toks[0] in ("export", "declare", "typeset"):
                 flags = "".join(t[1:] for t in toks[1:] if t.startswith("-"))
                 if toks[0] == "export" or "x" in flags:  # `declare -x`, `typeset -x` export as well
                     exported.extend(t for t in toks[1:] if _ASSIGN_RE.match(t))
                     exported.extend(assigned[t] for t in toks[1:] if t in assigned)
-                continue
+                    export_names.update(t.partition("=")[0] for t in toks[1:] if not t.startswith("-"))
+                return True
             if toks[0] == "set":
                 for t in toks[1:]:
                     if t.startswith(("-", "+")) and "a" in t[1:] and not t.startswith("--"):
-                        allexport = t[0] == "-"
+                        allexport[0] = t[0] == "-"
                     elif t == "allexport" and toks[toks.index(t) - 1] in ("-o", "+o"):
-                        allexport = toks[toks.index(t) - 1] == "-o"
+                        allexport[0] = toks[toks.index(t) - 1] == "-o"
+                return True
+            if toks[0] == "eval" and len(toks) > 1:
+                # 0.9.0: the script of an eval runs in this shell, so its exports reach the commands after it in
+                # the line; the reader reads the script after them, so it is taken in here, where the eval stands
+                start = 2 if toks[1] == "--" else 1
+                for _sep, words in simple_commands(" ".join(toks[start:])):  # its own commands, not its nests
+                    inner = [w for w in drop_redirections(words) if w not in _NC_SHELL_WORDS]
+                    if inner:
+                        environment(inner)
+            return False
+
+        for toks, inherited in zip(nested_commands(command), nested_envs(command)):
+            if environment(toks):
                 continue
             for i in sorted(command_word_indexes(toks)):
                 if os.path.basename(toks[i]) == "git":
@@ -1051,7 +2008,9 @@ def rule_git_guard(ev: Event, cfg: dict) -> Optional[Decision]:
     gate = _git_env_gate(ev.command)
     if gate and gate[0] == "deny":
         return gate
-    return combine(asks + [d for d in (gate, reader_pass(ev.command, judge, "git-guard")) if d])
+    # the net (0.9.0) judges a git behind an unknown word as run here: what that word does is not known
+    net = reader_pass(ev.command, judge, "git-guard", net=lambda seg: _git_guard_seg(seg, ev.cwd, protected))
+    return combine(asks + [d for d in (gate, net) if d])
 
 
 def _local_simple_commands(command: str) -> Optional[set]:
@@ -1133,8 +2092,15 @@ _DEPLOY_ADDED: dict = {
 _PUSH_ONLY = frozenset({"build", "buildx build", "buildx bake"})  # these count only with --push
 # aws: an operation under any service that starts so, and these pairs (_aws_hit)
 _AWS_DESTROY = ("delete-", "terminate-", "batch-delete-")
-_AWS_UPDATES = {"ecs": _verbs("update-service"),
-                "lambda": _verbs("update-function-code update-function-configuration update-alias")}
+_AWS_UPDATES = {"ecs": _verbs("update-service execute-command"),
+                "lambda": _verbs("update-function-code update-function-configuration update-alias"),
+                # 0.9.0: run a command on a live host or container (AWS CLI v2 reference: `aws ssm send-command`,
+                # `aws ssm start-session`, `aws ecs execute-command`)
+                "ssm": _verbs("send-command start-session")}
+# 0.9.0: az verbs that run a command on a live host or container, or deploy past the table above (Azure CLI 2.6x
+# reference: `az vm|vmss run-command invoke`, `az aks command invoke`, `az container|containerapp exec`,
+# `az webapp|functionapp deployment source config-zip`, `… deployment slot swap`); the verb is the last leading word
+_AZ_RUNS = frozenset({"invoke", "exec", "config-zip", "swap"})
 _DRY_VALUES = frozenset({"client", "server", "true"})  # --dry-run=<these> previews; any other value applies
 # the 0.6.0 text pass, kept as it was (fix brief 1: nothing that asked at 0.6.0 may stop asking)
 _DEPLOY_PATTERNS = [
@@ -1205,8 +2171,9 @@ def _dry_run(name: str, args: list[str]) -> bool:
     return False
 
 
-def _az_changes(args: list[str]) -> Optional[str]:
-    """0.6.0's az expressions in token form: pipeline runs, deployments, and delete/create past the first word."""
+def _az_changes(args: list[str], at_command_word: bool = True) -> Optional[str]:
+    """0.6.0's az expressions in token form: pipeline runs, deployments, and delete/create past the first word;
+    0.9.0: at a command word, every verb that is no known read (_az_writes)."""
     args = drop_redirections(args)
     words = [t for t in args if not t.startswith("-")]
     if words[:2] == ["pipelines", "run"] or words[:3] == ["pipelines", "build", "queue"]:
@@ -1224,7 +2191,40 @@ def _az_changes(args: list[str]) -> Optional[str]:
         return None  # an install on this machine: host-install judges it
     if {"deploy", "update", "up"} & set(lead[1:]) and not _help_probe(args):  # 0.7.0 words, where the verb stands
         return "az changes resources"
-    return None
+    if len(lead) > 1 and lead[-1] in _AZ_RUNS and not _help_probe(args):
+        return "az runs a command on a live resource or deploys"
+    return _az_writes(args, lead) if at_command_word else None  # `echo az vm restart` is text
+
+
+# 0.9.0 (decision ag): every az call whose verb (the last leading word) is no known read asks. The reads and the
+# calls that change only this machine, from the Azure CLI 2.6x reference; a list of write verbs was the other
+# answer and is not taken, since a verb such a list misses would stay silent
+_AZ_READ_VERBS = frozenset("list show exists wait query tail download browse version result".split())
+_AZ_READ_PREFIXES = ("list-", "show-", "get-", "check-")
+_AZ_LOCAL_GROUPS = frozenset("login logout config configure extension bicep cache self-test interactive feedback"
+                             " upgrade init find version survey".split())
+_AZ_LOCAL_CALLS = (("account", "set"), ("account", "clear"), ("acr", "login"), ("devops", "configure"),
+                   ("devops", "login"), ("devops", "logout"), ("cloud", "set"), ("cloud", "register"),
+                   ("cloud", "unregister"), ("cloud", "update"), ("repos", "pr", "checkout"))
+_AZ_REST_READS = frozenset({"get", "head", "options"})
+
+
+def _az_writes(args: list[str], lead: list[str]) -> Optional[str]:
+    """An az call that may change a live resource: its verb is no known read and it is no help probe, no call
+    that changes only this machine; `az rest` with a method other than GET (its default)."""
+    if not lead or _help_probe(args) or lead[0] in _AZ_LOCAL_GROUPS:
+        return None
+    if lead[0] == "rest":
+        method = (_flag_value(args, {"--method", "-m"}) or "get").lower()
+        return None if method in _AZ_REST_READS else f"`az rest --method {method}` changes resources"
+    if len(lead) == 1:
+        return None  # a group alone prints its help
+    if any(tuple(lead[: len(call)]) == call for call in _AZ_LOCAL_CALLS):
+        return None
+    verb = lead[-1]
+    if verb in _AZ_READ_VERBS or verb.startswith(_AZ_READ_PREFIXES):
+        return None
+    return f"`az {' '.join(lead)}` changes resources"
 
 
 def _az_leading_words(args: list[str]) -> list[str]:
@@ -1258,7 +2258,7 @@ def _deploy_call(name: str, args: list[str], at_command_word: bool) -> Optional[
     """The label when one call of a deploy tool changes a live environment, before the dry-run check."""
     verbs, pairs, label = _DEPLOY_TABLE[name]
     if name == "az":
-        return _az_changes(args)
+        return _az_changes(args, at_command_word)
     if name == "ansible-playbook":
         return label if _ansible_runs(args, at_command_word) else None
     hit = subcommand_hit(args, verbs, pairs)
@@ -1336,15 +2336,19 @@ def deploy_what(command: str) -> Optional[str]:
 def rule_deploy_ask(ev: Event, cfg: dict) -> Optional[Decision]:
     if ev.event != "PreToolUse" or ev.kind != "shell" or not ev.command:
         return None
+    pipe = None
     try:
+        if _single_preview(ev.command):  # 0.9.0 (K5): `kubectl delete --help` as the whole line changes nothing
+            return None
         text = strip_heredocs(ev.command)
         # the 0.6.0 verdict OR the token verdict; the reader takes the here-document bodies out itself (0.8.0)
         what = _deploy_text(text) or deploy_what(ev.command)
+        pipe = _PIPE_NOT_READ if _unread_pipe(ev.command) else None  # read past it, asked for with the rest
     except CommandNotRead as exc:  # too deep or too many tools: ask rather than pass it unread
         what = str(exc)
     except Exception as exc:  # main() turns a crash into exit 1, which both harnesses let run silently: ask instead
         what = f"the command could not be read ({type(exc).__name__})"
-    return ("ask", DEPLOY_MSG.format(what=what)) if what else None
+    return combine([("ask", DEPLOY_MSG.format(what=w)) for w in (what, pipe) if w])
 
 
 # ----------------------------------------------------------------------------
@@ -1374,12 +2378,106 @@ def rule_egress_guard(ev: Event, cfg: dict) -> Optional[Decision]:
         return None
     if str(cfg.get("boundary") or "own") != "client":
         return None
-    for seg in segments(strip_heredocs(ev.command)):
+    text = strip_heredocs(ev.command)
+    places = None  # K11: worked out once per line, at the first hit (F21: once per hit cost O(n^3))
+    for seg in segments(text):
         d = _egress_seg(seg)
-        if d:
+        if not d:
+            continue
+        if places is None:
+            places = _pattern_places(text, ev.command)
+        if not _only_in_search_patterns(places, seg):
             return d
     # 0.8.0: the full reading (not the local one): a container or another host still sends the data out
     return reader_pass(ev.command, _egress_seg, "egress-guard")
+
+
+def _search_patterns(command: str) -> list[str]:
+    """The pattern words of the search tools the reader finds in the line (grep and kin, `git grep`): the operand
+    _search_pattern names, and the values of -e and --regexp. None are found in a line the reader cannot read."""
+    out = []
+    try:
+        for toks in nested_commands(command):
+            words = sorted(command_word_indexes(toks))
+            for k in words:
+                # F07: macOS finds `GREP` as grep (a case-insensitive file system, as fold_names reads it)
+                name = tool_name(toks[k].lower())
+                if name not in _SEARCH_TOOLS and name != "git":
+                    continue
+                if any(tool_name(toks[j].lower()) == "ssh" for j in words if j < k):
+                    continue  # ssh hands its words to the remote shell unquoted: the bars there are pipes
+                seg = list(toks)
+                seg[k] = name
+                idx, _files = _search_pattern(seg, k)
+                if idx is not None:
+                    out.append(toks[idx])
+                for m in range(k + 1, len(toks)):
+                    t = toks[m]
+                    if t in ("-e", "--regexp") and m + 1 < len(toks):
+                        out.append(toks[m + 1])
+                    elif t.startswith("--regexp="):
+                        out.append(t[len("--regexp=") :])
+    except CommandNotRead:  # no patterns: every hit of the first pass keeps asking
+        return []
+    return out
+
+
+def _pattern_places(text: str, command: str) -> tuple:
+    """K11's reading of a line, once (F21): the spans of the quoted search patterns that hold a separator, merged
+    and sorted, and for each segment the first pass gives, the places (start, end) of its first word in the parts
+    of the line that give it."""
+    spans = []
+    for p in set(_search_patterns(command)):
+        if not _SEP_RE.search(p):
+            continue
+        for q in ("'", '"'):
+            start = text.find(q + p + q)
+            while start >= 0:
+                spans.append((start + 1, start + 1 + len(p)))
+                start = text.find(q + p + q, start + 1)
+    merged: list = []
+    for a, b in sorted(spans):
+        if merged and a <= merged[-1][1]:
+            merged[-1][1] = max(merged[-1][1], b)
+        else:
+            merged.append([a, b])
+    where: dict = {}
+    if merged:
+        pos = 0
+        for m in [*_SEP_RE.finditer(text), None]:
+            end = m.start() if m else len(text)
+            part = text[pos:end]
+            segs = _segments_cached(part)
+            if len(segs) == 1:
+                # F08: the place of the segment's first word (the part behind the last bar runs on past the closing
+                # quote, `'a|openai api' notes.txt`); a first word the part does not hold as written (quotes taken
+                # out) is read as the whole part
+                at = part.find(segs[0][0]) if segs[0] else -1
+                place = (pos + at, pos + at + len(segs[0][0])) if at >= 0 else (pos, end)
+                where.setdefault(segs[0], []).append(place)
+            pos = m.end() if m else end
+    return [a for a, _ in merged], [b for _, b in merged], where
+
+
+def _only_in_search_patterns(places: tuple, seg: list[str]) -> bool:
+    """Group C (K11, the owner's answer of 2026-11-18): the first pass splits the line at every `|`, also inside a
+    quoted word, so the words of a quoted search pattern (`grep -E 'a|openai|b'`) look like a command. A hit is
+    dropped when, at every place of the line that gives this segment, its first word lies inside such a pattern,
+    written between a pair of quotes; a hit anywhere else keeps asking, and the reader pass still reads every real
+    command."""
+    starts, ends, where = places
+    key = tuple(seg)
+    found = where.get(key)
+    if not isinstance(found, list):  # judged before on this line (the same segment repeats), or never placed
+        return bool(found)
+    inside = True
+    for a, b in found:
+        i = bisect.bisect_right(starts, a) - 1
+        if i < 0 or b > ends[i]:
+            inside = False
+            break
+    where[key] = inside  # one verdict per segment and line (F21)
+    return inside
 
 
 def _egress_seg(seg: list[str]) -> Optional[Decision]:
@@ -1481,25 +2579,61 @@ def rule_protected_branch(ev: Event, cfg: dict) -> Optional[Decision]:
         return None
     if ev.kind == "shell" and ev.command:
         command = strip_heredocs(ev.command)
+        asks = []  # 0.9.0: `git update-ref --stdin` asks; a later deny of the line still wins
         for seg in segments(command):
             d = _commit_on_protected(seg, ev.cwd, protected)
-            if d:
+            if d and d[0] == "deny":
                 return d
+            if d:
+                asks.append(d)
+
         # the local reading: a commit behind ssh or inside a container happens in another checkout
-        return reader_pass(ev.command, lambda seg: _commit_on_protected(seg, ev.cwd, protected), "protected-branch",
-                           local=True)
+        def judge(seg: list[str]) -> Optional[Decision]:
+            return _commit_on_protected(seg, ev.cwd, protected)
+
+        return combine(asks + [d for d in (reader_pass(ev.command, judge, "protected-branch", local=True, net=judge),)
+                               if d])
     return None
 
 
 def _commit_on_protected(seg: list[str], cwd: str, protected: set) -> Optional[Decision]:
-    """Deny when one simple command is a `git commit` in a checkout whose branch is protected."""
-    sub, _rest = _git_subcommand(seg)
+    """Deny when one simple command is a `git commit` in a checkout whose branch is protected, or a `git
+    update-ref` that moves or deletes a protected branch (0.9.0)."""
+    sub, rest = _git_subcommand(seg)
+    if sub == "update-ref":
+        return _update_ref_on_protected(seg, rest, cwd, protected)
     if sub != "commit":
         return None
     where = _git_c_dir(seg, cwd)
     branch = current_branch(where)
     if branch in protected:
         return "deny", PROTECTED_MSG.format(what="`git commit`", branch=branch, root=where)
+    return None
+
+
+UPDATE_REF_STDIN_MSG = ("protected-branch: `git update-ref --stdin` takes the refs it moves from its input, which "
+                        "the guard cannot read. Confirm the command.")
+
+
+def _update_ref_on_protected(seg: list[str], rest: list[str], cwd: str, protected: set) -> Optional[Decision]:
+    """`git update-ref` (decision ab): deny for `refs/heads/<protected>` whatever is checked out, and for `HEAD`
+    while a protected branch is; `-d` of such a ref too. `--stdin` asks. The ref is the first operand; `-m`
+    takes a value (git-update-ref(1), git 2.4x)."""
+    if "--stdin" in rest:
+        return "ask", UPDATE_REF_STDIN_MSG
+    operands = [t for k, t in enumerate(rest) if not t.startswith("-") and not (k and rest[k - 1] == "-m")]
+    if not operands:
+        return None
+    ref = operands[0]
+    where = _git_c_dir(seg, cwd)
+    # F18: on a file system that ignores case (APFS, NTFS) the ref is one file under every spelling (measured,
+    # git 2.55: `git update-ref REFS/HEADS/MAIN` moves main), so the name is compared without case
+    name = ref[len("refs/heads/"):] if ref.lower().startswith("refs/heads/") else None
+    if name is None and ref == "HEAD":
+        name = current_branch(where)
+    name = next((p for p in protected if name is not None and p.lower() == name.lower()), name)
+    if name in protected:
+        return "deny", PROTECTED_MSG.format(what=f"`git update-ref {ref}` moves the branch", branch=name, root=where)
     return None
 
 
@@ -1585,10 +2719,18 @@ GUARD_CONFIG_MSG = (
 
 
 def guard_config_class(path: Optional[str]) -> Optional[str]:
-    """What kind of hook configuration a path is, or None for an ordinary file."""
+    """What kind of hook configuration a path is, or None for an ordinary file. 0.9.0: read as written and in
+    lower case, as secret_class reads a path since 0.8.0 (the owner's file system ignores case); the home prefix
+    is compared the same way."""
     if not path:
         return None
     home_claude = os.path.join(os.path.expanduser("~"), ".claude")
+    return (_guard_config_as_written(path, home_claude)
+            or _guard_config_as_written(path.lower(), home_claude.lower()))
+
+
+def _guard_config_as_written(path: str, home_claude: str) -> Optional[str]:
+    """guard_config_class for one reading of the path."""
     if path.startswith(home_claude + os.sep):
         rest = path[len(home_claude) + 1 :].split(os.sep)
         if rest[0] == "hooks" or (len(rest) == 1 and _SETTINGS_RE.match(rest[0])):
@@ -1673,6 +2815,38 @@ def _az_flag_on(seg: list[str], name: str) -> bool:
         if t.startswith(name + "="):
             return t[len(name) + 1 :].lower() != "false"
     return False
+
+
+# 0.9.0: a merge of a pull request is the owner's call; `--admin` skips the branch protection
+_MERGE_API_RE = re.compile(r"(^|/)repos/[^/\s]+/[^/\s]+/pulls/\d+/merge/?($|\?)")
+MERGE_ASK_MSG = "tracker-guard: {what} merges a pull request, which is the owner's call. Confirm the command."
+
+
+def _http_method(seg: list[str]) -> str:
+    """The method a curl, wget or httpie call names (`-X PUT`, `-XPUT`, `--method=PUT`, httpie's `PUT`), or ""."""
+    method = (_flag_value(seg, {"-X", "--request", "--method"}) or "").upper()
+    if not method:  # curl -XPATCH
+        method = next((t[2:].upper() for t in seg[1:] if t.startswith("-X") and len(t) > 2), "")
+    curl = os.path.basename(seg[0]) in ("curl", "wget")
+    # F17: curl(1), curl 8: `-T, --upload-file` "this uses PUT" on HTTP, unless -X names another method
+    if not method and os.path.basename(seg[0]) == "curl" and any(
+            t == "-T" or t == "--upload-file" or t.startswith("--upload-file=") or (t.startswith("-T") and len(t) > 2)
+            for t in seg[1:]):
+        method = "PUT"
+    if not method and not curl:  # F17: httpie takes the method word in any case (`http put …` sends PUT)
+        method = next((t.upper() for t in seg[1:] if t.upper() in _HTTP_VERBS), "")
+    return method
+
+
+_GITHUB_API_RE = re.compile(r"api\.github\.com\.?(?::\d+)?(/[^\s?#]*)", re.IGNORECASE)
+
+
+def _github_api_path(word: str) -> Optional[str]:
+    """The path a word names on GitHub's REST host, slashes doubled up taken as one, or None (F17: a second
+    slash, `api.github.com//repos/…`, and the dot of the root zone, `api.github.com./repos/…`, reach the same
+    API; `api.github.com.evil.example` is another host; second fix round: so does a port, `api.github.com:443`)."""
+    m = _GITHUB_API_RE.search(word)
+    return re.sub(r"/+", "/", m.group(1)) if m else None
 
 
 def _http_writes(seg: list[str], head: str, url: str) -> bool:
@@ -1760,11 +2934,16 @@ def rule_tracker_guard(ev: Event, cfg: dict) -> Optional[Decision]:
     if _BYPASS_RULES_RE.search(command):
         return "deny", TRACKER_MSG.format(what="`bypassRules` skips the work item rules",
                                           use="the tracker verbs; process rules are never bypassed")
+    asks = []  # 0.9.0: the first pass can ask (a GraphQL mutation); a later deny of the line still wins
     for seg in segments(command):
         d = _tracker_seg(seg)
-        if d:
+        if d and d[0] == "deny":
             return d
-    return reader_pass(ev.command, _tracker_seg, "tracker-guard")  # the reader takes the bodies out (0.8.0)
+        if d:
+            asks.append(d)
+    # the reader takes the bodies out (0.8.0); the net reads a gh or az behind an unknown word (0.9.0)
+    return combine(asks + [d for d in (reader_pass(ev.command, _tracker_seg, "tracker-guard", net=_tracker_seg),)
+                           if d])
 
 
 def _gh_words(seg: list[str]) -> list[int]:
@@ -1790,6 +2969,142 @@ def _gh_api_mutating(t: str) -> bool:
             or (t[:2] in ("-f", "-F") and len(t) > 2))
 
 
+# 0.9.0 (decision aa): GitHub's GraphQL endpoint. A mutation whose field names an issue or a label is the REST
+# write's twin and is denied; any other mutation, and a query the line does not hold, asks; a query is a read
+# second fix round: the host with the dot of the root zone or a port, and a doubled slash, as _GITHUB_API_RE has it
+_GRAPHQL_URL_RE = re.compile(r"api\.github\.com\.?(?::\d+)?/+graphql(?![\w.-])", re.IGNORECASE)
+_GRAPHQL_TOKEN_RE = re.compile(r'"(?:\\.|[^"\\])*"|[{}()]|[A-Za-z_][A-Za-z0-9_]*')
+_GRAPHQL_TRACKER_RE = re.compile(r"Issue|Label")
+GRAPHQL_ASK_MSG = "tracker-guard: {what}. Confirm the command; the tracker is the only writer of issues and labels."
+
+
+def _graphql_fields(query: str) -> Optional[list]:
+    """The field names at the top of each `mutation` operation of a GraphQL document, or None when it holds no
+    mutation. A word at brace depth 1 outside parentheses is a field (or its alias)."""
+    m = re.search(r"\bmutation\b", query)
+    if not m:
+        return None
+    fields: list[str] = []
+    depth = parens = 0
+    for tok in _GRAPHQL_TOKEN_RE.findall(query, m.start()):
+        if tok == "{":
+            depth += 1
+        elif tok == "}":
+            depth -= 1
+        elif tok == "(":
+            parens += 1
+        elif tok == ")":
+            parens -= 1
+        elif depth == 1 and parens == 0 and not tok.startswith('"'):
+            fields.append(tok)
+    return fields
+
+
+def _graphql_verdict(query: Optional[str], via: str) -> Optional[Decision]:
+    """The verdict on a GraphQL document sent by `via`; None as the document means the line does not hold it."""
+    if query is None:
+        return "ask", GRAPHQL_ASK_MSG.format(what=f"`{via}` sends a GraphQL document the guard cannot read")
+    fields = _graphql_fields(query)
+    if fields is None:
+        return None
+    hit = next((f for f in fields if _GRAPHQL_TRACKER_RE.search(f)), None)
+    if hit:
+        return "deny", TRACKER_MSG.format(what=f"`{via}` mutation `{hit}` writes issues or labels",
+                                          use="the tracker verbs")
+    named = f" `{fields[0]}`" if fields else ""
+    return "ask", GRAPHQL_ASK_MSG.format(what=f"`{via}` sends the GraphQL mutation{named}")
+
+
+def _graphql_value(value: str) -> Optional[str]:
+    """The document a field value holds, or None when the line does not show it: a file (`@q.graphql`), a value
+    that starts with `$` (a variable, a command substitution, or `$'…'`, whose escapes the words no longer show:
+    F05) or with a backtick."""
+    if value.lstrip().startswith(("@", "$", "`")):
+        return None
+    return value
+
+
+def _graphql_join(values: list) -> tuple:
+    """(found, document) from the query values of one call: every one is read (F05), and one the line does not
+    show makes the whole document unknown."""
+    if not values:
+        return False, None
+    if any(v is None for v in values):
+        return True, None
+    return True, "\n".join(values)
+
+
+def _gh_graphql_path(path: str) -> bool:
+    """`gh api` reaches the GraphQL API as `graphql`, `/graphql` or with the host (measured, gh 2.92.0); slashes
+    doubled up are taken as one, as for the merge path."""
+    flat = re.sub(r"/+", "/", path)
+    return flat.lower().rstrip("/") in ("graphql", "/graphql") or bool(_GRAPHQL_URL_RE.search(path))
+
+
+def _gh_graphql_query(seg: list[str], start: int) -> tuple:
+    """(found, document) of `gh api graphql`: the values of its `query` fields in every spelling of gh's field
+    flags (`-f query=…`, `-fquery=…`, `--raw-field=query=…`); `--input` sends a file and the fields go
+    (measured, gh 2.92.0), read as no document."""
+    values: list = []
+    k = start
+    while k < len(seg):
+        t = seg[k]
+        if t == "--input" or t.startswith("--input="):
+            return True, None
+        value = None
+        if t in ("-f", "-F", "--field", "--raw-field") and k + 1 < len(seg):
+            value, k = seg[k + 1], k + 1
+        elif t.startswith(("--field=", "--raw-field=")):
+            value = t.split("=", 1)[1]
+        elif t[:2] in ("-f", "-F") and len(t) > 2:
+            value = t[2:]
+        if value is not None and value.startswith("query="):
+            values.append(_graphql_value(value[len("query="):]))
+        k += 1
+    return _graphql_join(values)
+
+
+def _http_graphql_query(seg: list[str], head: str) -> tuple:
+    """(found, document) of a curl, wget or httpie call: the `query` of the JSON body, or of httpie's `query=`
+    item; a body from a file or one that is no JSON with a query is read as no document. Addendum: httpie's
+    `--raw` is a body, and an httpie call that shows no document sends its standard input (never a terminal in
+    an agent's shell), so it is found with no document; wget's `--body-data` and `--body-file` are its
+    `--post-data` and `--post-file`."""
+    bodies = []
+    values: list = []
+    httpie = head not in ("curl", "wget")
+    for k, t in enumerate(seg[1:], 1):
+        name, eq, value = t.partition("=")
+        if name in ("-T", "--upload-file", "--post-file", "--body-file"):
+            return True, None  # the body is a file
+        if (name in _CURL_MUTATING_FLAGS or name == "--body-data" or t.startswith("--data")
+                or (httpie and name == "--raw")):
+            bodies.append(value if eq else (seg[k + 1] if k + 1 < len(seg) else ""))
+        elif t[:2] == "-d" and len(t) > 2:
+            bodies.append(t[2:])
+        elif httpie and name == "query" and eq:
+            values.append(_graphql_value(value))
+        elif httpie and name == "query:" and eq:
+            # F05: httpie's `query:=…` is raw JSON (httpie 3, "Raw JSON fields"); a string is the document
+            try:
+                raw = json.loads(value)
+            except (ValueError, RecursionError):  # no JSON the guard can read: the document is not known
+                raw = None
+            values.append(raw if isinstance(raw, str) else None)
+    if values:
+        return _graphql_join(values)
+    for body in bodies:
+        if body.startswith("@"):
+            return True, None
+        try:
+            doc = json.loads(body)
+        except (ValueError, RecursionError):  # no JSON the guard can read: it cannot tell what the server reads
+            return True, None
+        query = doc.get("query") if isinstance(doc, dict) else None
+        return True, query if isinstance(query, str) else None
+    return httpie, None  # httpie sends its standard input or a file (`@q.json`); curl and wget send nothing
+
+
 def _tracker_seg(seg: list[str]) -> Optional[Decision]:
     """The tracker-guard verdict on one simple command: a write to issues, labels or work items past the tracker."""
     head = os.path.basename(seg[0])
@@ -1802,6 +3117,11 @@ def _tracker_seg(seg: list[str]) -> Optional[Decision]:
     if group == "issue" and verb in _GH_ISSUE_REPLACEMENT:
         return "deny", TRACKER_MSG.format(what=f"`gh issue {verb}` bypasses the tracker",
                                           use=_GH_ISSUE_REPLACEMENT[verb])
+    if group == "pr" and verb == "merge" and not _help_probe(seg):
+        if any(t == "--admin" or (t.startswith("--admin=") and t[8:].lower() != "false") for t in seg):
+            return "deny", TRACKER_MSG.format(what="`gh pr merge --admin` bypasses the branch protection",
+                                              use="a merge the protection allows, by the owner")
+        return "ask", MERGE_ASK_MSG.format(what="`gh pr merge`")
     if group == "label" and verb in ("create", "edit", "delete", "clone"):
         return "deny", TRACKER_MSG.format(what=f"`gh label {verb}` bypasses the tracker",
                                           use="`tracker owner labels-sync` (a human runs it)")
@@ -1819,15 +3139,33 @@ def _tracker_seg(seg: list[str]) -> Optional[Decision]:
         if method is None:  # `-XPATCH`: the value glued on
             method = next((t[2:] for t in seg[at[0] + 1 :] if t.startswith("-X") and len(t) > 2), "GET")
         method = method.upper()
+        if _gh_graphql_path(path):
+            found, doc = _gh_graphql_query(seg, at[0] + 1)
+            d = _graphql_verdict(doc, "gh api graphql") if found else None
+            if d:
+                return d
+        # second fix round: `repos/o/r/pulls//3/merge` is the same path, as curl's merge path reads it (the issue
+        # write below keeps its own reading)
+        if method == "PUT" and _MERGE_API_RE.search(re.sub(r"/+", "/", path)):
+            return "ask", MERGE_ASK_MSG.format(what=f"`gh api PUT {path}`")
         mutating = method != "GET" or any(_gh_api_mutating(t) for t in seg)
         if _ISSUE_API_RE.search(path) and mutating:
             return "deny", TRACKER_MSG.format(what=f"`gh api {method} {path}` writes issues or labels",
                                               use="the tracker verbs")
     if head in ("curl", "wget", "http", "https", "xh"):
-        url = next((t for t in seg[1:] if ("api.github.com/repos/" in t and _ISSUE_API_RE.search(t))
+        # the host in any case, scheme included (0.9.0): `https://API.GITHUB.COM/repos/…` is the same host
+        url = next((t for t in seg[1:] if ("api.github.com/repos/" in t.lower() and _ISSUE_API_RE.search(t))
                     or _ADO_WIT_RE.search(t)), "")
         if url and _http_writes(seg, head, url):
             return "deny", TRACKER_MSG.format(what=f"`{head}` writes to {url}", use="the tracker verbs")
+        merge = next((t for t in seg[1:] if _MERGE_API_RE.search(_github_api_path(t) or "")), "")
+        if merge and _http_method(seg) == "PUT":
+            return "ask", MERGE_ASK_MSG.format(what=f"`{head} PUT {merge}`")
+        if any(_GRAPHQL_URL_RE.search(t) for t in seg[1:]):
+            found, doc = _http_graphql_query(seg, head)
+            d = _graphql_verdict(doc, f"{head} …/graphql") if found else None
+            if d:
+                return d
     words = seg[1:] if head in ("python", "python3") else seg
     if words and os.path.basename(words[0]) in ("tracker", "tracker.py") and "owner" in words[1:2]:
         use = "`tracker new|claim|block|review|note`; ask the owner to promote or close"
@@ -1961,6 +3299,7 @@ def _hi_sub_end(text: str, i: int) -> int:
     """Index of the character that closes the substitution opened at text[i] (`$(` or a backtick), or len(text)."""
     tick = text[i] == "`"
     depth, j = 1, i + (1 if tick else 2)
+    cases = 0  # 0.9.0: open `case … in` statements; a `)` among them ends a pattern
     while j < len(text):
         c = text[j]
         if c == "\\":
@@ -1968,7 +3307,14 @@ def _hi_sub_end(text: str, i: int) -> int:
             continue
         if tick and c == "`":
             return j
+        if not tick and c in "ce" and _case_word(text, j, cases > 0):
+            cases += 1 if c == "c" else -1
+            j += 4
+            continue
         if not tick and c in "()":
+            if c == ")" and cases and depth == 1:
+                j += 1
+                continue
             depth += 1 if c == "(" else -1
             if depth == 0:
                 return j
@@ -2089,7 +3435,11 @@ def _hi_real(toks: list[str]) -> list[str]:
         return toks
     if os.path.basename(toks[0]) == "command" and toks[1:2] in (["-v"], ["-V"]):
         return []  # a lookup
-    for j in range(1, len(toks)):
+    start = 1
+    if tool_name(toks[0]) == "find":
+        # 0.9.0 (K1): find runs a command only after -exec, -execdir, -ok or -okdir; `-name yarn` is a pattern
+        start = next((k + 1 for k in range(1, len(toks)) if toks[k] in _NC_FIND_EXEC), len(toks))
+    for j in range(start, len(toks)):
         name = os.path.basename(toks[j])
         if name in _HI_REMOTE:
             # the container or remote route, also behind a wrapper
@@ -2254,7 +3604,8 @@ def _hi_judge(toks: list[str], depth: int) -> Optional[str]:
     toks = _hi_real(toks)
     if not toks:
         return None
-    head, args = os.path.basename(toks[0]), toks[1:]
+    head = os.path.basename(toks[0])
+    args = caps_verbs(head, toks[1:])  # `brew REINSTALL jq` (0.9.0)
     if head in _HI_SHELLS:
         script = _hi_dash_c(args)
         return None if script is None else _hi_script(script, head, depth)
@@ -2386,7 +3737,18 @@ _NC_WRAPPERS: dict = {
     **dict.fromkeys("sudo doas env command exec builtin nohup time nice ionice stdbuf caffeinate arch setsid strace"
                     " watch xargs parallel coproc busybox toybox".split(), 0),
     **dict.fromkeys("timeout gtimeout flock chroot ssh script".split(), 1),  # BSD `script file command …`
+    # 0.9.0, each from its manual: util-linux 2.39 unshare(1), nsenter(1), runuser(1), taskset(1) (`taskset MASK
+    # command`, or `-c LIST`), chrt(1) (`chrt PRIORITY command`); ltrace(1); valgrind 3.2x; zsh 5.9 precommand
+    # modifiers `noglob`, `nocorrect`, `-`; FreeBSD/macOS lockf(1) (`lockf FILE command`); OpenSSH ssh-agent(1)
+    # (`ssh-agent command`); fakeroot(1); libfaketime faketime(1) (`faketime TIMESTAMP command`); expect's
+    # unbuffer(1); polkit pkexec(1); gosu (`gosu USER command`); systemd-run(1); firejail(1); watchexec 2
+    # (`watchexec … -- command`); entr(1); sshpass(1); Xcode xcrun(1) (`xcrun TOOL …`)
+    **dict.fromkeys("unshare nsenter runuser ltrace valgrind noglob nocorrect - ssh-agent fakeroot unbuffer pkexec"
+                    " systemd-run firejail watchexec entr sshpass xcrun".split(), 0),
+    **dict.fromkeys("lockf faketime gosu chrt taskset".split(), 1),
 }
+# 0.9.0: debuggers that run the command after one of their options: gdb(1) `--args`, lldb(1) `--`
+_NC_AFTER_OPTION: dict = {"gdb": frozenset({"--args"}), "lldb": frozenset({"--"})}
 # 0.7.0: a tool plus a subcommand that runs a command -> {subcommand words: plain words before that command}.
 # Runners run it on this machine; container tools run it in a container (the image, container, service or pod
 # comes first). The subcommand is found past the tool's own options; a `--` after it puts the command next.
@@ -2402,6 +3764,14 @@ _NC_SUB_WRAPPERS: dict = {
     "kubectl": {("run",): 1, ("exec",): 1, ("debug",): 1},  # fix pass: `kubectl debug <pod> … -- <command…>`
     "oc": {("run",): 1, ("exec",): 1, ("rsh",): 1, ("debug",): 1},  # `oc rsh <pod> <command…>`
     "devcontainer": {("exec",): 0},
+    # 0.9.0: secret injectors that run a command (1Password CLI 2 `op run -- …`, aws-vault 7 `aws-vault exec
+    # PROFILE -- …`, Doppler CLI 3 `doppler run -- …`) and launchd's launchctl(1) `submit -l LABEL -- …`,
+    # `asuser UID …`
+    "op": {("run",): 0},
+    "aws-vault": {("exec",): 1},
+    "doppler": {("run",): 0},
+    "launchctl": {("submit",): 0, ("asuser",): 1},
+    "dotenv": {("run",): 0},  # python-dotenv 1 `dotenv run -- …`
 }
 # fix pass: a tool plus a subcommand whose command follows an option: `nix develop … -c <command…>`,
 # `nix shell <installables…> --command <command…>`; the word after the first such option is a command word
@@ -2412,6 +3782,8 @@ _NC_SCRIPT_OPTIONS: dict = {
     "nix-shell": ("", frozenset({"--run", "--command"})),
     "npx": ("", frozenset({"-c", "--call"})),
     "npm": ("exec", frozenset({"-c", "--call"})),
+    # F16: Doppler CLI 3, `doppler run --help`: "--command  command to execute (e.g. 'echo hello')", run in a shell
+    "doppler": ("run", frozenset({"--command"})),
 }
 _NC_FD = frozenset({"fd", "fdfind"})
 _NC_FD_EXEC = frozenset("-x -X --exec --exec-batch".split())  # fd runs the command after these per match
@@ -2419,7 +3791,9 @@ _NC_FD_EXEC = frozenset("-x -X --exec --exec-batch".split())  # fd runs the comm
 _NC_ELSEWHERE = _HI_REMOTE | {"podman-compose"}
 # names whose quoted words are command lines for a shell: `ssh host '…'`, `watch '…'`, `parallel '…' ::: a`,
 # `trap '…' EXIT`, `tmux send-keys '…' Enter`
-_NC_SCRIPT_WORDS = frozenset("ssh watch parallel trap tmux".split())
+_NC_SCRIPT_WORDS = frozenset("ssh watch parallel trap tmux hyperfine watchexec entr".split())  # 0.9.0: the last
+# three take a command line as one quoted word (hyperfine 1.18 `hyperfine '…'`, watchexec 2 `watchexec '…'`,
+# entr(1) `entr -s '…'`)
 _NC_FIND_EXEC = frozenset("-exec -execdir -ok -okdir".split())
 _NC_HELP = frozenset("-h -help --help".split())
 _NC_FALLBACK_SPLIT_RE = re.compile(r"\|\||&&|[;|\n()`]")
@@ -2459,15 +3833,41 @@ def nested_inputs(command: str, local: bool = False) -> tuple[str, ...]:
 
 @functools.lru_cache(maxsize=16)
 def _nc_cached(command: str, local: bool = False):
-    """nested_commands' memo: the token tuples and the input files, or the CommandNotRead that stopped the read."""
+    """nested_commands' memo: the token tuples, the input files, the environments and whether a shell reads its
+    script from a pipe the guard cannot read, or the CommandNotRead that stopped the read."""
     out: list[tuple[str, ...]] = []
     inputs: list[str] = []
     envs: list[tuple[str, ...]] = []
+    unread: list[bool] = []
     try:
-        _nc_read(command, 0, out, set(), local, inputs, [], envs)
+        _nc_read(command, 0, out, set(), local, inputs, [], envs, unread=unread)
     except CommandNotRead as exc:  # kept as a value so the second rule does not read the line again
         return exc
-    return tuple(out), tuple(inputs), tuple(envs)
+    return tuple(out), tuple(inputs), tuple(envs), bool(unread)
+
+
+def nested_unread_pipe(command: str, local: bool = False) -> bool:
+    """Addendum to the second fix round: a shell of the line or of what it nests reads its script from a pipe
+    whose content the guard cannot read (decision ad). The reader reads on past it; the rules ask for it. From
+    the same memoised read; raises as nested_commands."""
+    got = _nc_cached(command, local)
+    if isinstance(got, CommandNotRead):
+        raise CommandNotRead(str(got))
+    return got[3]
+
+
+def _pipe_ask(rule: str) -> Decision:
+    """The ask for an unread pipe, in the words the reader pass used when the pipe ended the read."""
+    return "ask", READER_MSG.format(rule=rule, what=_PIPE_NOT_READ)
+
+
+def _unread_pipe(command: str) -> bool:
+    """nested_unread_pipe for the rules that read nested_commands themselves; a line the reader stopped on is
+    asked for by their own handler, so it is no unread pipe here."""
+    try:
+        return nested_unread_pipe(command)
+    except CommandNotRead:
+        return False
 
 
 def nested_envs(command: str) -> tuple[tuple[str, ...], ...]:
@@ -2495,10 +3895,12 @@ def _nc_inputs(raw: list[str]) -> list[str]:
 
 def _nc_read(text: str, depth: int, out: list, seen: set, local: bool = False,
              inputs: Optional[list] = None, bodies: Optional[list] = None, envs: Optional[list] = None,
-             env: tuple = ()) -> None:
+             env: tuple = (), *, unread: list) -> None:
     """Append the simple commands of one line to out, then read what each nests one level deeper. `bodies`
     holds the here-document bodies of the whole read, so a mark in a nested script still finds its body; `envs`
-    gets, for each tuple of out, `env`: the hook-gate assignments the script inherits (0.8.0)."""
+    gets, for each tuple of out, `env`: the hook-gate assignments the script inherits (0.8.0). `unread` gets a
+    mark for each pipe a shell reads its script from that the guard cannot read; the read goes on past it. It is
+    required and keyword-only: a call without it would read such a pipe as if nothing were unread."""
     if depth > _HI_MAX_DEPTH:
         if text.strip():
             raise CommandNotRead(_HI_NOT_READ)
@@ -2526,6 +3928,7 @@ def _nc_read(text: str, depth: int, out: list, seen: set, local: bool = False,
     # (script, the environment it inherits); substitutions outside quotes are simple commands of their own in the
     # lexer already, and a substitution runs in the environment of this text
     nested = [(s, env) for s in subs]
+    fed_bars = set()  # the bars through which _nc_fed read a script: no unread pipe
     for k, (raw, toks) in enumerate(rows):
         own = env + _nc_hook_env(toks)
         # taken from the words before the redirections go: `<<<` is one
@@ -2533,7 +3936,11 @@ def _nc_read(text: str, depth: int, out: list, seen: set, local: bool = False,
         if inputs is not None:
             inputs.extend(_nc_inputs(raw))
         piped = rows[k + 1][1] if k + 1 < len(rows) and seps[k + 1].strip(" \n") in ("|", "|&") else None
-        fed, runner = _nc_fed(raw, toks, piped, bodies)
+        fed, runner = _nc_fed(raw, toks, piped, bodies, unread)
+        if piped is not None and runner is piped:
+            fed_bars.add(k + 1)
+        if not fed and toks in ([], ["}"]):
+            fed, runner = _nc_group_fed(rows, seps, k, bodies)
         fed_env = own if runner is toks else env + _nc_hook_env(runner or [])
         nested.extend((s, fed_env) for s in fed)
         if not toks:
@@ -2542,10 +3949,12 @@ def _nc_read(text: str, depth: int, out: list, seen: set, local: bool = False,
         if envs is not None:
             envs.append(env)
         nested.extend((s, own) for s in _nc_scripts(toks))
+    if cmds is not None and _nc_compound_pipe(rows, seps, fed_bars):
+        unread.append(True)
     for script, script_env in nested:
         if (script, script_env) not in seen:  # one read per distinct script: a repeated nest costs nothing twice
             seen.add((script, script_env))
-            _nc_read(script, depth + 1, out, seen, local, inputs, bodies, envs, script_env)
+            _nc_read(script, depth + 1, out, seen, local, inputs, bodies, envs, script_env, unread=unread)
 
 
 def _nc_remote_word(toks: list[str]) -> Optional[int]:
@@ -2554,22 +3963,75 @@ def _nc_remote_word(toks: list[str]) -> Optional[int]:
 
 
 READER_MSG = "{rule}: {what}. Confirm the command; the guard could not check it."
+NET_MSG = ("{rule}: `{tool}` is a command the guard does not know, and the `{name}` command behind it would {verdict}"
+           " on its own. Confirm the command.")
+# 0.9.0, the net (decision 3b): a later word naming one of these, behind a command word no table knows, starts
+# that tool's command. Text tools print their words and run none of them
+_NET_TOOLS = frozenset({"git", "gh", "az"})
+_NET_TEXT = frozenset("echo printf man which type tldr whereis whatis apropos info help".split())
+
+
+def net_starts(toks) -> tuple:
+    """(index of the unknown command word, index of the `git`, `gh` or `az` behind it) for each command word of a
+    simple command that no table knows and that is no text tool, when such a word follows it before the next
+    command word. Memoised per token tuple: three rules ask for the same simple commands."""
+    got = _net_cached(tuple(toks))
+    if isinstance(got, CommandNotRead):
+        raise CommandNotRead(str(got))
+    return got
+
+
+@functools.lru_cache(maxsize=256)
+def _net_cached(toks: tuple):
+    """net_starts' memo: the pairs, or the CommandNotRead that stopped the command word walk."""
+    try:
+        words = sorted(command_word_indexes(toks))
+    except CommandNotRead as exc:  # kept as a value, as _cwi_cached keeps it
+        return exc
+    tools = [j for j, t in enumerate(toks) if os.path.basename(t) in _NET_TOOLS]  # one walk of the words
+    if not tools:
+        return ()
+    out = []
+    for n, i in enumerate(words):
+        name = tool_name(toks[i])
+        if _known_name(name) or name in _NET_TEXT:
+            continue
+        k = bisect.bisect_right(tools, i)
+        nxt = words[n + 1] if n + 1 < len(words) else len(toks)
+        if k < len(tools) and tools[k] < nxt:  # a later command word is judged as itself
+            out.append((i, tools[k]))
+    return tuple(out)
 
 
 def reader_pass(text: str, judge: Callable[[list[str]], Optional[Decision]], rule: str,
-                local: bool = False) -> Optional[Decision]:
+                local: bool = False, net: Optional[Callable[[list[str]], Optional[Decision]]] = None,
+                read: Optional[list] = None) -> Optional[Decision]:
     """The token pass of a rule that first reads segments(): judge the words from every command word of every
     simple command the line runs. The first deny wins; asks are combined. Never raises: a line the reader could
-    not read, or a crash, asks with the reason (a rule's own deny from its first pass is returned before this)."""
+    not read, or a crash, asks with the reason (a rule's own deny from its first pass is returned before this).
+    With `net` (0.9.0), the words from a `git`, `gh` or `az` behind an unknown command word are judged by it too,
+    and whatever it answers, ask or deny, asks: the guard does not know what the word in front does. `read`, when
+    handed in, gets a mark once the reader has read the line, before the first command is judged: a caller learns
+    that the read went through from it, whatever the answer says."""
     try:
         asks = []
-        for toks in nested_commands(text, local):
+        commands = nested_commands(text, local)
+        if read is not None:
+            read.append(True)
+        for toks in commands:
             for i in sorted(command_word_indexes(toks)):
                 d = judge(list(toks[i:]))
                 if d and d[0] == "deny":
                     return d
                 if d:
                     asks.append(d)
+            for i, j in net_starts(toks) if net else ():
+                d = net(list(toks[j:]))
+                if d:
+                    asks.append(("ask", NET_MSG.format(rule=rule, tool=os.path.basename(toks[i]),
+                                                       name=os.path.basename(toks[j]), verdict=d[0])))
+        if nested_unread_pipe(text, local):  # read past it; with no deny found, it asks with the others
+            asks.append(_pipe_ask(rule))
         return combine(asks)
     except CommandNotRead as exc:  # too deep or too many words: ask rather than pass it unread
         what = str(exc)
@@ -2623,7 +4085,18 @@ def _nc_take_heredocs(text: str, bodies: list) -> str:
     return "".join(out)
 
 
-_SHELL_CONTEXTS = ("sh", "(", "`")  # where a here-document belongs to a command of the text at hand
+_SHELL_CONTEXTS = ("sh", "(", "`", "case")  # where a here-document belongs to a command of the text at hand
+_CASE_RE = re.compile(r"case\s+\S+\s+in(?=\s|$)")
+_ESAC_RE = re.compile(r"esac(?=[\s;&|)`]|$)")
+
+
+def _case_word(text: str, i: int, in_case: bool) -> bool:
+    """At text[i] a word `case WORD in` opens a case statement, or (in one) `esac` closes it: only where a word
+    starts, so `showcase` and `esac.txt` are none."""
+    if i and text[i - 1] not in _HI_WORD_START:
+        return False
+    return bool(_ESAC_RE.match(text, i)) if in_case and text[i] == "e" else (
+        text[i] == "c" and bool(_CASE_RE.match(text, i)))
 
 
 def _quote_state(text: str, start: int, end: int, stack: list) -> int:
@@ -2654,6 +4127,14 @@ def _quote_state(text: str, start: int, end: int, stack: list) -> int:
             j = text.find("\n", i)
             i = len(text) if j < 0 else j
             continue
+        elif c in "ce" and _case_word(text, i, top == "case"):
+            # 0.9.0: inside `case … in … esac` a `)` ends a pattern, not the `$( … )` around it
+            if c == "c":
+                stack.append("case")
+            else:
+                stack.pop()
+            i += 4
+            continue
         elif c == "$" and text[i + 1 : i + 2] == "'":
             stack.append("$'")
             i += 1
@@ -2672,11 +4153,13 @@ def _quote_state(text: str, start: int, end: int, stack: list) -> int:
     return max(i, end)
 
 
-def _nc_fed(raw: list[str], toks: list[str], piped: Optional[list], bodies: list) -> tuple[list[str], Optional[list]]:
+def _nc_fed(raw: list[str], toks: list[str], piped: Optional[list], bodies: list,
+            unread: list) -> tuple[list[str], Optional[list]]:
     """The scripts one simple command feeds to a shell (0.8.0), and the simple command that runs them: its
     here-document bodies when it runs a shell that reads standard input or an ssh without a command; and, when
     its output goes through one pipe into such a command (`piped`), the bodies of a `cat` without a file operand
-    and the words of an `echo` or `printf`."""
+    and the words of an `echo` or `printf`. A shell behind the pipe whose script is not on the line gets a mark
+    in `unread` (required, so no caller can leave the mark out) and nothing is fed."""
     marks = [_NC_HEREDOC_MARK_RE.match(t) for t in raw]
     own = [bodies[int(m.group(1))] for m in marks if m and int(m.group(1)) < len(bodies)]
     if own and _nc_runs_stdin(toks):
@@ -2686,7 +4169,9 @@ def _nc_fed(raw: list[str], toks: list[str], piped: Optional[list], bodies: list
     for i in sorted(command_word_indexes(toks)):
         name, args = os.path.basename(toks[i]), toks[i + 1 :]
         if name == "cat":
-            return (own if all(t == "-" or (t.startswith("-") and t != "--") for t in args) else []), piped
+            if own and all(t == "-" or (t.startswith("-") and t != "--") for t in args):
+                return own, piped
+            break  # a file or the line's own input: the script is not on the line
         if name == "echo":
             k = 0
             while k < len(args) and _NC_ECHO_OPTION_RE.match(args[k]):
@@ -2694,7 +4179,102 @@ def _nc_fed(raw: list[str], toks: list[str], piped: Optional[list], bodies: list
             return [" ".join(args[k:]).replace("\\n", "\n")], piped
         if name == "printf":  # -v sets a variable
             return ([] if args[:1] == ["-v"] else [" ".join(args).replace("\\n", "\n")]), piped
+    if _nc_pipe_shell(piped):
+        unread.append(True)
     return [], None
+
+
+def _nc_group_fed(rows: list, seps: list, k: int, bodies: list) -> tuple[list[str], Optional[list]]:
+    """0.9.0: the here-document bodies of the `}` or `)` that closes a group `{ …; }` or a subshell `( … )` at
+    rows[k] are the standard input of the commands inside: the first shell among them that reads standard input
+    gets them as its script (`{ cd repo && bash; } <<EOF`). `{ cat; } <<EOF` stays data."""
+    raw, toks = rows[k]
+    marks = [_NC_HEREDOC_MARK_RE.match(t) for t in raw]
+    own = [bodies[int(m.group(1))] for m in marks if m and int(m.group(1)) < len(bodies)]
+    if not own:
+        return [], None
+    brace = toks == ["}"]
+    if not brace and seps[k].strip() != ")":
+        return [], None
+    depth = 0
+    for j in range(k - 1, -1, -1):  # back to the word or bracket that opens the group
+        inner = rows[j][1]
+        if brace and inner[:1] == ["}"] or not brace and seps[j].strip() == ")":
+            depth += 1
+        opens = inner[:1] == ["{"] if brace else seps[j].strip() == "("
+        if opens and depth:
+            depth -= 1
+        elif opens:
+            for _raw, words in rows[j:k]:
+                if words and _nc_runs_stdin(words):
+                    return own, words
+            return [], None
+    return [], None
+
+
+# F03: fish and ash read commands from standard input too, as _NC_STDIN_SHELLS has it (fish(1), fish 4.x: "if no
+# file is given, commands are read from standard input"; ash, BusyBox 1.36, as POSIX sh(1))
+_PIPE_SHELLS = frozenset("sh bash zsh dash ksh fish ash".split())
+_PIPE_NOT_READ = "a shell reads its script from a pipe whose content the guard cannot read"
+
+
+def _nc_compound_pipe(rows: list, seps: list, fed_bars: frozenset = frozenset()) -> bool:
+    """F02, F03: a pipe with a subshell, group or compound on one side, and a shell that reads its program from
+    the pipe on the other: `(cat run.sh) | bash`, `cat run.sh | (bash)`, `cat run.sh | { cd x; bash; }`, `… | if
+    true; then bash; fi`. _nc_fed reads a pipe between two simple commands only; here what goes through the pipe
+    is not read, so the line asks. Second fix round: a separator is read by its characters (`|⏎(`), and a row of
+    redirections only behind a closer (`(cat run.sh) 2>/dev/null | bash`) stands for the subshell it closes.
+    Addendum: a bar of `fed_bars` (_nc_fed read the script through it, `echo '…' | { sh; }`) is left out."""
+    compact = [s.replace(" ", "").replace("\n", "") for s in seps]
+    for r in range(1, len(rows)):
+        if r in fed_bars:
+            continue
+        sep = compact[r]
+        bar = sep.find("|")
+        if bar < 0 or sep.replace("(", "").replace(")", "") not in ("|", "|&"):
+            continue
+        left = rows[r - 1][1]
+        compound = (")" in sep[:bar] or left[:1] in (["}"], ["fi"], ["done"], ["esac"])
+                    or (not left and ")" in compact[r - 1]))
+        depth = 0
+        receivers = []
+        for j in range(r, len(rows)):
+            s = compact[j]
+            if j > r:
+                depth -= s.count(")")
+                if depth <= 0:
+                    break
+            toks = rows[j][1]
+            receivers.append(toks)
+            depth += (s[bar + 1 :] if j == r else s).count("(")
+            if toks[:1] and toks[0] in _COMPOUND_OPENERS:
+                depth += 1
+            depth += sum(1 for t in toks[1:] if t == "{")  # `then {`, `{ {`: an inner group opens too
+            if j > r and toks[:1] and toks[0] in _COMPOUND_CLOSERS:
+                depth -= 1
+            if depth <= 0:
+                break
+        if (compound or len(receivers) > 1 or "(" in sep[bar:]) and any(_nc_pipe_shell(t) for t in receivers if t):
+            return True
+    return False
+
+
+def _nc_pipe_shell(toks) -> bool:
+    """Decision ad (0.9.0): a shell of _PIPE_SHELLS at a command word of the command behind a pipe reads its
+    program from it (no -c, no script operand), on this machine: one behind a container or remote tool is not
+    decided and is left as before. Second fix round: every shell _nc_runs_stdin knows on this machine, so also
+    `$SHELL`, `${SHELL}`, `sudo -s|-i` and `su` without a command."""
+    words = sorted(command_word_indexes(toks))
+    for i in words:
+        name, args = tool_name(toks[i]), list(toks[i + 1 :])
+        if name in _NC_ELSEWHERE:
+            return False
+        shell = name in _PIPE_SHELLS or os.path.basename(toks[i]) in _NC_STDIN_SHELLS
+        if shell and _hi_shell_reads_stdin(args):
+            return True
+        if (name == "sudo" and _sudo_runs_shell(args)) or (name == "su" and _su_runs_shell(args)):
+            return True
+    return False
 
 
 # the environment names that reach the hook gate (git-guard): an assignment of one of these in front of a shell
@@ -2743,14 +4323,23 @@ def _ssh_command(args) -> Optional[list]:
     """The words after the host of an ssh call ([] when there are none), or None when ssh names no host or runs
     no command at all (`-N`). Only the letters in front of the first one that takes a value are options: the
     rest of the word is its value (`-oStrictHostKeyChecking=No`, `-lNina`)."""
-    k = 0
+    k = _ssh_options(args, 0)
+    if k is None or k >= len(args):
+        return None
+    # 0.9.0: an option behind the host is ssh's own too (`ssh build -T`): the command starts after them
+    j = _ssh_options(args, k + 1)
+    return None if j is None else list(args[j:])
+
+
+def _ssh_options(args, k: int) -> Optional[int]:
+    """The index of the first word from args[k] on that is no ssh option (past a `--`), or None for `-N` (no
+    command at all)."""
     while k < len(args):
         t = args[k]
         if t == "--":
-            k += 1
-            break
+            return k + 1
         if not t.startswith("-") or len(t) < 2:
-            break
+            return k
         for n, c in enumerate(t[1:], 1):
             if c == "N":
                 return None
@@ -2758,7 +4347,7 @@ def _ssh_command(args) -> Optional[list]:
                 k += 0 if t[n + 1 :] else 1  # a value glued on (`-p2222`) or in the next word
                 break
         k += 1
-    return list(args[k + 1 :]) if k < len(args) else None
+    return k
 
 
 # sudo(8): options that take a value; `-s` and `-i` without a command run the target user's shell
@@ -2830,7 +4419,7 @@ def _nc_scripts(toks: list[str]) -> list[str]:
         elif name in _NC_SCRIPT_WORDS and not remote:  # the first is enough: its later words hold any later one's
             remote = True
             scripts.extend(r for r in toks[i + 1 :] if any(c.isspace() for c in r))
-        elif name == "env" and not env:
+        elif tool_name(name.lower()) == "env" and not env:  # F01: also `genv` (Homebrew) and `GENV` (macOS)
             env = True
             scripts.extend(_nc_split_string(toks, i))
         if name in _NC_SCRIPT_OPTIONS and i in words:
@@ -2925,7 +4514,7 @@ def _command_word_indexes(toks: tuple) -> set:
     work = [i]  # a work list, not recursion: a chain of wrappers is as long as the line
     while work:
         j = work.pop()
-        name = os.path.basename(toks[j])
+        name = tool_name(toks[j])
         if name == "find":
             later = [k + 1 for k in range(j + 1, n - 1) if toks[k] in _NC_FIND_EXEC]
         elif name in _NC_FD:
@@ -2936,6 +4525,8 @@ def _command_word_indexes(toks: tuple) -> set:
             later = _nc_wrapped(toks, j + 1, 0)  # `coproc NAME { …`: a name stands only before a compound command
         elif name in _NC_OPTION_RUNNERS:
             later = _nc_option_wrapped(toks, j, _NC_OPTION_RUNNERS[name])
+        elif name in _NC_AFTER_OPTION:  # `gdb … --args <command…>`, `lldb … -- <command…>`
+            later = [k + 1 for k in range(j + 1, n - 1) if toks[k] in _NC_AFTER_OPTION[name]][:1]
         elif name in _NC_WRAPPERS:
             later = _nc_wrapped(toks, j, _NC_WRAPPERS[name])
         elif name in _NC_SUB_WRAPPERS:
@@ -3104,7 +4695,8 @@ _FOLD_NAMES = frozenset(
         _WRAPPERS, _RM_CLASS, _DELETE_TOOLS, _WRITERS_LAST, _WRITERS_ALL, _SEARCH_TOOLS, _DEPLOY_TABLE, _DEPLOY_ADDED,
         _OTHER_LLM_CLIS, _HI_TABLE, _HI_PAIRS, _HI_PAIRS_ONLY, _HI_BARE, _HI_SELF_FETCH, _HI_SHELLS, _HI_DOWNLOADERS,
         _HI_WRAPPERS, _HI_REMOTE, _NC_SHELLS, _NC_WRAPPERS, _NC_SUB_WRAPPERS, _NC_OPTION_RUNNERS, _NC_SCRIPT_OPTIONS,
-        _NC_FD, _NC_ELSEWHERE, _NC_SCRIPT_WORDS, _NC_STDIN_SHELLS, _NAMES_IN_CODE,
+        _NC_FD, _NC_ELSEWHERE, _NC_SCRIPT_WORDS, _NC_STDIN_SHELLS, _NC_AFTER_OPTION, _GNU_G_NAMES, _SECRET_STORES,
+        _NAMES_IN_CODE,
     ) for k in table if k == k.lower()
 )
 _FOLD_RUN_RE = re.compile(r"[^\s;|&()<>`]+")  # a candidate: a run of characters between the shell's separators

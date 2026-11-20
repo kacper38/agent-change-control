@@ -1,0 +1,56 @@
+# line 2: preview / help / restore neighbours (delete-guard, deploy-ask)
+git clean -n --no-dry-run -fdx
+git clean --dry-run --no-dry-run -fdx
+git clean -n -f
+git clean -fdx --dry-run=no
+git clean -fd -n --no-d
+git restore --staged --work f.py
+git restore --staged --wor f.py
+git restore --staged --no-staged f.py
+git restore -S --no-staged f.py
+git restore --staged --worktree= f.py
+git restore --staged --source=HEAD~3 --worktree f.py
+git worktree prune -n --no-dry-run
+git worktree remove -n wt
+kubectl delete pod x --dry-run=client --dry-run=none
+kubectl delete pod x --dry-run
+kubectl delete pod x --dry-run=false
+kubectl delete pod x --dry-run client
+kubectl delete ns prod --help
+kubectl --help delete ns prod
+rm --help
+rm -rf --help
+rm x --help
+rm --help x
+unlink --help
+truncate --help
+shred --version
+git clean --help
+git clean -fdx -h
+git rm -h
+git push --force -h
+docker system prune --help
+docker system prune -af --help
+npm uninstall --help
+npm uninstall lodash --help
+brew uninstall --version
+cargo remove --version
+rclone purge --version
+go clean --help
+go clean -modcache -h
+apt-get remove -h
+mise prune --version
+pip uninstall -h
+helm uninstall --help
+terraform destroy --help
+terraform destroy -help
+"git clean -n\nrm -rf x"
+git clean -n && rm -rf x
+git clean -n $(rm -rf x)
+git clean -n `rm -rf x`
+git clean -n > >(rm -rf x)
+GIT_DIR=x git clean -n
+git -c clean.requireForce=false clean -n
+git clean -n -- -f
+git clean -e x -n -f
+git clean -fe -n

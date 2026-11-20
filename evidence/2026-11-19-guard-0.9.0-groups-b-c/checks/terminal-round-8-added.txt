@@ -1,0 +1,58 @@
+# guards, one letter each, in this order: 0.8.0 | 2a28378 (head of the seventh round) | 8f0a893 (the guard file of the head) | b2f4e2a without the rule on a bracket in a separator | b2f4e2a without the rule of the eighth round | b2f4e2a without both
+# row: id, expectation, letters (s silent, a ask), pipe: and pty: with Z when zsh showed the marker and B when bash did, the command (`.env` is run as `secret.txt`)
+# first the 25 rows of the table ROWS_FIX8_ADD, then the 28 lines they were chosen from (C1 to C28)
+F84  ask    aaaaaa pipe:-- pty:ZB | ls <(git config pager.ls-files 'xargs cat'); git ls-files .env
+F84  ask    aaaaaa pipe:-- pty:ZB | ls <(git config pager.ls-files 'xargs cat'); git ls-files .env
+F84  ask    aaaaaa pipe:-- pty:ZB | ls <(git config pager.ls-files 'xargs cat'); git ls-files .env
+F84  ask    aaaaas pipe:-- pty:ZB | stat <(git config pager.ls-files 'xargs cat'); true; git ls-files .env
+F84  ask    aaaaaa pipe:-- pty:ZB | git check-ignore <(git config pager.ls-files 'xargs cat'); git ls-files .env
+F84  ask    aaaaas pipe:-- pty:ZB | true <(git config pager.ls-files 'xargs cat'; echo) ; cat /dev/null; git ls-files .env
+F84  ask    aaaaaa pipe:-- pty:ZB | ls <(git config pager.status 'xargs cat'); git status -s .env
+F84  ask    aaaaaa pipe:-- pty:ZB | ls <(git config pager.ls-files 'xargs cat') && git ls-files .env
+F84  ask    aaaaaa pipe:-- pty:ZB | if ls <(git config pager.ls-files 'xargs cat'); then git ls-files .env; fi
+F84  ask    aaaaaa pipe:-- pty:ZB | ls <(git config pager.ls-files 'xargs cat')
+git ls-files .env
+F84  ask    aaaaas pipe:-- pty:ZB | until ls <(git config pager.ls-files 'xargs cat'); do true; done; git ls-files .env
+F84  ask    aaaaaa pipe:-- pty:Z- | echo >(git config pager.ls-files 'xargs cat'); git ls-files .env
+F84  ask    aaaaas pipe:-- pty:Z- | true >(git config pager.ls-files 'xargs cat'); true; git ls-files .env
+F84  ask    aaaaaa pipe:-- pty:Z- | echo =(git config pager.ls-files 'xargs cat'); git ls-files .env
+F84  ask    aaaaaa pipe:-- pty:Z- | ls =(git config pager.status 'xargs cat'); git status -s .env
+F84  ask    aaaaaa pipe:-- pty:Z- | true =(git config pager.ls-files 'xargs cat'); git ls-files .env
+F84  ask    aaaaaa pipe:-- pty:Z- | cd . =(git config pager.ls-files 'xargs cat'); git ls-files .env
+F84  ask    aaaaaa pipe:-- pty:Z- | ls -d *(e:'git config pager.ls-files "xargs cat"':); git ls-files .env
+F84  ask    aaaaaa pipe:-- pty:Z- | echo *(e:'git config pager.status "xargs cat"':); git status -s .env
+F84  ask    aaaaaa pipe:-- pty:Z- | true *(e:'git config pager.ls-files "xargs cat"':); git ls-files .env
+Fs   ask    aaaaaa pipe:-- pty:-- | echo <(git config pager.ls-files 'xargs cat'); git ls-files .env
+Fs   ask    aaaaaa pipe:-- pty:-- | true <(git config pager.ls-files 'xargs cat'); git ls-files .env
+Fs   ask    aaaaaa pipe:-- pty:-- | git ls-files .env <(git config pager.ls-files 'xargs cat')
+Fs   ask    aaaaas pipe:-- pty:-- | git -P status -s .env; ls <(git config pager.status 'xargs cat')
+Fs   ask    aaaaaa pipe:-- pty:-- | ls <(export GIT_PAGER='xargs cat'); git ls-files .env
+C1   ask    aaaaaa pipe:-- pty:ZB | ls <(git config pager.ls-files 'xargs cat'); git ls-files .env
+C2   ask    aaaaas pipe:-- pty:ZB | stat <(git config pager.ls-files 'xargs cat'); true; git ls-files .env
+C3   ask    aaaaaa pipe:-- pty:ZB | git check-ignore <(git config pager.ls-files 'xargs cat'); git ls-files .env
+C4   ask    aaaaas pipe:-- pty:ZB | true <(git config pager.ls-files 'xargs cat'; echo) ; cat /dev/null; git ls-files .env
+C5   ask    aaaaaa pipe:-- pty:Z- | echo >(git config pager.ls-files 'xargs cat'); git ls-files .env
+C6   ask    aaaaas pipe:-- pty:Z- | true >(git config pager.ls-files 'xargs cat'); true; git ls-files .env
+C7   ask    aaaaaa pipe:-- pty:Z- | echo =(git config pager.ls-files 'xargs cat'); git ls-files .env
+C8   ask    aaaaaa pipe:-- pty:Z- | ls -d *(e:'git config pager.ls-files "xargs cat"':); git ls-files .env
+C9   ask    aaaaaa pipe:-- pty:Z- | echo *(e:'git config pager.status "xargs cat"':); git status -s .env
+C10  ask    aaaaaa pipe:-- pty:ZB | ls <(git config pager.status 'xargs cat'); git status -s .env
+C11  ask    aaaaaa pipe:-- pty:-- | ls <(git config pager.check-ignore 'xargs cat'); git check-ignore .env
+C12  ask    aaaaaa pipe:-- pty:Z- | ls =(git config pager.status 'xargs cat'); git status -s .env
+C13  ask    aaaaaa pipe:-- pty:Z- | true =(git config pager.ls-files 'xargs cat'); git ls-files .env
+C14  ask    aaaaaa pipe:-- pty:Z- | cd . =(git config pager.ls-files 'xargs cat'); git ls-files .env
+C15  ask    aaaaaa pipe:-- pty:Z- | true *(e:'git config pager.ls-files "xargs cat"':); git ls-files .env
+C16  ask    aaaaaa pipe:-- pty:-- | ls -d *(e:'git config pager.check-ignore "xargs cat"':); git check-ignore .env
+C17  ask    aaaaaa pipe:-- pty:ZB | ls <(git config pager.ls-files 'xargs cat') && git ls-files .env
+C18  ask    aaaaaa pipe:-- pty:ZB | if ls <(git config pager.ls-files 'xargs cat'); then git ls-files .env; fi
+C19  ask    aaaaaa pipe:-- pty:ZB | ls <(git config pager.ls-files 'xargs cat')
+git ls-files .env
+C20  ask    aaaaaa pipe:-- pty:-- | ls <(export GIT_PAGER='xargs cat'); git ls-files .env
+C21  ask    aaaaaa pipe:-- pty:-- | echo <(git config pager.ls-files 'xargs cat'); git ls-files .env
+C22  ask    aaaaaa pipe:-- pty:-- | true <(git config pager.ls-files 'xargs cat'); git ls-files .env
+C23  ask    aaaaaa pipe:-- pty:-- | git ls-files .env <(git config pager.ls-files 'xargs cat')
+C24  ask    aaaaaa pipe:-- pty:-- | test -e <(git config pager.ls-files 'xargs cat'); git ls-files .env
+C25  ask    aaaaaa pipe:-- pty:-- | git ls-files .env =(git config pager.ls-files 'xargs cat')
+C26  ask    aaaaas pipe:-- pty:-- | git -P status -s .env; ls <(git config pager.status 'xargs cat')
+C27  ask    aaaaas pipe:-- pty:ZB | until ls <(git config pager.ls-files 'xargs cat'); do true; done; git ls-files .env
+C28  ask    aaaaaa pipe:-- pty:-- | ls -d *(e:'export GIT_PAGER="xargs cat"':); git ls-files .env

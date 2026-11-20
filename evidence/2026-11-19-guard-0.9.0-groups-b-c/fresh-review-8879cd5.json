@@ -1,0 +1,56 @@
+{
+  "base": "769b9d2",
+  "base_sha": "769b9d2154d4db529eb24574cd498024fdfb8f16",
+  "cost_usd": 1.1350732000000001,
+  "diff_sha256": "75fbba291fcd619a1798d62cd46acf058a4473b0b31b804bb80f4a0f5ec3200e",
+  "duration_ms": 204186,
+  "findings": [
+    {
+      "file": "tools/guard/guard.py",
+      "line": 523,
+      "severity": "MAJOR",
+      "summary": "`git restore --staged` is treated as harmless when `\"--worktree\" not in rest and \"W\" not in shorts`. git's parse-options accepts unique prefixes of long options, so `git restore --staged --work f` (or `--worktr`) also discards working-tree changes. `_single_preview` lets that line through, and it skips the DELETE_RE text pass as well. Check prefixes of `--worktree` (any `--w\u2026` that git would resolve to it), or ask on any unrecognised long option. Add a Ks row for `git restore --staged --work f`."
+    },
+    {
+      "file": "tools/guard/guard.py",
+      "line": 490,
+      "severity": "MAJOR",
+      "summary": "`_git_clean_dry` returns True on the first `-n` or `--dry-run`. git's OPT__DRY_RUN is a boolean that a later `--no-dry-run` resets, so `git clean -n --no-dry-run -fd` deletes and is now silent. `git worktree prune -n --no-dry-run` (line 527) has the same gap. Honour the last of `-n`, `--dry-run` and `--no-dry-run` (and its prefixes), and pin both forms as Ks ask rows."
+    },
+    {
+      "file": "tools/guard/guard.py",
+      "line": 1977,
+      "severity": "MAJOR",
+      "summary": "`if name in protected` compares the ref name as written. On the owner's case-insensitive macOS file system, the loose-ref backend writes `git update-ref refs/heads/MAIN <sha>` to the same file as `refs/heads/main`, so the protected branch moves while the rule stays silent. This diff already reads guard-config paths in lower case for exactly this reason (guard_config_class). Compare `name.lower()` against the lower-cased protected set, and add a D1 row with `refs/heads/MAIN`."
+    },
+    {
+      "file": "tools/guard/tests/test_review_fixes.py",
+      "line": 134,
+      "severity": "MAJOR",
+      "summary": "Traceability: this row and line 136 (`git grep -n \"\\.pem\" -- tools`) go from ask to silent. The fixture `git restore --staged main.py` moves from ask to allow, `gh pr merge` moves from allow to ask, and the eleven group C relaxations (K1\u2013K11) cite decisions 3a, 3b, aa, ab, ad, af and ag. The diff adds no DECISIONS.md line, no docs/rules update and no version bump for guard 0.9.0. Every relaxation of a regulated check needs its decision line (what, why, what would change it) in the same change, or a link in the PR to where it is recorded."
+    },
+    {
+      "file": "tools/guard/guard.py",
+      "line": 942,
+      "severity": "MINOR",
+      "summary": "Gaps in the new secret-store and cache tables, so the same secrets or caches stay silent in other spellings. (1) `aws configure get` matches only the bare `aws_secret_access_key` or `aws_session_token`, but the documented `profile.varname` form `aws configure get default.aws_secret_access_key` also prints the key. (2) `_kubectl_output` (line 911) misses `kubectl get secret app --template='{{.data.password}}'`, where kubectl infers go-template output without `-o`. (3) `_DELETE_ONLY_WITH` (line 403) misses `go clean -modcache=true`, which Go's flag package accepts."
+    },
+    {
+      "file": "tools/guard/guard.py",
+      "line": 2301,
+      "severity": "MINOR",
+      "summary": "`_GRAPHQL_TRACKER_RE = re.compile(r\"Issue|Label\")` denies only mutation fields that name an issue or a label. `addComment`, `addAssigneesToAssignable` and `removeAssigneesFromAssignable` on an issue id only ask, although their REST and CLI twins (`gh issue comment`, `POST \u2026/issues/3/comments`) are denied (rows Ls). This is either a deliberate scope of decision aa, and then belongs in its DECISIONS.md line, or a gap."
+    }
+  ],
+  "model_requested": "opus",
+  "models": [
+    "claude-opus-5-5"
+  ],
+  "prompt_file": "tools/review/prompt.md",
+  "prompt_sha256": "1c4a06114051a52e8efe56541fe0780b594f361f41aabce155c70c631b3524c8",
+  "sha": "8879cd5ea4caa9fbadab95bfaadfe1a81a1c924c",
+  "summary": "Guard 0.9.0 groups B and C: it widens the delete, deploy, secret-store, tracker and protected-branch tables, adds the unknown-wrapper net, reads GraphQL, and removes eleven kinds of false asks. The test loosenings that follow the relaxations come with the reason in a comment, and pinned rows show the harmful neighbours still ask, so none is a blocker. Two of the new 'harmless preview' carve-outs can be bypassed with git's own option parsing. The new update-ref deny does not cover the case-insensitive macOS file system that this same diff accounts for elsewhere. The diff records none of the relaxations in DECISIONS.md, the docs or a version bump.",
+  "ts": "2026-11-18T21:22:44Z",
+  "verdict": "COMMENT",
+  "verdict_as_answered": "COMMENT"
+}

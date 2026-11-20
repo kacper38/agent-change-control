@@ -1,0 +1,48 @@
+az group export -n rg
+az storage blob url -c x -n f --account-name a
+az acr check-health -n r
+az aks check-acr -n c -g rg --acr r
+az network watcher test-connectivity --source-resource x --dest-address y
+az ad user show --id x
+az ad sp list --display-name x
+az aks nodepool list --cluster-name c -g rg
+az bicep version
+az pipelines variable list --pipeline-id 1
+az artifacts universal download --feed f --name n --version 1 --path .
+az pipelines runs artifact download --run-id 1 --artifact-name a --path .
+az vm image list-offers -l x -p y
+az storage blob exists -c x -n f
+az repos ref list
+az repos policy list
+az boards query --wiql "select"
+az webapp list-runtimes
+az monitor app-insights query --app x --analytics-query y
+az storage account show-usage -l westeurope
+az sql server firewall-rule list -g rg -s s
+az webapp deployment list-publishing-profiles -n a -g rg
+az acr login -n r
+az aks get-versions -l x
+az login --use-device-code
+az logout
+az devops configure --defaults organization=x
+az account management-group list
+az monitor diagnostic-settings list --resource x
+az keyvault secret show --name x --vault-name v --query id
+az cache list
+az interactive
+az upgrade
+az term show
+az vm boot-diagnostics get-boot-log -n v -g rg
+az storage blob show -c x -n f
+az group wait --created -n rg
+az aks command result --command-id x
+az pipelines build list
+az pipelines release list
+az repos pr reviewer list --id 1
+az repos pr work-item list --id 1
+az boards work-item relation list-type
+az devops service-endpoint list
+az devops team list
+az webapp log download -n a -g rg
+az acr task logs -r x
+az monitor log-analytics workspace table list -g rg --workspace-name w

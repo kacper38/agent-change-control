@@ -1,0 +1,27 @@
+git update-ref refs/heads/main abc123
+git update-ref main abc123
+git update-ref HEAD abc123
+git update-ref --no-deref HEAD abc123
+git update-ref -d refs/heads/main
+git update-ref --stdin < cmds
+git update-ref -m msg refs/heads/main abc123
+git update-ref -m msg HEAD abc123
+git update-ref --create-reflog refs/heads/main abc
+git -C . update-ref refs/heads/main abc
+git -c x=y update-ref refs/heads/main abc
+git update-ref refs/heads//main abc
+git update-ref refs/heads/./main abc
+git update-ref REFS/HEADS/MAIN abc
+git update-ref refs/heads/Main abc
+git update-ref @ abc123
+git update-ref --no-deref @ abc123
+git update-ref -- refs/heads/main abc
+git update-ref -z --stdin
+git update-ref --message=x refs/heads/main abc
+git update-ref -mmsg refs/heads/main abc
+git update-ref refs/heads/feature abc
+git update-ref refs/tags/v1 abc
+git update-ref refs/remotes/origin/main abc
+git symbolic-ref HEAD refs/heads/main
+git update-ref ORIG_HEAD abc
+mytool git update-ref refs/heads/main abc

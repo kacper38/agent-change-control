@@ -1,0 +1,101 @@
+# guards, one letter each, in this order: 0.8.0 | 2a28378 (head of the seventh round) | 8f0a893 (the guard file of the head) | 2a28378 without the `coproc` rule | 2a28378 with a construct that never closes taken as not handed on
+# row: id, expectation, letters (s silent, a ask), pipe: and pty: with Z when zsh showed the marker and B when bash did, the command (`.env` is run as `secret.txt`)
+F81  ask    asass pipe:-- pty:ZB | export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=pager.ls-files GIT_CONFIG_VALUE_0='xargs cat'; git ls-files .env
+F81  ask    asass pipe:-- pty:ZB | export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=pager.ls-files GIT_CONFIG_VALUE_0='xargs cat'; git ls-files .env
+F81  ask    asass pipe:-- pty:ZB | export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=pager.ls-files GIT_CONFIG_VALUE_0='xargs cat'; git ls-files .env
+F81  ask    asass pipe:-- pty:ZB | export GIT_CONFIG_PARAMETERS="'pager.status=xargs cat'"; git status -s .env
+F81  ask    asass pipe:-- pty:ZB | export GIT_CONFIG_PARAMETERS="'pager.ls-files=xargs cat'" && git ls-files .env
+F81  ask    asass pipe:-- pty:ZB | export GIT_CONFIG_PARAMETERS="'pager.check-ignore=xargs cat'"; git check-ignore --no-index .env
+F81  ask    asass pipe:-- pty:ZB | export PAGER='xargs cat' GIT_CONFIG_PARAMETERS="'pager.ls-files=true'"; git ls-files .env
+F81  ask    asass pipe:-- pty:ZB | declare -x GIT_CONFIG_PARAMETERS="'pager.ls-files=xargs cat'"; git ls-files .env
+F81  ask    asass pipe:-- pty:ZB | typeset -x GIT_CONFIG_PARAMETERS="'pager.ls-files=xargs cat'"; git ls-files .env
+F81  ask    asass pipe:-- pty:ZB | GIT_CONFIG_PARAMETERS="'pager.ls-files=xargs cat'"; export GIT_CONFIG_PARAMETERS; git ls-files .env
+F81  ask    asass pipe:-- pty:ZB | set -a; GIT_CONFIG_PARAMETERS="'pager.ls-files=xargs cat'"; git ls-files .env
+F81  ask    asass pipe:-- pty:ZB | eval "export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=pager.ls-files GIT_CONFIG_VALUE_0='xargs cat'"; git ls-files .env
+F81  ask    asass pipe:-- pty:ZB | export GIT_CONFIG_PARAMETERS="'pager.ls-files=xargs cat'"
+git ls-files .env
+F81  ask    asass pipe:-- pty:ZB | export GIT_CONFIG_PARAMETERS="'pager.ls-files=xargs cat'"; cd . && git ls-files .env
+F81  ask    asass pipe:-- pty:ZB | export GIT_CONFIG_PARAMETERS="'pager.ls-files=xargs cat'"; ls -la .env; git ls-files .env
+F81  ask    asass pipe:-- pty:ZB | export GIT_CONFIG_PARAMETERS="'pager.ls-files=xargs cat'"; if true; then git ls-files .env; fi
+F81  ask    asass pipe:-- pty:ZB | export GIT_CONFIG_PARAMETERS="'pager.ls-files=xargs cat'"; { git ls-files .env; }
+F81  ask    asass pipe:-- pty:ZB | export GIT_CONFIG_PARAMETERS="'pager.ls-files=xargs cat'"; git --no-pager -C . status -s .env; git ls-files .env
+F81  ask    asass pipe:-- pty:ZB | for i in 1 2; do git ls-files .env; export GIT_CONFIG_PARAMETERS="'pager.ls-files=xargs cat'"; done
+F81  ask    asass pipe:-- pty:ZB | while git ls-files .env; do export GIT_CONFIG_PARAMETERS="'pager.ls-files=xargs cat'"; test -f seen && break; : > seen; done
+F82  ask    asass pipe:-- pty:ZB | git config pager.ls-files 'xargs cat'; git ls-files .env
+F82  ask    asass pipe:-- pty:ZB | git config pager.ls-files 'xargs cat'; git ls-files .env
+F82  ask    asass pipe:-- pty:ZB | git config pager.ls-files 'xargs cat'; git ls-files .env
+F82  ask    asass pipe:-- pty:ZB | git config pager.status 'xargs cat' && git status -s .env
+F82  ask    asass pipe:-- pty:ZB | git config core.pager 'xargs cat'; git config pager.ls-files true; git ls-files .env
+F82  ask    asass pipe:-- pty:ZB | git config pager.check-ignore 'xargs cat'; git check-ignore --no-index .env
+F82  ask    asass pipe:-- pty:ZB | cd . && git config pager.ls-files 'xargs cat' && git ls-files .env
+F82  ask    asass pipe:-- pty:ZB | printf '[pager]\n\tls-files = xargs cat\n' >> .git/config; git ls-files .env
+F82  ask    asass pipe:-- pty:ZB | echo '[pager]' >> .git/config; echo ' ls-files = xargs cat' >> .git/config; git ls-files .env
+F82  ask    asass pipe:-- pty:ZB | { echo '[pager]'; echo ' ls-files = xargs cat'; } >> .git/config; git ls-files .env
+F82  ask    asass pipe:-- pty:ZB | test -d .git && printf '[pager]\n\tstatus = xargs cat\n' >> .git/config; git status -s .env
+F82  ask    asass pipe:-- pty:ZB | if true; then echo '[pager]'; echo ' ls-files = xargs cat'; fi >> .git/config; git ls-files .env
+F82  ask    asass pipe:-- pty:ZB | for i in 1 2; do git ls-files .env; git config pager.ls-files 'xargs cat'; done
+F82  ask    asass pipe:-- pty:ZB | git config pager.ls-files 'xargs cat'
+git ls-files .env
+F83  ask    asass pipe:-- pty:ZB | echo "$(git config pager.ls-files 'xargs cat')"; git ls-files .env
+F83  ask    asass pipe:-- pty:ZB | echo "$(git config pager.ls-files 'xargs cat')"; git ls-files .env
+F83  ask    asass pipe:-- pty:ZB | echo "$(git config pager.ls-files 'xargs cat')"; git ls-files .env
+F83  ask    asass pipe:-- pty:ZB | test -n "$(git config pager.status 'xargs cat'; echo x)" && git status -s .env
+F83  ask    asass pipe:-- pty:ZB | cd "$(git config pager.ls-files 'xargs cat'; pwd)" && git ls-files .env
+F83  ask    asass pipe:-- pty:ZB | echo "`git config pager.ls-files 'xargs cat'`"; git ls-files .env
+F83  ask    asass pipe:-- pty:ZB | cd .git && git config pager.ls-files 'xargs cat'; cd .. && git ls-files .env
+F83  ask    asass pipe:-- pty:ZB | git ls-files .env > "out$(git config pager.ls-files 'xargs cat').txt"; git ls-files .env
+F83  ask    asass pipe:-- pty:-B | echo "${ git config pager.ls-files 'xargs cat'; }"; git ls-files .env
+F83  ask    asass pipe:-- pty:-B | true "${ git config pager.status 'xargs cat'; }"; git status -s .env
+F83  ask    asass pipe:-- pty:-B | [[ -v 'a[$(git config pager.ls-files "xargs cat")]' ]]; git ls-files .env
+F83  ask    asass pipe:-- pty:-B | test -v 'a[$(git config pager.ls-files "xargs cat")]'; git ls-files .env
+Fs   silent assss pipe:-- pty:-- | git ls-files .env
+Fs   silent assss pipe:-- pty:-- | cd "$REPO" && git status -s .env
+Fs   silent assss pipe:-- pty:-- | echo "$HOME"; git ls-files .env
+Fs   ask    asass pipe:-- pty:-- | echo "$(date)"; git status .env
+Fs   ask    asass pipe:-- pty:-- | cd "${REPO}" && git status .env
+Fs   ask    asass pipe:-- pty:-- | git status .env; echo "done in ${PWD}"
+Fs   ask    asass pipe:-- pty:-- | echo 'a literal $(x)'; git ls-files .env
+Fs   silent assss pipe:-- pty:-- | cd . && git status -s .env
+Fs   silent assss pipe:-- pty:-- | ls -la .env; git check-ignore .env; git status -s .env
+Fs   silent assss pipe:-- pty:-- | git check-ignore -q .env && echo ignored || echo not ignored
+Fs   silent assss pipe:-- pty:-- | test -f .env && git status --short .env
+Fs   silent assss pipe:-- pty:-- | true; git ls-files .env; false
+Fs   silent assss pipe:-- pty:-- | if git ls-files --error-unmatch .env 2>/dev/null; then echo tracked; else echo untracked; fi
+Fs   silent assss pipe:-- pty:-- | while false; do git ls-files .env; done
+Fs   silent assss pipe:-- pty:-- | { git ls-files .env; }
+Fs   silent assss pipe:-- pty:-- | if true; then
+  git ls-files .env
+fi
+Fs   silent assss pipe:-- pty:-- | while false; do
+  git status -s .env
+done
+Fs   silent assss pipe:-- pty:-- | {
+  git check-ignore .env
+}
+Fs   silent assss pipe:-- pty:-- | git status -s .env > /dev/null
+Fs   silent assss pipe:-- pty:-- | cd .
+git check-ignore .env
+git status -s .env
+Fs   silent assss pipe:-- pty:-- | export FOO=1; ls -la .env
+Fs   silent assss pipe:-- pty:-- | mkdir -p tmp; ls -la .env
+Fs   silent assss pipe:-- pty:-- | git config user.name x; test -f .env
+Fs   silent assss pipe:-- pty:-- | echo checking > log.txt; stat .env
+Fs   ask    asass pipe:-- pty:-- | mkdir -p tmp; git status .env
+Fs   ask    asass pipe:-- pty:-- | git add -A && git status .env
+Fs   ask    asass pipe:-- pty:-- | git status .env; git diff --stat
+Fs   ask    asass pipe:-- pty:-- | ls -la .env 2>/dev/null; git status .env
+Fs   ask    asass pipe:-- pty:-- | echo checking > log.txt; git ls-files .env
+Fs   ask    asass pipe:-- pty:-- | LC_ALL=C ls -la .env; git status .env
+Fs   ask    asass pipe:-- pty:-- | X=1; git ls-files .env
+Fs   ask    asass pipe:-- pty:-- | X=1 true; git ls-files .env
+Fs   ask    asass pipe:-- pty:-- | cd . > log.txt; git ls-files .env
+Fs   ask    asass pipe:-- pty:-- | for f in a b; do git ls-files .env; done
+Fs   ask    asass pipe:-- pty:-- | source ./env.sh; git ls-files .env
+Fs   ask    asass pipe:-- pty:-- | :; git ls-files .env
+Fs   ask    asass pipe:-- pty:-- | echo x >&2; git ls-files .env
+Fs   ask    asass pipe:-- pty:-- | { true; } > log.txt; git ls-files .env
+Fm   ask    aaasa pipe:-B pty:-B | coproc xargs cat; ls .env >&"${COPROC[1]}"; exec {COPROC[1]}>&-; cat <&"${COPROC[0]}"
+Fm   ask    aaasa pipe:-B pty:-B | coproc xargs cat >&2; ls .env >&${COPROC[1]}; exec {COPROC[1]}>&-; wait
+Fm   ask    aaasa pipe:-B pty:-B | coproc xargs cat >&2; echo .env >&${COPROC[1]}; exec {COPROC[1]}>&-; wait
+Fm   ask    aaaas pipe:-- pty:-- | for f in a; ls .env
+Fm   ask    aaaas pipe:-- pty:-- | for f in a; test -f .env

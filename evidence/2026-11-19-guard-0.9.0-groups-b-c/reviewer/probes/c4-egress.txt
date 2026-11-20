@@ -1,0 +1,14 @@
+# K11 widening, patterns without blanks
+ag --pager 'less|ollama|x' x .
+ack --pager 'less|ollama|x' x .
+rg --pre 'x|ollama|y' pat .
+git grep -O'less|ollama|x' pat
+grep -E 'a|ollama|b' f
+grep -E 'a|ollama|b' f | ollama
+grep -E 'a|ollama|b' "$(ollama)"
+grep -E 'a|ollama|b' f > >(ollama)
+rg -e 'a|codex|b' --pre 'x|codex|y' .
+xargs -I{} grep -E 'a|ollama|b' {} < list
+bash -c "grep -E 'a|ollama|b' f"
+ssh h "grep -E 'a|ollama|b' f"
+ssh h grep -E 'a|ollama|b' f

@@ -1,0 +1,32 @@
+# line 2, client boundary: K10, K11 neighbours
+command -v codex && codex exec "fix"
+command -v codex; codex exec "fix"
+command -v ollama run m
+command -V ollama
+sudo command -v ollama
+command -v -- ollama
+command -p ollama run m
+ag --pager 'less|ollama run m' x .
+ack --pager 'less|ollama run m' x .
+rg --pre 'x|ollama run m' pat .
+git grep -O'x|ollama run m' pat
+git grep --open-files-in-pager='x|ollama run m' pat
+grep -E 'a|ollama run m' notes.txt > >(ollama run m)
+grep -E 'a|b' notes.txt | ollama run m
+grep -E 'a|ollama run m' notes.txt; xargs -a 'a|ollama run m' echo
+grep -E 'x|ollama run m' notes.txt "$(mytool 'x|ollama run m')"
+mytool -e 'a|ollama run m'
+xargs grep -E 'a|ollama run m' < list
+find . -exec grep -E 'a|ollama run m' {} +
+grep -E "a|ollama run m" notes.txt
+grep -E 'a|ollama run m' notes.txt 'b|codex exec x'
+grep -E 'a|codex exec x' 'b|codex exec x'
+parallel grep -E 'a|ollama run m' ::: f
+watch grep -E 'a|ollama run m' f
+grep -E 'a|ollama run m' f | mytool 'a|ollama run m'
+grep --regexp='a|ollama run m' f
+grep --regexp 'a|ollama run m' f
+grep -e 'a|ollama run m' f
+git grep -e 'a|ollama run m'
+hyperfine 'grep -E "a|b" f | ollama run m'
+grep -E 'a|ollama run m' f && eval 'a|ollama run m'

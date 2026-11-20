@@ -1,0 +1,18 @@
+# id | tool | rule | expected | path
+R1 | Write | guard-config | ask | .claude/ſettings.json
+R1 | Write | guard-config | ask | .github/hookſ/guard.json
+R1 | Write | guard-config | ask | TOOLS/GUARD/guard.py
+R1 | Write | guard-config | ask | .claude/settings.JSON
+R1 | Write | guard-config | ask | .claude/Settings.Local.Json
+R1 | Write | guard-config | ask | .GitHub/Hooks/x.json
+R1 | Edit | guard-config | ask | ~/.CLAUDE/settings.json
+R1 | Edit | guard-config | ask | ~/.claude/HOOKS/x.sh
+R1 | Write | guard-config | ask | .claude/./settings.json
+R1 | Write | guard-config | ask | .claude//settings.json
+R1 | Write | guard-config | ask | tools/x/../guard/guard.py
+R1 | Write | guard-config | ask | .claude/settings.json.
+R1 | Write | guard-config | ask | .claude/settings.json
+Rs | Write | guard-config | silent | docs/CLAUDE.md
+Rs | Write | guard-config | silent | .claude/agents/X.md
+Rs | Write | guard-config | silent | TOOLS/guardian/x.py
+Rs | Write | guard-config | silent | .claude/skills/SETTINGS.json.md

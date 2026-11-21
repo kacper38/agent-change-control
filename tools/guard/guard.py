@@ -36,7 +36,7 @@ import time
 from collections.abc import Mapping
 from typing import Callable, Optional
 
-VERSION = "0.10.0"
+VERSION = "0.11.0"
 
 # ----------------------------------------------------------------------------
 # Harness normalization
@@ -202,14 +202,17 @@ DEFAULTS = {
 BOUNDARIES = ("own", "client")
 
 
-def load_config(start: str) -> dict:
+def load_config(start: str, facts: Optional[dict] = None) -> dict:
     """Merge DEFAULTS <- nearest .claude/guard.json (walking up) <- its sibling guard.local.json <- KZ_* env.
 
     guard.local.json is the owner's uncommitted override (gitignored): only its `rules_off` is read, so a
     session can silence rules without a diff in the reviewable policy and nothing else moves. rules_off is
     dropped unless guard.json sits beside `.git` and says `boundary: own` itself (not the default) and the
     effective boundary is own. The boundary only tightens (0.10.0): an unknown value counts as client, and
-    KZ_BOUNDARY=own leaves a committed client in force."""
+    KZ_BOUNDARY=own leaves a committed client in force. In a box (0.11.0, `in_box` of the facts, read when none
+    are handed in) the configuration is _box_config's instead."""
+    if in_box(box_facts() if facts is None else facts):
+        return _box_config(start)
     cfg = dict(DEFAULTS)
     d = os.path.abspath(start)
     relaxable = False  # rules_off counts only under a repo root whose committed guard.json says boundary own
@@ -245,16 +248,7 @@ def load_config(start: str) -> dict:
     env = os.environ.get("KZ_PROTECTED_BRANCHES")
     if env:
         cfg["protected_branches"] = [b.strip() for b in env.split(",") if b.strip()]
-    env = os.environ.get("KZ_BOUNDARY")
-    if env:  # it can only tighten: client sets client, own changes nothing, anything else counts as client
-        env = env.strip()
-        if env == "own" and cfg["boundary"] != "own":
-            print("guard: KZ_BOUNDARY=own does not loosen the committed boundary client", file=sys.stderr)
-        elif env != "own":
-            if env != "client":
-                print(f"guard: KZ_BOUNDARY {env!r} is no boundary (own or client); it counts as client",
-                      file=sys.stderr)
-            cfg["boundary"] = "client"
+    _env_boundary(cfg)
     relaxable = relaxable and cfg["boundary"] == "own"
     env = os.environ.get("KZ_SCRATCH_MD")
     if env:
@@ -276,6 +270,78 @@ def load_config(start: str) -> dict:
     else:
         for name in sorted(set(off) - set(RULES)):
             print(f"guard: rules_off names no rule {name!r}", file=sys.stderr)
+    return cfg
+
+
+def _env_boundary(cfg: dict) -> None:
+    """KZ_BOUNDARY can only tighten: client sets client, own changes nothing, anything else counts as client."""
+    env = os.environ.get("KZ_BOUNDARY")
+    if env:
+        env = env.strip()
+        if env == "own" and cfg["boundary"] != "own":
+            print("guard: KZ_BOUNDARY=own does not loosen the committed boundary client", file=sys.stderr)
+        elif env != "own":
+            if env != "client":
+                print(f"guard: KZ_BOUNDARY {env!r} is no boundary (own or client); it counts as client",
+                      file=sys.stderr)
+            cfg["boundary"] = "client"
+
+
+# the environment knobs that can loosen; a box ignores each (D3 of item #66) and says so
+BOX_IGNORED_ENV = ("KZ_RULES_OFF", "KZ_PROTECTED_BRANCHES", "KZ_SCRATCH_MD", "KZ_HOST_INSTALL")
+
+
+def _read_policy(path: str) -> Optional[dict]:
+    """A guard.json as a dict; None when it is missing, and, with a note, when it is unreadable or no object."""
+    if not os.path.isfile(path):
+        return None
+    try:
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError, RecursionError) as exc:  # a broken config must not silently vanish
+        print(f"guard: ignoring unreadable {path}: {exc}", file=sys.stderr)
+        return None
+    if not isinstance(data, dict):
+        print(f"guard: ignoring {path}: not a JSON object", file=sys.stderr)
+        return None
+    return data
+
+
+def _box_config(start: str) -> dict:
+    """The configuration in a box (D3), valid marker or not, since all of it only tightens: DEFAULTS <- the
+    committed guard.json beside the guard (<guard root>/.claude/guard.json, never its guard.local.json, never its
+    rules_off) <- client when the nearest guard.json above `start` (the work clone's) names any boundary but own
+    <- KZ_BOUNDARY (only tightens) and KZ_TELEMETRY_DIR. rules_off is always empty; the knobs that can loosen
+    (BOX_IGNORED_ENV) are ignored, each with a note."""
+    cfg = dict(DEFAULTS)
+    path = os.path.join(guard_root(), ".claude", "guard.json")
+    data = _read_policy(path)
+    if data:
+        cfg.update({k: v for k, v in data.items() if k != "rules_off"})
+        if cfg["boundary"] not in BOUNDARIES:  # an unknown value tightens
+            print(f"guard: boundary {cfg['boundary']!r} in {path} is not own or client; it counts as client",
+                  file=sys.stderr)
+            cfg["boundary"] = "client"
+    d = os.path.abspath(start)
+    while True:
+        candidate = os.path.join(d, ".claude", "guard.json")
+        if os.path.isfile(candidate):
+            data = _read_policy(candidate)
+            if data and "boundary" in data and data["boundary"] != "own":  # a tightening, believed from anywhere
+                cfg["boundary"] = "client"
+            break
+        parent = os.path.dirname(d)
+        if parent == d:
+            break
+        d = parent
+    env = os.environ.get("KZ_TELEMETRY_DIR")
+    if env:
+        cfg["telemetry_dir"] = env
+    for name in BOX_IGNORED_ENV:
+        if name in os.environ:
+            print(f"guard: {name} is ignored in a box", file=sys.stderr)
+    _env_boundary(cfg)
+    cfg["rules_off"] = []
     return cfg
 
 
@@ -718,6 +784,114 @@ def rule_delete_guard(ev: Event, cfg: dict) -> Optional[Decision]:
     except Exception as exc:  # main() turns a crash into exit 1, which both harnesses let run silently: ask instead
         what = f"the command could not be read ({type(exc).__name__})"
     return combine([("ask", DELETE_MSG.format(what=w)) for w in (what, pipe) if w])
+
+
+# 0.11.0 (item #66, D6): in a box a delete-guard ask is logged only when everything the rule flagged is local to
+# the box: files and the local repository. These read the call again with the rule's own expressions and readers
+# and look for any form that is not local; a form not named as local here counts as not local.
+_BOX_SHELL_RE = re.compile(SHELL_RE, re.MULTILINE)
+_BOX_TOOL_RE = re.compile(TOOL_RE, re.MULTILINE)
+# a push that deletes or rewrites remote refs; a :ref or +ref refspec
+_BOX_PUSH_RE = re.compile(_GIT + r"push\s.*(--force|-f(\s|$)|--delete|--prune|--mirror|\s:\S|\s\+\S)", re.MULTILINE)
+_BOX_UPDATE_REF_RE = re.compile(_GIT + r"update-ref\s+-d\b\s*(\S*)", re.MULTILINE)
+_BOX_PUSH_LONGS = ("delete", "prune", "mirror", "force", "force-with-lease", "force-if-includes")
+
+
+def _box_local_text(text: str) -> bool:
+    """No form of the text pass in `text` reaches past the box: no SQL, no tool of TOOL_RE (the coreutils
+    `truncate` at a command's start excepted), no push that deletes or forces, no `update-ref -d` outside
+    refs/heads/. The local forms (SHELL_RE, FIND_RE, CODE_RE, the rest of GIT_RE) need no check of their own."""
+    if _SQL_TRUNCATE_RE.search(text) and _SQL_CLIENT_RE.search(text):
+        return False
+    if any(_SQL_TRUNCATE_RE.search(m.group(4)) for m in _HEREDOC_RE.finditer(text)):
+        return False
+    for m in _BOX_TOOL_RE.finditer(text):
+        word = m.group(0)
+        if "truncate" not in word or "table" in word.lower() or not _BOX_SHELL_RE.match(text, m.start()):
+            return False
+    if _BOX_PUSH_RE.search(text):
+        return False
+    return all(m.group(2).startswith("refs/heads/") for m in _BOX_UPDATE_REF_RE.finditer(text))
+
+
+def _box_local_tokens(text: str) -> bool:
+    """The token pass of delete_what over every simple command, without stopping at the first finding: the `rm`
+    class and git's local verbs are local; any tool of _DELETE_TOOLS that deletes, a push that deletes or forces,
+    an `update-ref -d` outside refs/heads/ and a `truncate` word that is no command word are not."""
+    for toks in nested_commands(text):
+        at_word = command_word_indexes(toks)
+        named = 0
+        for i, t in enumerate(toks):
+            name = tool_name(t)
+            if _OPEN_WORD_RE.match(t) and not (i in at_word and name == "truncate"):
+                return False
+            entry = _DELETE_TOOLS.get("pip" if _PIP_RE.match(name) else name)
+            if name != "git" and not entry:
+                continue
+            named += 1
+            if named > _MAX_TOOL_WORDS:
+                return False
+            if name == "git":
+                sub, rest = _git_subcommand(list(toks[i:]))
+                if sub == "push":
+                    longs, shorts = _git_options(sub, rest)
+                    if ("d" in shorts or "f" in shorts or _git_prefix(longs, _BOX_PUSH_LONGS)
+                            or any(r.startswith((":", "+")) for r in rest)):
+                        return False
+                if sub == "update-ref" and ("-d" in rest or _git_prefix(_git_options(sub, rest)[0], ("delete",))):
+                    refs = [r for r in rest if not r.startswith("-")]
+                    if not refs or not refs[0].startswith("refs/heads/"):
+                        return False
+                continue
+            hit = subcommand_hit(caps_verbs(name, list(toks[i + 1 :])), *entry)
+            if hit and (name not in _DELETE_ONLY_WITH or _delete_only_with(name, list(toks[i + 1 :]))):
+                return False
+    return True
+
+
+_BOX_SHELLS = ("bash", "sh", "zsh")
+_BOX_SCRIPT_PUSH_RE = re.compile(r"\bgit\b[\s\S]{0,80}?\bpush\b")
+
+
+def _box_shell_script(m: "re.Match") -> bool:
+    """A SCRIPT_RE match that a shell runs: the interpreter is a shell, or the file ends in a shell's suffix."""
+    return m.group(1) in _BOX_SHELLS or m.group(4) in ("sh", "bash", "zsh")
+
+
+def _box_local_delete(ev: Event) -> bool:
+    """D6: True only when every delete the call holds is local to the box: ExitWorktree's remove, or a shell call
+    whose text, folded text, every script it names and every simple command hold only local forms. A shell that
+    reads its script from a pipe, a line the readers cannot read and any error answer False (fail closed)."""
+    try:
+        if ev.kind == "worktree":
+            return ev.event == "PreToolUse" and ev.args.get("action") == "remove"
+        if ev.kind != "shell" or not ev.command:
+            return False
+        folded = fold_names(ev.command)
+        for text in dict.fromkeys((ev.command, folded)):
+            if _unread_pipe(text) or not _box_local_text(text) or not _box_local_tokens(text):
+                return False
+            for m in SCRIPT_RE.finditer(text):
+                script = m.group(3)
+                path = script if os.path.isabs(script) else os.path.join(ev.cwd, script)
+                try:
+                    with open(path, encoding="utf-8", errors="replace") as fh:
+                        content = fh.read()
+                except (OSError, ValueError):  # not a readable file: the rule scanned nothing there either
+                    continue
+                if not (_box_local_text(content) and _box_local_text(fold_names(content))):
+                    return False
+                # review of 0.11.0: the text pass misses `push -d` and option prefixes, which only the token
+                # pass reads, so a shell script gets the token pass too; a script in any other language that
+                # names git and push at all is not shown to be local (its argument lists are not shell words)
+                if _box_shell_script(m):
+                    if not (_box_local_tokens(content) and _box_local_tokens(fold_names(content))):
+                        return False
+                elif _BOX_SCRIPT_PUSH_RE.search(content) or _BOX_SCRIPT_PUSH_RE.search(fold_names(content)):
+                    return False
+        return True
+    except Exception:  # CommandNotRead or a crash: not shown to be local
+        return False
 
 
 
@@ -3317,6 +3491,166 @@ def rule_tracker_guard(ev: Event, cfg: dict) -> Optional[Decision]:
                            if d])
 
 
+# 0.11.0 (item #66, D7): the one merge a box runs. Named limits: the receipt is a file in the box's own clone, which
+# the session could write itself, so this stops a forgotten review and not a hostile session (plan section 6,
+# decision 7); GitHub enforces --match-head-commit, the guard does not compare the pull request's head itself.
+BOX_MERGE_MSG = ("box session: this merge is denied: {failed}. A box merges only as `gh pr merge N "
+                 "--match-head-commit SHA` (one simple command, a full hash, at most one of --merge, --squash, "
+                 "--rebase) with a fresh-review receipt for that head whose verdict is APPROVE or COMMENT. {reason}")
+_MERGE_SHELL_MARKS = (";", "&", "|", "`", "$(", "<", ">", "\n")
+_MERGE_STYLES = frozenset({"--merge", "--squash", "--rebase"})
+_MERGE_HEAD = "--match-head-commit"
+_FULL_SHA_RE = re.compile(r"[0-9a-f]{40}")
+_PR_NUMBER_RE = re.compile(r"[0-9]+")
+RECEIPT_VERDICTS = ("APPROVE", "COMMENT")
+_RECEIPT_MAX = 1024 * 1024
+
+
+def _box_merge_failed(ev: Event, judge: Optional[str] = None) -> Optional[str]:
+    """None when the call is the merge a box runs (D7), else the first condition that failed, in words. `judge`:
+    the judge's commit as the marker names it."""
+    if ev.tool != "Bash" or not ev.command:
+        return "only a Bash command can merge"
+    text = ev.command.strip()
+    if any(mark in text for mark in _MERGE_SHELL_MARKS):
+        return "the command is not one simple command"
+    try:
+        words = shlex.split(text, posix=True)
+    except ValueError:  # an open quote
+        return "the command could not be split into words"
+    if words[:3] != ["gh", "pr", "merge"]:
+        return "the command does not start with `gh pr merge`"
+    if len(words) < 4 or not _PR_NUMBER_RE.fullmatch(words[3]):
+        return "`gh pr merge` is not followed by a pull request number"
+    sha = style = None
+    rest = words[4:]
+    i = 0
+    while i < len(rest):
+        word = rest[i]
+        if word == _MERGE_HEAD or word.startswith(_MERGE_HEAD + "="):
+            if sha is not None:
+                return f"`{_MERGE_HEAD}` is given twice"
+            if word == _MERGE_HEAD:
+                if i + 1 == len(rest):
+                    return f"`{_MERGE_HEAD}` has no value"
+                i += 1
+                sha = rest[i]
+            else:
+                sha = word.split("=", 1)[1]
+        elif word in _MERGE_STYLES:
+            if style is not None:
+                return "more than one of --merge, --squash, --rebase is given"
+            style = word
+        else:
+            return f"`{word}` is not a word a merge in a box takes"
+        i += 1
+    if sha is None:
+        return f"`{_MERGE_HEAD} SHA` is missing"
+    if not _FULL_SHA_RE.fullmatch(sha):
+        return "the head is not a full 40-character lower-case hash"
+    return _receipt_failed(ev.cwd, sha) or _merge_paths_failed(ev.cwd, sha, judge)
+
+
+# review of 0.11.0 (MAJOR): in a box guard-config edits are logged and the receipt is a file the session could
+# write, so without this a box could merge a change to its own next judge. A box merges no head that changes a
+# path guard-config guards (the guard, its hooks and settings, CI workflows, the tracker, the test guard, the
+# scans) or deletes a test file; those merges stay the owner's. The base is the judge's commit as the root-owned
+# marker names it (BOX_JUDGE: main when the box started), never a ref of the clone, which the session can move
+# (delta review of 0.11.0); a commit is its hash, so the session cannot fake its content. A head built on a newer
+# main than the judge is measured against the judge and may be denied for changes it did not make: fail closed.
+_MERGE_SEES = "so the guard cannot see what the merge changes"
+_TEST_FOLDERS = ("tests", "test")
+
+
+def _is_test_file(parts: list) -> bool:
+    name = parts[-1]
+    return (any(p in _TEST_FOLDERS for p in parts[:-1]) or name.startswith("test_") or name.endswith("_test.py")
+            or name == "conftest.py")
+
+
+def _box_git_env() -> dict:
+    """The environment of the merge check's git calls: no inherited GIT_* variable, no replace objects, no grafts."""
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    env.update(GIT_NO_REPLACE_OBJECTS="1", GIT_GRAFT_FILE=os.devnull)
+    return env
+
+
+def _merge_paths_failed(cwd: str, sha: str, judge: Optional[str]) -> Optional[str]:
+    """None when the head changes no guarded path and deletes no test against the judge's commit, else what it
+    touches or why it cannot be seen, in words."""
+    # round 3: replace objects and grafts would let the session show another commit's tree under a hash, and a
+    # `diff.relative` setting would hide paths outside the cwd; both are files and settings of the clone, so git
+    # runs here without them, without the commit-graph file and without any inherited GIT_* variable. Named limit
+    # (round 4): the object store itself is a folder of the clone; git does not re-hash what it reads, so a
+    # session that forges objects can still hide a change. This check stops a careless merge, not a hostile one:
+    # a hostile box holds a token that merges through the API with no shell form the guard reads.
+    env = _box_git_env()
+
+    def git_out(*args: str) -> Optional[str]:
+        try:
+            r = subprocess.run(["git", "--no-replace-objects", "-c", "core.commitGraph=false", *args], cwd=cwd,
+                               capture_output=True, text=True,
+                               timeout=3, stdin=subprocess.DEVNULL, env=env)
+        except (OSError, subprocess.SubprocessError, ValueError):
+            return None
+        return r.stdout if r.returncode == 0 else None
+
+    if not isinstance(judge, str) or not _FULL_SHA_RE.fullmatch(judge):
+        return f"the box's marker names no judge commit, {_MERGE_SEES}"
+    base = git_out("merge-base", judge, sha)
+    if not base or not base.strip():
+        return f"the guard cannot find {sha} and the judge's commit {judge} in this clone (fetch origin), {_MERGE_SEES}"
+    out = git_out("diff", "--name-status", "--no-renames", "--no-relative", "-z", base.strip(), sha)
+    if out is None:
+        return f"the guard cannot list what {sha} changes"
+    fields = out.split("\0")
+    for status, path in zip(fields[0::2], fields[1::2]):
+        what = guard_config_class(path)
+        if what:
+            return f"the pull request changes {path}, which is {what}; that merge is the owner's"
+        if status.startswith("D") and _is_test_file(path.split("/")):
+            return f"the pull request deletes the test file {path}; that merge is the owner's"
+    return None
+
+
+def _receipt_failed(cwd: str, sha: str) -> Optional[str]:
+    """None when the newest fresh-review receipt for `sha` approves or comments, else what is wrong. The receipts
+    are where bin/fresh-review writes them: <git dir>/fresh-review/<sha>.json, then <sha>.2.json, <sha>.3.json …
+    (tools/review/fresh_review.py); the highest number is the newest, the bare file is number 1."""
+    try:
+        r = subprocess.run(["git", "rev-parse", "--git-dir"], cwd=cwd, capture_output=True, text=True, timeout=3,
+                           stdin=subprocess.DEVNULL, env=_box_git_env())
+    except (OSError, subprocess.SubprocessError, ValueError):  # no git, no folder, a timeout
+        return "the guard found no git repository at the call's folder"
+    git_dir = r.stdout.strip()
+    if r.returncode != 0 or not git_dir:
+        return "the guard found no git repository at the call's folder"
+    folder = os.path.join(git_dir if os.path.isabs(git_dir) else os.path.join(cwd, git_dir), "fresh-review")
+    try:
+        names = os.listdir(folder)
+    except OSError:  # no receipt folder yet
+        names = []
+    numbered = []
+    for name in names:
+        m = re.fullmatch(re.escape(sha) + r"(?:\.([0-9]+))?\.json", name)
+        if m and (m.group(1) is None or int(m.group(1)) >= 2):
+            numbered.append((int(m.group(1) or 1), name))
+    if not numbered:
+        return f"no fresh-review receipt exists for {sha} (bin/fresh-review writes one)"
+    name = max(numbered)[1]
+    try:
+        with open(os.path.join(folder, name), encoding="utf-8") as fh:
+            body = fh.read(_RECEIPT_MAX + 1)
+        data = json.loads(body) if len(body) <= _RECEIPT_MAX else None
+    except (OSError, ValueError, RecursionError):  # unreadable or no JSON
+        data = None
+    if not isinstance(data, dict) or data.get("sha") != sha:
+        return f"the newest receipt {name} is no receipt for {sha}"
+    if data.get("verdict") not in RECEIPT_VERDICTS:
+        return f"the newest receipt {name} has the verdict {data.get('verdict')!r}, not APPROVE or COMMENT"
+    return None
+
+
 def _gh_words(seg: list[str]) -> list[int]:
     """The indexes of the first two plain words of a gh call (the command group and the verb). gh accepts
     `-R`/`--repo` before the group and between group and verb (`gh -R o/r issue close 3`, `gh issue --repo o/r
@@ -5472,9 +5806,16 @@ Verdicts = list  # [(rule name, Optional[Decision])] in the order the rules ran
 _PIPE_DECODER = json.JSONDecoder()  # its own instance: the child's lines are ours, whatever replaces json.loads
 
 
+def _rule_verdict(name: str, ev: Event, cfg: dict) -> Optional[Decision]:
+    """One rule's decision; in the box profile (run_hook names it in cfg) after the box table, so the checks of
+    D6 and D7 run in the child, inside the budget."""
+    d = RULES[name](ev, cfg)
+    return box_turn(name, d, ev, cfg) if d and cfg.get("profile") == "box" else d
+
+
 def _rules_in_process(names: list, ev: Event, cfg: dict) -> Verdicts:
     """Run the rules in this process, without a budget: the path where there is no fork."""
-    return [(name, RULES[name](ev, cfg)) for name in names]
+    return [(name, _rule_verdict(name, ev, cfg)) for name in names]
 
 
 def _rules_child(names: list, ev: Event, cfg: dict, wfd: int) -> None:
@@ -5484,7 +5825,7 @@ def _rules_child(names: list, ev: Event, cfg: dict, wfd: int) -> None:
         with os.fdopen(wfd, "w", encoding="utf-8") as out:
             try:
                 for name in names:
-                    out.write(json.dumps({"rule": name, "decision": RULES[name](ev, cfg)}) + "\n")
+                    out.write(json.dumps({"rule": name, "decision": _rule_verdict(name, ev, cfg)}) + "\n")
                     out.flush()
                 out.write(json.dumps({"done": True}) + "\n")
             except Exception as exc:  # the parent raises it, so main prints the same `guard: error` as before
@@ -5615,38 +5956,169 @@ def run_post() -> int:
     call = _call_id(ev)
     if call is None:  # without the id the ask cannot be tied to this call; guessing would invent evidence
         return 0
-    cfg = load_config(str(raw.get("cwd") or os.getcwd()))
+    facts = box_facts()
+    cfg = load_config(str(raw.get("cwd") or os.getcwd()), facts)
     try:
         rules = _asked_rules(os.path.join(telemetry_dir(cfg), "decisions.jsonl"), ev.session, call)
     except OSError:  # no log yet, or not readable: nothing was asked that this hook could find
         return 0
     if rules:
-        log_decision(("ran", ""), rules, ev, cfg)
+        log_decision(("ran", ""), rules, ev, cfg, facts)
     return 0
+
+
+# ----------------------------------------------------------------------------
+# The box (item #66, plan step 1.0b): the facts the profile `box` reads, gathered by one function
+# ----------------------------------------------------------------------------
+
+BOX_MARKER = "/etc/agent-box/box.json"  # written by root at the box's start (tools/box/marker.py)
+DOCKERENV = "/.dockerenv"
+BOX_SCHEMA = "agent-box/1"
+_MARKER_MAX = 64 * 1024  # a marker is a few hundred bytes; a larger file is no marker
+# the facts of a machine with no marker; box_facts answers these when anything goes wrong
+_NO_MARKER_FACTS = {"dockerenv": False, "marker_exists": False, "marker": None, "marker_uid": None,
+                    "marker_writable": False, "marker_dir_writable": False, "guard_writable": True, "euid": None}
+
+
+def box_facts() -> dict:
+    """Everything the profile `box` reads (D1), and the only code that touches the marker and /.dockerenv.
+    `marker` is the parsed JSON object, or None when the marker is missing, unreadable, no JSON object, too large
+    or a symlink. Callers call it through the module global, once per hook call, and pass the dict on. Any error
+    gives the facts of a machine with no marker."""
+    try:
+        me = os.path.realpath(__file__)
+        exists = os.path.lexists(BOX_MARKER)
+        st = os.lstat(BOX_MARKER) if exists else None
+        marker = None
+        if st is not None and stat.S_ISREG(st.st_mode):
+            try:
+                fd = os.open(BOX_MARKER, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0))
+                try:
+                    data = os.read(fd, _MARKER_MAX + 1)
+                finally:
+                    os.close(fd)
+                parsed = json.loads(data.decode("utf-8")) if len(data) <= _MARKER_MAX else None
+                marker = parsed if isinstance(parsed, dict) else None
+            except (OSError, ValueError, RecursionError):  # unreadable or no JSON (a decode error is a ValueError)
+                marker = None
+        return {
+            "dockerenv": os.path.exists(DOCKERENV),
+            "marker_exists": exists,
+            "marker": marker,
+            "marker_uid": st.st_uid if st is not None else None,
+            "marker_writable": os.access(BOX_MARKER, os.W_OK),
+            "marker_dir_writable": os.access(os.path.dirname(BOX_MARKER), os.W_OK),
+            "guard_writable": os.access(me, os.W_OK) or os.access(os.path.dirname(me), os.W_OK),
+            "euid": os.geteuid(),
+        }
+    except Exception:  # a guard that cannot read its facts runs as on a machine with no marker
+        return dict(_NO_MARKER_FACTS)
+
+
+def in_box(facts: dict) -> bool:
+    """A marker exists, /.dockerenv too, and this guard is a copy the session cannot write (the judge). The last
+    fact is no security check (D2): it tells the judge, a read-only mount and the only copy the box's hooks run,
+    from a working copy, whose tests answer as in CI. A missing fact counts against the box."""
+    return bool(facts.get("dockerenv") and facts.get("marker_exists") and not facts.get("guard_writable", True))
+
+
+def box_valid(facts: dict, cfg: dict) -> bool:
+    """in_box, and the marker is root's, neither it nor its folder is writable by this process, the guard does not
+    run as root, the marker says schema agent-box/1 and boundary own, and the effective boundary is own (D2)."""
+    marker = facts.get("marker")
+    euid = facts.get("euid")
+    return (in_box(facts) and facts.get("marker_uid") == 0 and facts.get("marker_writable") is False
+            and facts.get("marker_dir_writable") is False and isinstance(euid, int) and euid != 0
+            and isinstance(marker, dict) and marker.get("schema") == BOX_SCHEMA and marker.get("boundary") == "own"
+            and cfg.get("boundary") == "own")
+
+
+def guard_root() -> str:
+    """The folder of this guard's repository: three folders above its real path (`/judge` for
+    `/judge/tools/guard/guard.py`). In a box the configuration is read there (D3)."""
+    return os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
 
 
 # The profile names where the session runs (D1 of item #65); step 1.0b adds `box`. Each entry: whether rules_off
 # counts, and what an ask becomes (None: it stays an ask). Every ask of a rule or of the guard itself passes
-# through the table where rules_off is applied: the combined ask is turned, so a deny keeps its own reasons.
+# through the table where rules_off is applied: the combined ask is turned, so a deny keeps its own reasons. The
+# box turns each rule's ask on its own, by its entry in BOX_TABLE (item #66, D5).
 CLOUD_ASK_MSG = ("cloud session (CLAUDE_CODE_REMOTE): this would ask on the owner's machine, and nobody can answer "
                  "here, so it is denied. {reason}")
+BOX_ASK_MSG = "box session: no one answers an ask here, so it is denied. {reason}"
+# One entry per ask class: the rules and the guard's own asks. `log`: the call runs and a `logged` line records it;
+# `merge`: logged only as the merge of D7, else denied; `deny`. A class with no entry is a deny.
+BOX_TABLE = {
+    "delete-guard": "log",  # local deletes only (_box_local_delete); every other delete is a deny
+    "secret-write": "deny",
+    "secret-read": "deny",
+    "secret-shell": "deny",
+    "git-guard": "deny",
+    "deploy-ask": "deny",
+    "egress-guard": "deny",
+    "scratch-md": "log",
+    "protected-branch": "deny",
+    "fan-out": "log",
+    "guard-config": "log",
+    "tracker-guard": "merge",
+    "host-install": "deny",
+    "cloud-launch": "deny",
+    "github-tools": "deny",  # the harness's merge tool too: it carries no head hash this check reads
+    "unreadable-args": "deny",
+    "budget": "deny",
+}
 PROFILES = {
     "host": {"rules_off": True, "ask": None},
     "cloud": {"rules_off": False, "ask": CLOUD_ASK_MSG},
+    "box": {"rules_off": False, "ask": None, "table": BOX_TABLE},
 }
+# what the asks a rule gives when it could not read the call are built from (READER_MSG, the pipe, the reader's
+# stops, a crash): such an ask is no act the box table can log
+_READER_MARKS = (READER_MSG.split("{what}", 1)[1], _PIPE_NOT_READ, _TOO_MANY_TOOLS, _TOO_MANY_WORDS, _HI_NOT_READ,
+                 "could not be read (")
 
 
-def profile(environ: Optional[Mapping[str, str]] = None) -> str:
-    """`cloud` when CLAUDE_CODE_REMOTE is true (the truth test of disposable_environment), else `host`."""
+def _is_reader_reason(reason: str) -> bool:
+    return any(mark in reason for mark in _READER_MARKS)
+
+
+def box_turn(name: str, decision: Decision, ev: Event, cfg: Optional[dict] = None) -> Decision:
+    """A decision after the box table (D5): a deny stays as it is; an ask becomes ("logged", "") when its class
+    logs (and, for delete-guard, the delete is local) or it is the merge of D7, and a deny otherwise. An ask a
+    rule gives because it could not read the call is a deny whatever the class."""
+    verdict, reason = decision
+    if verdict != "ask":
+        return decision
+    entry = BOX_TABLE.get(name, "deny")
+    if not _is_reader_reason(reason):
+        if entry == "log" and (name != "delete-guard" or _box_local_delete(ev)):
+            return "logged", ""
+        if entry == "merge":
+            failed = _box_merge_failed(ev, (cfg or {}).get("box_judge"))
+            return ("logged", "") if failed is None else ("deny", BOX_MERGE_MSG.format(failed=failed, reason=reason))
+    return "deny", BOX_ASK_MSG.format(reason=reason)
+
+
+def profile(environ: Optional[Mapping[str, str]] = None, facts: Optional[dict] = None,
+            cfg: Optional[dict] = None) -> str:
+    """`cloud` when CLAUDE_CODE_REMOTE is true (the truth test of disposable_environment; it wins), else `box` when
+    box_valid holds for the facts (read when none are handed in) and the configuration (loaded from the cwd when
+    none is handed in), else `host`."""
     env = os.environ if environ is None else environ
-    return "cloud" if str(env.get("CLAUDE_CODE_REMOTE", "")).lower() not in ("", "0", "false") else "host"
+    if str(env.get("CLAUDE_CODE_REMOTE", "")).lower() not in ("", "0", "false"):
+        return "cloud"
+    facts = box_facts() if facts is None else facts
+    if in_box(facts) and box_valid(facts, load_config(os.getcwd(), facts) if cfg is None else cfg):
+        return "box"
+    return "host"
 
 
 def run_hook(target: str, wrapper: Optional[str]) -> int:
     if target == "post":  # never blocks, so it runs without the budget
         return run_post()
     raw = _read_event()
-    cfg = load_config(str(raw.get("cwd") or os.getcwd()))
+    facts = box_facts()  # once per hook call (D1)
+    cfg = load_config(str(raw.get("cwd") or os.getcwd()), facts)
     if target == "capture":  # never blocks, so it runs without the budget
         return capture(raw, cfg)
     ev = Event(raw)
@@ -5655,19 +6127,25 @@ def run_hook(target: str, wrapper: Optional[str]) -> int:
     if wrapper == "claude" and ev.harness == "copilot":
         return 0
     names = PRE_RULES if target == "pre" else [target]
-    table = PROFILES[profile()]
+    cfg["profile"] = profile(None, facts, cfg)  # set here, after the configuration: no guard.json can name it
+    if cfg["profile"] == "box":  # the judge's commit, from the root-owned marker: the base of the merge check
+        cfg["box_judge"] = (facts.get("marker") or {}).get("judge")
+    table = PROFILES[cfg["profile"]]
+    box = "table" in table  # each ask is turned by the box table (D5): in the rules' child, and below for the guard's
     # rules_off silences a rule's asks in an own repo where the profile lets it; its denies stand, and any other
     # boundary keeps everything
     off = set(cfg["rules_off"]) if table["rules_off"] and cfg.get("boundary") == "own" else set()
-    if host_install_silent(cfg):  # its knob silences host-install under every boundary; logged as skipped below
-        off.add("host-install")
+    if host_install_silent(cfg) and not box:  # its knob silences host-install under every boundary but in a box;
+        off.add("host-install")  # logged as skipped below
     decisions: list[Decision] = []
     fired: dict[str, str] = {}
     skipped: dict[str, str] = {}
     if target == "pre" and ev.unreadable:
-        decisions.append(("ask", "guard: the tool arguments arrived as a string that is not JSON; no rule could read "
-                                 "this call. Confirm it, and capture the event shape for the fixtures."))
-        fired["unreadable-args"] = "ask"
+        d = ("ask", "guard: the tool arguments arrived as a string that is not JSON; no rule could read this call. "
+                    "Confirm it, and capture the event shape for the fixtures.")
+        d = box_turn("unreadable-args", d, ev) if box else d
+        decisions.append(d)
+        fired["unreadable-args"] = d[0]
     for name in names:
         if name not in RULES:
             raise ValueError(f"unknown rule: {name}")
@@ -5675,32 +6153,40 @@ def run_hook(target: str, wrapper: Optional[str]) -> int:
     for name, d in verdicts:
         if d and name in off and d[0] == "ask":  # the rule still runs, so the log shows how often it was silenced
             skipped[name] = "skipped"
+        elif d and d[0] == "logged":  # the box let it run: on the line, not in the answer
+            fired[name] = "logged"
         elif d:
             decisions.append(d)
             fired[name] = d[0]
     if outcome != "done":  # the verdicts that arrived stand; a deny among them still wins in combine()
         late = ", ".join(names[len(verdicts):])
         msg = BUDGET_MSG if outcome == "budget" else STOPPED_MSG
-        decisions.append(("ask", msg.format(budget=HOOK_BUDGET_S, size=len(ev.command or ""), rules=late)))
-        fired["budget"] = "ask"
+        d = ("ask", msg.format(budget=HOOK_BUDGET_S, size=len(ev.command or ""), rules=late))
+        d = box_turn("budget", d, ev) if box else d
+        decisions.append(d)
+        fired["budget"] = d[0]
     final = combine(decisions)
     if final and final[0] == "ask" and table["ask"]:  # the profile's table; a deny keeps its own reasons
         final = "deny", table["ask"].format(reason=final[1])
         fired = {name: "deny" if v == "ask" else v for name, v in fired.items()}
     if final:
-        log_decision(final, fired, ev, cfg)
+        log_decision(final, fired, ev, cfg, facts)
+    elif fired:  # only a box gets here: every rule that spoke was logged, and the guard stays silent
+        log_decision(("logged", ""), fired, ev, cfg, facts)
     if skipped:
-        log_decision(("skipped", "rules_off"), skipped, ev, cfg)
+        log_decision(("skipped", "rules_off"), skipped, ev, cfg, facts)
     return respond(final, ev.event or "PreToolUse")
 
 
-def log_decision(decision: Decision, fired: dict[str, str], ev: Event, cfg: dict) -> None:
+def log_decision(decision: Decision, fired: dict[str, str], ev: Event, cfg: dict,
+                 facts: Optional[dict] = None) -> None:
     """One line per ask/deny in <telemetry>/decisions.jsonl, so `ledger.py cost` can show prompt fatigue per rule.
     `rules` maps each rule that spoke to its own verdict; `verdict` is the combined one. A rule that would have
     spoken but is in `rules_off`, or host-install silenced by its knob (`off`, or `auto` in a disposable
     environment), is logged as `skipped` (its own line), so a month-long override stays visible.
     `guard` names the version that judged; `call` is the harness's tool_use_id when it sends one, and the post
     hook's `ran` line carries the same id, so an ask can be tied to the call that went ahead.
+    In a box (0.11.0) a call the table let run gets a `logged` line, its rules mapped to `logged`.
     No command text or paths: the rule names and the tool are enough to tune thresholds."""
     entry = {
         "ts": _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -5711,7 +6197,7 @@ def log_decision(decision: Decision, fired: dict[str, str], ev: Event, cfg: dict
         "harness": ev.harness,
         "session": ev.session,
         "guard": VERSION,
-        "profile": profile(),
+        "profile": profile(None, facts, cfg),
     }
     call = _call_id(ev)
     if call:

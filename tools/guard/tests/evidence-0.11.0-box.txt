@@ -1,0 +1,175 @@
+Evidence of item #66, criterion 9 (guard 0.11.0, profile box), re-recorded in the box at head 2864f83 against a read-only judge copy whose sha256 equals HEAD:tools/guard/guard.py, in a local clone of /work that holds the judge's commit named by the root-owned marker /etc/agent-box/box.json.
+Nothing below ran for real: each command is only a PreToolUse event piped into the guard; the guard never runs it.
+
+== the script (/tmp/tmp.06jGX4rMtm/demo.sh) ==
+#!/bin/bash
+# criterion 9 of #66: seven PreToolUse events through a read-only judge copy of the guard at HEAD,
+# in a local clone of the work clone that holds the judge's commit named by the root-owned marker
+set -euo pipefail
+cd /work
+
+judge=$(mktemp -d)
+mkdir -p "$judge/tools/guard" "$judge/.claude"
+cp tools/guard/guard.py "$judge/tools/guard/"
+cp .claude/guard.json "$judge/.claude/"
+chmod -R a-w "$judge"
+
+copy_sha=$(sha256sum "$judge/tools/guard/guard.py" | cut -d' ' -f1)
+head_sha=$(git show HEAD:tools/guard/guard.py | sha256sum | cut -d' ' -f1)
+echo "sha256 judge copy:          $copy_sha"
+echo "sha256 HEAD:tools/guard.py: $head_sha"
+[ "$copy_sha" = "$head_sha" ] || { echo "MISMATCH: the copy is not the guard at HEAD" >&2; exit 1; }
+echo "head: $(git rev-parse HEAD)"
+echo "copy VERSION: $(python3 -I -c 'import sys; sys.path.insert(0, sys.argv[1]); import guard; print(guard.VERSION)' "$judge/tools/guard")"
+echo "id -u: $(id -u)"
+echo "marker: $(stat -c '%U:%G %a' /etc/agent-box/box.json)"
+J=$(python3 -I -c 'import json; print(json.load(open("/etc/agent-box/box.json"))["judge"])')
+echo "marker judge: $J"
+if [ -e /.dockerenv ]; then echo "/.dockerenv: exists"; else echo "/.dockerenv: absent"; fi
+echo "KZ_RULES_OFF in the environment: ${KZ_RULES_OFF:-<unset>}"
+echo "date: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+echo "judge copy: $(stat -c '%n %a' "$judge/tools/guard/guard.py") ; $(stat -c '%n %a' "$judge")"
+echo
+
+parent=$(mktemp -d)
+repo="$parent/repo"
+git clone -q /work "$repo"
+g() { git -C "$repo" "$@"; }
+g config user.name demo
+g config user.email demo@example.invalid
+g config commit.gpgsign false
+g cat-file -e "$J^{commit}" || { echo "the scratch repository lacks the judge's commit $J" >&2; exit 1; }
+g switch -q -c demo-a "$J"
+mkdir -p "$repo/docs"
+echo a > "$repo/docs/demo-a.md"
+g add docs/demo-a.md
+g commit -q -m "docs: demo a"
+A=$(g rev-parse HEAD)
+g switch -q -c demo-b "$J"
+echo "# demo-b: a change to the guard" >> "$repo/tools/guard/guard.py"
+g add tools/guard/guard.py
+g commit -q -m "change the guard"
+B=$(g rev-parse HEAD)
+echo "scratch repo: local clone of /work, judge commit $J present"
+echo "  head A (demo-a, adds docs/demo-a.md):              $A"
+echo "  head B (demo-b, changes tools/guard/guard.py):     $B"
+echo
+
+receipt() {
+  mkdir -p "$repo/.git/fresh-review"
+  printf '{"sha": "%s", "verdict": "COMMENT"}\n' "$1" > "$repo/.git/fresh-review/$1.json"
+  echo "receipt written: .git/fresh-review/$1.json = $(cat "$repo/.git/fresh-review/$1.json")"
+  echo
+}
+
+event() {
+  python3 -I -c 'import json,sys; print(json.dumps({"hook_event_name":"PreToolUse","session_id":"demo-0110","tool_name":"Bash","tool_use_id":sys.argv[2],"cwd":sys.argv[3],"tool_input":{"command":sys.argv[1]}}))' "$1" "$2" "$repo"
+}
+
+run() {
+  local tel err out code
+  tel=$(mktemp -d)
+  err=$(mktemp)
+  echo "### $1: $2"
+  set +e
+  out=$(event "$2" "$3" | KZ_TELEMETRY_DIR="$tel" python3 "$judge/tools/guard/guard.py" hook pre --wrapper claude 2>"$err")
+  code=$?
+  set -e
+  echo "stdout: ${out:-<empty>}"
+  echo "exit: $code"
+  echo "stderr: $(cat "$err")"
+  if [ -s "$tel/decisions.jsonl" ]; then
+    echo "decisions.jsonl: $(cat "$tel/decisions.jsonl")"
+  else
+    echo "decisions.jsonl: <no new line>"
+  fi
+  echo
+}
+
+run 1 "rm -rf build" demo-1
+run 2 "git push origin --delete x" demo-2
+run 3 "cat .env" demo-3
+run 4 "gh pr merge 76 --merge --match-head-commit $A" demo-4
+receipt "$A"
+run 5 "gh pr merge 76 --merge --match-head-commit $A" demo-5
+receipt "$B"
+run 6 "gh pr merge 77 --merge --match-head-commit $B" demo-6
+g replace "$B" "$A"
+echo "replace object set: $B -> $A"
+echo "git -C <repo> diff --name-only <judge> <B> (plain git, after the replace):"
+g diff --name-only "$J" "$B" | sed 's/^/  /'
+echo
+run 7 "gh pr merge 77 --merge --match-head-commit $B" demo-7
+
+== its output ==
+sha256 judge copy:          192ea9c5fa4cfca080b89c90141f9d62db2990091adc2257c320bf013ebc28b1
+sha256 HEAD:tools/guard.py: 192ea9c5fa4cfca080b89c90141f9d62db2990091adc2257c320bf013ebc28b1
+head: 2864f838f85823ed4504d421a492b0fc1620c759
+copy VERSION: 0.11.0
+id -u: 1000
+marker: root:root 444
+marker judge: 6a1e3f6e813d31bcce3b20c72e7f30a4ee6727a2
+/.dockerenv: exists
+KZ_RULES_OFF in the environment: delete-guard,guard-config,scratch-md,fan-out,tracker-guard
+date: 2026-11-21T18:38:20Z
+judge copy: /tmp/tmp.5CWFSQnGwa/tools/guard/guard.py 444 ; /tmp/tmp.5CWFSQnGwa 500
+
+scratch repo: local clone of /work, judge commit 6a1e3f6e813d31bcce3b20c72e7f30a4ee6727a2 present
+  head A (demo-a, adds docs/demo-a.md):              458376cecb50251d57840d0aacdd9796f9d54888
+  head B (demo-b, changes tools/guard/guard.py):     241a64906f9dde5ddcadf26ac937f05a16f27ace
+
+### 1: rm -rf build
+stdout: <empty>
+exit: 0
+stderr: guard: KZ_RULES_OFF is ignored in a box
+decisions.jsonl: {"call": "demo-1", "event": "PreToolUse", "guard": "0.11.0", "harness": "claude", "profile": "box", "rules": {"delete-guard": "logged"}, "session": "demo-0110", "tool": "Bash", "ts": "2026-11-21T18:38:20Z", "verdict": "logged"}
+
+### 2: git push origin --delete x
+stdout: {"permissionDecision": "deny", "permissionDecisionReason": "box session: no one answers an ask here, so it is denied. Deletion guard (owner rule: never auto-approve deletions, scripts included): command contains a delete/discard pattern. Ask the owner explicitly.", "hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": "box session: no one answers an ask here, so it is denied. Deletion guard (owner rule: never auto-approve deletions, scripts included): command contains a delete/discard pattern. Ask the owner explicitly."}}
+exit: 2
+stderr: guard: KZ_RULES_OFF is ignored in a box
+box session: no one answers an ask here, so it is denied. Deletion guard (owner rule: never auto-approve deletions, scripts included): command contains a delete/discard pattern. Ask the owner explicitly.
+decisions.jsonl: {"call": "demo-2", "event": "PreToolUse", "guard": "0.11.0", "harness": "claude", "profile": "box", "rules": {"delete-guard": "deny"}, "session": "demo-0110", "tool": "Bash", "ts": "2026-11-21T18:38:21Z", "verdict": "deny"}
+
+### 3: cat .env
+stdout: {"permissionDecision": "deny", "permissionDecisionReason": "box session: no one answers an ask here, so it is denied. Secret boundary (AGENTS.md rule 6): .env may hold credentials. Confirm this read is intended; prefer names-only samples or redacted copies.", "hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": "box session: no one answers an ask here, so it is denied. Secret boundary (AGENTS.md rule 6): .env may hold credentials. Confirm this read is intended; prefer names-only samples or redacted copies."}}
+exit: 2
+stderr: guard: KZ_RULES_OFF is ignored in a box
+box session: no one answers an ask here, so it is denied. Secret boundary (AGENTS.md rule 6): .env may hold credentials. Confirm this read is intended; prefer names-only samples or redacted copies.
+decisions.jsonl: {"call": "demo-3", "event": "PreToolUse", "guard": "0.11.0", "harness": "claude", "profile": "box", "rules": {"secret-shell": "deny"}, "session": "demo-0110", "tool": "Bash", "ts": "2026-11-21T18:38:21Z", "verdict": "deny"}
+
+### 4: gh pr merge 76 --merge --match-head-commit 458376cecb50251d57840d0aacdd9796f9d54888
+stdout: {"permissionDecision": "deny", "permissionDecisionReason": "box session: this merge is denied: no fresh-review receipt exists for 458376cecb50251d57840d0aacdd9796f9d54888 (bin/fresh-review writes one). A box merges only as `gh pr merge N --match-head-commit SHA` (one simple command, a full hash, at most one of --merge, --squash, --rebase) with a fresh-review receipt for that head whose verdict is APPROVE or COMMENT. tracker-guard: `gh pr merge` merges a pull request, which is the owner's call. Confirm the command.", "hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": "box session: this merge is denied: no fresh-review receipt exists for 458376cecb50251d57840d0aacdd9796f9d54888 (bin/fresh-review writes one). A box merges only as `gh pr merge N --match-head-commit SHA` (one simple command, a full hash, at most one of --merge, --squash, --rebase) with a fresh-review receipt for that head whose verdict is APPROVE or COMMENT. tracker-guard: `gh pr merge` merges a pull request, which is the owner's call. Confirm the command."}}
+exit: 2
+stderr: guard: KZ_RULES_OFF is ignored in a box
+box session: this merge is denied: no fresh-review receipt exists for 458376cecb50251d57840d0aacdd9796f9d54888 (bin/fresh-review writes one). A box merges only as `gh pr merge N --match-head-commit SHA` (one simple command, a full hash, at most one of --merge, --squash, --rebase) with a fresh-review receipt for that head whose verdict is APPROVE or COMMENT. tracker-guard: `gh pr merge` merges a pull request, which is the owner's call. Confirm the command.
+decisions.jsonl: {"call": "demo-4", "event": "PreToolUse", "guard": "0.11.0", "harness": "claude", "profile": "box", "rules": {"tracker-guard": "deny"}, "session": "demo-0110", "tool": "Bash", "ts": "2026-11-21T18:38:21Z", "verdict": "deny"}
+
+receipt written: .git/fresh-review/458376cecb50251d57840d0aacdd9796f9d54888.json = {"sha": "458376cecb50251d57840d0aacdd9796f9d54888", "verdict": "COMMENT"}
+
+### 5: gh pr merge 76 --merge --match-head-commit 458376cecb50251d57840d0aacdd9796f9d54888
+stdout: <empty>
+exit: 0
+stderr: guard: KZ_RULES_OFF is ignored in a box
+decisions.jsonl: {"call": "demo-5", "event": "PreToolUse", "guard": "0.11.0", "harness": "claude", "profile": "box", "rules": {"tracker-guard": "logged"}, "session": "demo-0110", "tool": "Bash", "ts": "2026-11-21T18:38:21Z", "verdict": "logged"}
+
+receipt written: .git/fresh-review/241a64906f9dde5ddcadf26ac937f05a16f27ace.json = {"sha": "241a64906f9dde5ddcadf26ac937f05a16f27ace", "verdict": "COMMENT"}
+
+### 6: gh pr merge 77 --merge --match-head-commit 241a64906f9dde5ddcadf26ac937f05a16f27ace
+stdout: {"permissionDecision": "deny", "permissionDecisionReason": "box session: this merge is denied: the pull request changes tools/guard/guard.py, which is the guard itself; that merge is the owner's. A box merges only as `gh pr merge N --match-head-commit SHA` (one simple command, a full hash, at most one of --merge, --squash, --rebase) with a fresh-review receipt for that head whose verdict is APPROVE or COMMENT. tracker-guard: `gh pr merge` merges a pull request, which is the owner's call. Confirm the command.", "hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": "box session: this merge is denied: the pull request changes tools/guard/guard.py, which is the guard itself; that merge is the owner's. A box merges only as `gh pr merge N --match-head-commit SHA` (one simple command, a full hash, at most one of --merge, --squash, --rebase) with a fresh-review receipt for that head whose verdict is APPROVE or COMMENT. tracker-guard: `gh pr merge` merges a pull request, which is the owner's call. Confirm the command."}}
+exit: 2
+stderr: guard: KZ_RULES_OFF is ignored in a box
+box session: this merge is denied: the pull request changes tools/guard/guard.py, which is the guard itself; that merge is the owner's. A box merges only as `gh pr merge N --match-head-commit SHA` (one simple command, a full hash, at most one of --merge, --squash, --rebase) with a fresh-review receipt for that head whose verdict is APPROVE or COMMENT. tracker-guard: `gh pr merge` merges a pull request, which is the owner's call. Confirm the command.
+decisions.jsonl: {"call": "demo-6", "event": "PreToolUse", "guard": "0.11.0", "harness": "claude", "profile": "box", "rules": {"tracker-guard": "deny"}, "session": "demo-0110", "tool": "Bash", "ts": "2026-11-21T18:38:21Z", "verdict": "deny"}
+
+replace object set: 241a64906f9dde5ddcadf26ac937f05a16f27ace -> 458376cecb50251d57840d0aacdd9796f9d54888
+git -C <repo> diff --name-only <judge> <B> (plain git, after the replace):
+  docs/demo-a.md
+
+### 7: gh pr merge 77 --merge --match-head-commit 241a64906f9dde5ddcadf26ac937f05a16f27ace
+stdout: {"permissionDecision": "deny", "permissionDecisionReason": "box session: this merge is denied: the pull request changes tools/guard/guard.py, which is the guard itself; that merge is the owner's. A box merges only as `gh pr merge N --match-head-commit SHA` (one simple command, a full hash, at most one of --merge, --squash, --rebase) with a fresh-review receipt for that head whose verdict is APPROVE or COMMENT. tracker-guard: `gh pr merge` merges a pull request, which is the owner's call. Confirm the command.", "hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": "box session: this merge is denied: the pull request changes tools/guard/guard.py, which is the guard itself; that merge is the owner's. A box merges only as `gh pr merge N --match-head-commit SHA` (one simple command, a full hash, at most one of --merge, --squash, --rebase) with a fresh-review receipt for that head whose verdict is APPROVE or COMMENT. tracker-guard: `gh pr merge` merges a pull request, which is the owner's call. Confirm the command."}}
+exit: 2
+stderr: guard: KZ_RULES_OFF is ignored in a box
+box session: this merge is denied: the pull request changes tools/guard/guard.py, which is the guard itself; that merge is the owner's. A box merges only as `gh pr merge N --match-head-commit SHA` (one simple command, a full hash, at most one of --merge, --squash, --rebase) with a fresh-review receipt for that head whose verdict is APPROVE or COMMENT. tracker-guard: `gh pr merge` merges a pull request, which is the owner's call. Confirm the command.
+decisions.jsonl: {"call": "demo-7", "event": "PreToolUse", "guard": "0.11.0", "harness": "claude", "profile": "box", "rules": {"tracker-guard": "deny"}, "session": "demo-0110", "tool": "Bash", "ts": "2026-11-21T18:38:21Z", "verdict": "deny"}
+

@@ -1,8 +1,8 @@
 """bin/box (tools/box/box.py) without a container: names, tokens, policy, judge settings, mounts, argv."""
-import importlib.util
 import io
 import json
 import os
+import pathlib
 import subprocess
 import urllib.error
 
@@ -162,12 +162,19 @@ def test_docker_argv_passes_tokens_by_name_and_pins_the_model(box, tmp_path):
 
 
 def test_rules_off_names_only_rules_the_guard_has(box, box_dir):
-    src = box_dir.parent / "guard" / "guard.py"
-    spec = importlib.util.spec_from_file_location("guard_for_box", src)
-    guard = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(guard)
-    names = box.RULES_OFF.split(",")
-    assert set(names) <= set(guard.RULES), set(names) - set(guard.RULES)
+    """Guard 0.11.0 (item #66, D9): the box profile replaces the wrapper's KZ_RULES_OFF, so the wrapper sets none,
+    and no file of the box or of bin/ names the variable except to say that it is no longer set."""
+    argv = box.docker_argv("agent-box:abc", "b1", "s1", "def", [], ["claude"])
+    assert not [a for a in argv if "KZ_RULES_OFF" in a], argv
+    assert not hasattr(box, "RULES_OFF")
+    here = pathlib.Path(__file__).resolve()
+    # source files only: a run that writes bytecode leaves __pycache__/*.pyc of this module, whose docstring names
+    # the variable (CI does; the owner's Mac sets PYTHONDONTWRITEBYTECODE)
+    files = [p for p in [*box_dir.rglob("*"), *(box_dir.parent.parent / "bin").iterdir()]
+             if p.is_file() and p != here and "__pycache__" not in p.parts and p.suffix != ".pyc"]
+    for path in files:
+        for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+            assert "KZ_RULES_OFF" not in line or "no longer" in line, f"{path}: {line}"
 
 
 def test_run_without_a_terminal_needs_a_brief(box, monkeypatch):

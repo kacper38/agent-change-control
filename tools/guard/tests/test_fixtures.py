@@ -19,8 +19,11 @@ def _cases():
 
 
 @pytest.mark.parametrize("rule,harness,decision,path", list(_cases()), ids=lambda x: getattr(x, "name", str(x)))
-def test_fixture(guard, rule, harness, decision, path):
+def test_fixture(guard, monkeypatch, rule, harness, decision, path):
     raw = json.loads(path.read_text())
+    if rule == "scratch-md":  # the recorded cwd is the repository root, on any machine (in a box /work is a clone)
+        root = os.path.normpath(raw["cwd"])
+        monkeypatch.setattr(guard, "git_root", lambda d: root if (d + os.sep).startswith(root + os.sep) else None)
     ev = guard.Event(raw)
     assert ev.harness == harness, path
     cfg = {**guard.load_config(os.getcwd()), **raw.get("_fixture", {}).get("config", {})}  # env -> tmp telemetry

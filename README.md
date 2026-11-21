@@ -208,7 +208,7 @@ variables (`KZ_TRACKER_REPO`, `KZ_TRACKER_AREA`, `KZ_TRACKER_ADO_MODE`,
   gitignored `.claude/guard.local.json` or `KZ_RULES_OFF=rule,rule` silences
   the named rules' asks, logged as `skipped`; denies stand, and only a
   committed `guard.json` at the repo root that says `boundary: own`, with no
-  tighter `KZ_BOUNDARY`, enables it; a cloud session ignores it. Gitignore the local file in a task repo yourself; the installer never
+  tighter `KZ_BOUNDARY`, enables it; a cloud session and a box ignore it. Gitignore the local file in a task repo yourself; the installer never
   edits `.gitignore`.
 - Every shell rule judges a command twice: by its first pass, as before, and
   by reading every simple command the shell would run, nested scripts included
@@ -226,6 +226,39 @@ variables (`KZ_TRACKER_REPO`, `KZ_TRACKER_AREA`, `KZ_TRACKER_ADO_MODE`,
   that is the agreed route for installs. The guard reads text and prompts; it
   is no sandbox, and `DECISIONS.md` (2026-11-16, 2026-11-17, 2026-11-18 and
   2026-11-19) lists the forms it does not see.
+- Since guard 0.11.0 (item #66) a third profile, `box`, holds inside the
+  agent box, and only there: `/.dockerenv` exists, the marker
+  `/etc/agent-box/box.json` is root's, neither it nor its folder is writable
+  by the guard's user, the guard does not run as root, the marker says
+  `schema: agent-box/1` and `boundary: own`, the effective boundary is `own`,
+  and the guard is a copy the session cannot write (the read-only judge;
+  this tells the judge from the work clone, whose tests answer as in CI, and
+  is no security check). In a box no `ask` leaves the guard: each rule's ask
+  passes a table with one entry per ask class. `log` lets the call run and
+  writes a `logged` line (rule, call id, guard version) for a delete local to
+  the box (files and the local repository: `rm`, `find -delete`, `git rm`,
+  `git clean`, `git branch -D`, `git update-ref -d refs/heads/…`;
+  never a push that deletes or forces, a container, a cluster, a database,
+  a package or a cache), an edit of the guard's own paths, `scratch-md` and
+  `fan-out`. `merge` lets a merge run only as one simple command
+  `gh pr merge N --match-head-commit SHA` (a full lower-case hash, at most
+  one of `--merge`, `--squash`, `--rebase`, nothing else) when the newest
+  `fresh-review` receipt for that hash under `.git/fresh-review/` says
+  `APPROVE` or `COMMENT`, and the head, against the judge's commit that the
+  root-owned marker names (never a ref of the clone, which a session can move),
+  changes no path `guard-config` guards and deletes no test file (a merge
+  that changes the guard, its settings, CI, the tracker or the scans stays
+  the owner's). Every other ask, an ask a rule gives because it
+  could not read the call, and a class with no entry is a deny with the
+  reason `box session: no one answers an ask here …`; a deny stays as it
+  was. A box reads its configuration beside the guard
+  (`<judge>/.claude/guard.json`), never from the work clone or a
+  `guard.local.json`; the work clone's `boundary: client` and `KZ_BOUNDARY`
+  still tighten, and `KZ_RULES_OFF`, `KZ_PROTECTED_BRANCHES`,
+  `KZ_SCRATCH_MD` and `KZ_HOST_INSTALL` are ignored there with a note. A
+  marker the profile does not honour gets the same configuration and the
+  `host` profile, whose asks stay asks. The receipt is a file the session
+  could write: it stops a forgotten review, not a hostile session.
 - Since guard 0.10.0 (item #65) the boundary only tightens: `KZ_BOUNDARY=client`
   sets client, `KZ_BOUNDARY=own` leaves a committed `client` in force, and any
   other value, committed or in the variable (`Client`, `OWN`), counts as
@@ -358,9 +391,10 @@ variables (`KZ_TRACKER_REPO`, `KZ_TRACKER_AREA`, `KZ_TRACKER_ADO_MODE`,
   model pinned to Opus. The hooks that run are those of `main` as fetched at
   the start, exported read-only to `~/.agent-box/judge/<SHA>/` and loaded as
   managed settings with `allowManagedHooksOnly`, so the work clone cannot
-  change them. The guard still denies; until step 1.0b the wrapper sets
-  `KZ_RULES_OFF` for `delete-guard`, `guard-config`, `scratch-md`, `fan-out`
-  and `tracker-guard` (plan section 5, row 1).
+  change them. The judge's guard runs its `box` profile (guard 0.11.0): it
+  denies as before, logs what its table lets run, and never asks; the
+  wrapper no longer sets `KZ_RULES_OFF` (plan section 5, row 1 ended with
+  step 1.0b).
 - No session starts until the probe's record shows that a hook's `deny`
   holds with permission checks off for the pinned CLI (`run` reads
   `verified.json`).

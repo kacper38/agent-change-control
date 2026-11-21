@@ -1,0 +1,326 @@
+"""Tests of the task page (tools/telemetry/page.py, tracker item #77).
+
+Every file here is built by the tests: a git repository of its own in tmp_path (with a reflog, so `@{-1}` means
+something), a host Claude home, a box home with a box run's record, the guard's logs and fresh-review receipts.
+Nothing comes from a real transcript. Each tool input carries SECRET, which must never reach the data or the page.
+The git tests run against the git on the machine and fail when it is missing.
+"""
+import datetime as dt
+import importlib.util
+import json
+import os
+import pathlib
+import re
+import shutil
+import subprocess
+
+import pytest
+
+SRC = pathlib.Path(__file__).resolve().parents[1] / "page.py"
+NOW = dt.datetime(2026, 11, 21, 12, 0, tzinfo=dt.timezone.utc)
+SECRET = "SECRET-" + "MARKER-7f3a"  # in every tool input of the fixtures
+PRICES = {"claude-opus-5-5": {"input": 5, "output": 25, "cache_read": 0.5, "cache_write": 5, "cache_write_1h": 10}}
+REQUEST_USD = (1000 * 5 + 100 * 25) / 1_000_000  # one fixture request: 1,000 in, 100 out on Opus
+
+
+@pytest.fixture(scope="module")
+def page():
+    spec = importlib.util.spec_from_file_location("page", SRC)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+@pytest.fixture(scope="module")
+def git_bin():
+    found = shutil.which("git")
+    assert found, "these tests run against the git on the machine: install git, they do not pass without it"
+    return found
+
+
+def git(repo, *args):
+    return subprocess.run(["git", "-C", str(repo), "-c", "user.email=t@example.invalid", "-c", "user.name=t", *args],
+                          check=True, capture_output=True, text=True).stdout.strip()
+
+
+def ts(minute, second=0):
+    return f"2026-11-20T10:{minute:02d}:{second:02d}.000Z"
+
+
+def tool(tid, name):
+    return {"type": "tool_use", "id": tid, "name": name, "input": {"command": f"echo {SECRET}", "path": SECRET}}
+
+
+def asst(minute, branch, cwd, blocks, req):
+    return {"type": "assistant", "timestamp": ts(minute), "gitBranch": branch, "cwd": cwd, "requestId": req,
+            "message": {"model": "claude-opus-5-5", "stop_reason": "tool_use" if blocks else "end_turn",
+                        "content": blocks or [{"type": "text", "text": "reply"}],
+                        "usage": {"input_tokens": 1000, "output_tokens": 100}}}
+
+
+def user(minute, branch, cwd, text="prompt"):
+    return {"type": "user", "timestamp": ts(minute), "gitBranch": branch, "cwd": cwd,
+            "message": {"role": "user", "content": text}}
+
+
+def write_jsonl(path, rows):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+
+
+def session(folder, sid, branch, cwd, calls=(), title=None, pr=None, minute=0):
+    rows = [user(minute, branch, cwd)]
+    if title:
+        rows.append({"type": "ai-title", "aiTitle": title, "sessionId": sid})
+    rows.append(asst(minute + 1, branch, cwd, [tool(t, n) for t, n in calls], f"req-{sid}-1"))
+    if pr:
+        rows.append({"type": "pr-link", "sessionId": sid, "prNumber": pr, "prUrl": "u", "timestamp": ts(minute + 2)})
+    write_jsonl(folder / f"{sid}.jsonl", rows)
+    return folder / f"{sid}.jsonl"
+
+
+def encoded(path):
+    return re.sub(r"[^A-Za-z0-9]", "-", str(path))
+
+
+def receipt(path, sha, when, findings, base_sha=None, verdict="COMMENT"):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    rec = {"sha": sha, "ts": when, "verdict": verdict, "base": "origin/main", "base_sha": base_sha, "cost_usd": 0.2,
+           "findings": [{"file": f, "line": n, "severity": "MINOR", "summary": s} for f, n, s in findings]}
+    path.write_text(json.dumps(rec), encoding="utf-8")
+
+
+F_A, F_B, F_C = ("tools/x.py", 3, "finding A"), ("tools/x.py", 9, "finding B"), ("README.md", 1, "finding C")
+
+
+@pytest.fixture
+def world(tmp_path, git_bin):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    git(repo, "init", "-q", "-b", "main")
+    (repo / "README.md").write_text("one\n")
+    git(repo, "add", "README.md")
+    git(repo, "commit", "-q", "-m", "one")
+    git(repo, "update-ref", "refs/remotes/origin/main", "HEAD")
+    git(repo, "switch", "-q", "-c", "feat/page")
+    (repo / "evidence" / "run-1").mkdir(parents=True)
+    (repo / "evidence" / "run-1" / "out.txt").write_text("evidence\n")
+    (repo / "tools").mkdir()
+    (repo / "tools" / "x.py").write_text("x = 1\n")
+    git(repo, "add", "evidence/run-1/out.txt", "tools/x.py")
+    git(repo, "commit", "-q", "-m", "two")
+    sha1 = git(repo, "rev-parse", "HEAD")
+    (repo / "tools" / "x.py").write_text("x = 2\n")
+    git(repo, "commit", "-q", "-am", "three")
+    sha2 = git(repo, "rev-parse", "HEAD")
+    git(repo, "switch", "-q", "main")  # the reflog now holds a branch switch, so @{-1} names feat/page
+    project = os.path.realpath(repo)
+    wt = os.path.join(project, ".claude", "worktrees", "wt")
+    git(repo, "worktree", "add", "-q", wt, "feat/page")
+    gdir = repo / ".git"
+    receipt(gdir / "fresh-review" / f"{sha1}.json", sha1, "2026-11-20T10:30:00Z", [F_A, F_B])
+    receipt(gdir / "worktrees" / "wt" / "fresh-review" / f"{sha2}.json", sha2, "2026-11-20T11:00:00Z", [F_B, F_C],
+            base_sha=sha1)
+    receipt(gdir / "fresh-review" / ("e" * 40 + ".json"), "e" * 40, "2026-11-20T11:30:00Z", [])  # on no branch
+    receipt(gdir / "fresh-review" / ("d" * 40 + ".json"), sha1, "2026-10-01T10:00:00Z", [F_A])  # before the window
+
+    host, box = tmp_path / "host", tmp_path / "box"
+    folder = host / "projects" / encoded(project)
+    session(folder, "s1", "feat/page", project, [("toolu_ask", "Bash"), ("toolu_deny", "Bash"), ("toolu_free", "Read")],
+            title="<img src=http://x>", pr=7)
+    write_jsonl(folder / "s1" / "subagents" / "agent-a100.jsonl",
+                [asst(5, "feat/page", project, [tool("toolu_agent", "Grep")], "req-a100")])
+    (folder / "s1" / "subagents" / "agent-a100.meta.json").write_text(
+        json.dumps({"agentType": "code-reviewer", "description": "review the diff"}))
+    session(host / "projects" / encoded(wt), "s2", "feat/page", wt, [("toolu_wt", "Edit")], minute=20)
+    for sid, branch in (("s3", "--output=x"), ("s4", "a b"), ("s5", "@{-1}"), ("s6", "main"), ("s7", "feat/gone")):
+        session(folder, sid, branch, project, [(f"toolu_{sid}", "Read")], minute=30)
+    session(host / "projects" / (encoded(project) + "-2"), "s8", "feat/page", project + "-2")  # same prefix, other
+    old = session(folder, "s9", "feat/page", project)
+    stale = (NOW - dt.timedelta(days=30)).timestamp()
+    os.utime(old, (stale, stale))
+    host_tel = tmp_path / "host-telemetry"
+    write_jsonl(host_tel / "decisions.jsonl", [
+        {"ts": "2026-11-20T10:01:00Z", "verdict": "ask", "rules": {"tracker-guard": "ask"}, "tool": "Bash",
+         "session": "s1", "call": "toolu_ask"},
+        {"ts": "2026-11-20T10:01:30Z", "verdict": "ran", "rules": {"tracker-guard": "ran"}, "tool": "Bash",
+         "session": "s1", "call": "toolu_ask"},
+        {"ts": "2026-11-20T10:01:40Z", "verdict": "deny", "rules": {"egress-guard": "deny"}, "tool": "Bash",
+         "session": "s1", "call": "toolu_deny"},
+        {"ts": "2026-11-20T10:05:00Z", "verdict": "ask", "rules": {"delete-guard": "ask"}, "tool": "Grep",
+         "session": "s1", "call": "toolu_agent"},
+    ])
+    with open(host_tel / "decisions.jsonl", "a", encoding="utf-8") as fh:
+        fh.write("{\n")  # a line cut off in the middle
+    write_jsonl(host_tel / "sessions-2026-11.jsonl", [
+        {"ts": "2026-11-20T10:10:00Z", "session": "s1", "cost_usd": 1.25, "cost_basis": "claude-code",
+         "cost_check": "ok", "models": {}}])
+
+    claude_home = box / "claude-home"
+    session(claude_home / "projects" / "-work", "b1", "feat/page", "/work", [("toolu_box", "Bash")], minute=40)
+    session(claude_home / "projects" / "-tmp-scratch", "b2", "feat/page", "/tmp/scratch")
+    write_jsonl(claude_home / "telemetry" / "decisions.jsonl", [
+        {"ts": "2026-11-20T10:41:00Z", "verdict": "logged", "rules": {"merge-guard": "logged"}, "tool": "Bash",
+         "session": "b1", "call": "toolu_box", "profile": "box"}])
+    result = box / "boxes" / "guard" / "results" / "20261120T104000Z" / "result.json"
+    result.parent.mkdir(parents=True)
+    result.write_text(json.dumps({"schema": "agent-box-result/1", "name": "guard", "seat": "guard", "exit": 0,
+                                  "image": "agent-box:abc", "branch_after": "feat/page",
+                                  "result": {"session_id": "b1", "result": SECRET}}))
+    homes = [{"label": "host", "config": str(host), "telemetry": str(host_tel), "root": project, "results": None},
+             {"label": "box", "config": str(claude_home), "telemetry": str(claude_home / "telemetry"),
+              "root": "/work", "results": str(box / "boxes")}]
+    return {"repo": repo, "project": project, "homes": homes, "sha1": sha1, "sha2": sha2}
+
+
+@pytest.fixture
+def git_calls(page, monkeypatch):
+    calls = []
+    real = page.run_git
+
+    def recording(args, cwd):
+        calls.append((list(args), cwd))
+        return real(args, cwd)
+
+    monkeypatch.setattr(page, "run_git", recording)
+    return calls
+
+
+def collected(page, world):
+    return page.collect(world["project"], 7, world["homes"], now=NOW, prices=PRICES)
+
+
+def task(data, branch):
+    found = [t for t in data["tasks"] if t["branch"] == branch]
+    assert len(found) == 1, [t["branch"] for t in data["tasks"]]
+    return found[0]
+
+
+def sessions_of(data):
+    return {s["id"]: s for t in data["tasks"] for s in t["sessions"]}
+
+
+# ---- step 1: collect ----------------------------------------------------------------------------------------------
+
+def test_sessions_of_both_homes_grouped_by_branch(page, world):
+    data = collected(page, world)
+    assert set(sessions_of(data)) == {"s1", "s2", "s3", "s4", "s5", "s6", "s7", "b1"}  # s8 another folder, s9 old,
+    # b2 outside /work
+    feat = task(data, "feat/page")
+    assert [s["id"] for s in feat["sessions"]] == ["s1", "s2", "b1"]  # in order of start
+    assert [s["home"] for s in feat["sessions"]] == ["host", "host", "box"]
+    assert feat["prs"] == [7]
+    b1 = sessions_of(data)["b1"]
+    assert b1["box"]["name"] == "guard" and b1["box"]["exit"] == 0 and b1["box"]["branch_after"] == "feat/page"
+    assert sessions_of(data)["s1"]["box"] is None
+    assert [h["sessions"] for h in data["homes"]] == [7, 1]
+
+
+def test_tool_calls_joined_with_the_guard_log_on_the_call_id(page, world):
+    s = sessions_of(collected(page, world))
+    got = [(c["agent"], c["tool"], c["verdict"], c["ran"]) for c in s["s1"]["calls"]]
+    assert got == [("session", "Bash", "ask", True), ("session", "Bash", "deny", None), ("session", "Read", "-", None),
+                   ("code-reviewer  review the diff", "Grep", "ask", False)]
+    assert s["s1"]["calls"][1]["rules"] == [("egress-guard", "deny")]
+    assert [(c["tool"], c["verdict"]) for c in s["b1"]["calls"]] == [("Bash", "logged")]
+    assert [a["kind"] for a in s["s1"]["agents"]] == ["session", "agent"]
+
+
+def test_the_gate_holds_every_ask_and_deny_with_its_rule(page, world):
+    data = collected(page, world)
+    gate = sessions_of(data)["s1"]["gate"]
+    assert [(g["verdict"], g["rules"], g["ran"]) for g in gate] == [
+        ("ask", [("tracker-guard", "ask")], True), ("deny", [("egress-guard", "deny")], None),
+        ("ask", [("delete-guard", "ask")], False)]
+    feat = task(data, "feat/page")
+    assert (feat["asks"], feat["denies"]) == (2, 1)
+    assert data["lines_not_read"] >= 1  # the broken guard line is counted, not fatal
+
+
+def test_cost_is_the_ledger_figure_else_the_own_count(page, world):
+    s = sessions_of(collected(page, world))
+    assert (s["s1"]["cost"], s["s1"]["cost_basis"]) == (1.25, "claude-code")
+    assert s["s2"]["cost"] == pytest.approx(REQUEST_USD) and s["s2"]["cost_basis"] == "own count, no ledger line"
+    assert task(collected(page, world), "feat/page")["cost"] == pytest.approx(1.25 + 2 * REQUEST_USD)
+
+
+def test_reviews_are_tied_to_the_branch_by_its_reflog_and_retested(page, world):
+    data = collected(page, world)
+    feat = task(data, "feat/page")
+    assert [r["sha"] for r in feat["reviews"]] == [world["sha1"], world["sha2"]]
+    assert [r["where"] for r in feat["reviews"]] == ["main checkout", "worktree wt"]
+    (rt,) = feat["retests"]
+    assert rt["delta"] is True
+    key = lambda f: (f["file"], f["line"], f["summary"])  # noqa: E731
+    assert ([key(f) for f in rt["went"]], [key(f) for f in rt["stayed"]], [key(f) for f in rt["new"]]) == (
+        [F_A], [F_B], [F_C])
+    assert (data["reviews"], data["reviews_untied"]) == (3, 1)  # the old receipt is outside the window
+
+
+def test_evidence_paths_are_those_the_branch_changed(page, world):
+    feat = task(collected(page, world), "feat/page")
+    assert (feat["lookup"], feat["commits"], feat["evidence"]) == ("ok", 2, ["evidence/run-1/out.txt"])
+
+
+def test_branch_names_from_transcripts_that_never_reach_git_log(page, world, git_calls):
+    data = collected(page, world)
+    logs = [args for args, _ in git_calls if args[0] == "log"]
+    for name in ("--output=x", "a b", "@{-1}"):
+        assert task(data, name)["lookup"] == "refused"
+        assert ["check-ref-format", "--branch", name] in [args for args, _ in git_calls]
+        assert not any(name in arg for args in logs for arg in args), name
+    main = [args for args in logs if "origin/main..refs/heads/main" in args]
+    assert len(main) == 1
+    assert main[0].index("--end-of-options") < main[0].index("origin/main..refs/heads/main")
+    assert main[0][-1] == "--"
+    for args in logs:  # every name reaches git log after --end-of-options, as refs/heads/NAME, with a closing --
+        named = [a for a in args if "refs/heads/" in a]
+        assert named and args.index("--end-of-options") < args.index(named[0]) and args[-1] == "--"
+    assert {cwd for _, cwd in git_calls} == {world["project"]}  # git runs in the project only, never in /work
+
+
+@pytest.mark.parametrize("name, answer", [("@{-1}", "@{-1}\n"), ("feat/alias", "main\n")])
+def test_each_of_the_two_name_checks_holds_by_itself(page, monkeypatch, name, answer):
+    # On git 2.55.0 every name check-ref-format changes also holds `@{`, so with the real git one check hides the
+    # other. A stub that answers check-ref-format shows each holds alone: `@{` even when git keeps the name, a name
+    # git changes even without `@{`.
+    calls = []
+
+    def stub(args, cwd):
+        calls.append(list(args))
+        return (0, answer) if args[0] == "check-ref-format" else (0, "")
+
+    monkeypatch.setattr(page, "run_git", stub)
+    assert page.branch_lookup(name, "/nowhere", True) == {"lookup": "refused"}
+    assert calls == [["check-ref-format", "--branch", name]]
+
+
+def test_reviews_stay_tied_to_a_merged_branch(page, world):
+    git(world["repo"], "update-ref", "refs/remotes/origin/main", world["sha2"])  # the branch is in main now
+    feat = task(collected(page, world), "feat/page")
+    assert (feat["lookup"], feat["commits"], feat["evidence"]) == ("ok", 0, [])
+    assert [r["sha"] for r in feat["reviews"]] == [world["sha1"], world["sha2"]]  # through the branch's reflog
+
+
+def test_a_block_written_on_two_lines_is_one_call(page, world):
+    path = pathlib.Path(world["homes"][0]["config"]) / "projects" / encoded(world["project"]) / "s6.jsonl"
+    lines = path.read_text().splitlines()
+    path.write_text("\n".join(lines + [lines[-1]]) + "\n")  # the same assistant line, written again
+    assert [c["tool"] for c in sessions_of(collected(page, world))["s6"]["calls"]] == ["Read"]
+
+
+def test_a_branch_absent_from_the_clone_is_named_not_an_error(page, world):
+    gone = task(collected(page, world), "feat/gone")
+    assert gone["lookup"] == "absent" and gone["evidence"] == [] and gone["reviews"] == []
+    assert page.LOOKUP_TEXT["absent"] == "no evidence lookup: branch not in this clone"
+
+
+def test_without_origin_main_no_branch_gets_a_lookup(page, world, git_calls):
+    git(world["repo"], "update-ref", "-d", "refs/remotes/origin/main")
+    data = collected(page, world)
+    assert task(data, "feat/page")["lookup"] == "no-base" and task(data, "main")["lookup"] == "no-base"
+    assert not [args for args, _ in git_calls if args[0] == "log"]
+
+
+def test_no_tool_input_reaches_the_data(page, world):
+    assert SECRET not in repr(collected(page, world))

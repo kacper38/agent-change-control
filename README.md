@@ -244,7 +244,10 @@ variables (`KZ_TRACKER_REPO`, `KZ_TRACKER_AREA`, `KZ_TRACKER_ADO_MODE`,
   `gh pr merge N --match-head-commit SHA` (a full lower-case hash, at most
   one of `--merge`, `--squash`, `--rebase`, nothing else) when the newest
   `fresh-review` receipt for that hash under `.git/fresh-review/` says
-  `APPROVE` or `COMMENT`. Every other ask, an ask a rule gives because it
+  `APPROVE` or `COMMENT`, and the head, against `origin/main` in the clone,
+  changes no path `guard-config` guards and deletes no test file (a merge
+  that changes the guard, its settings, CI, the tracker or the scans stays
+  the owner's). Every other ask, an ask a rule gives because it
   could not read the call, and a class with no entry is a deny with the
   reason `box session: no one answers an ask here …`; a deny stays as it
   was. A box reads its configuration beside the guard

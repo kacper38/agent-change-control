@@ -53,6 +53,8 @@ The frame is a penetration test's: scope, activity log, gate decisions, findings
 | 4 | Into the kit: `kit.manifest`, `install.sh`, `docs/SYSTEM.md` row, `README.md` line | those files | full `uv run --offline pytest -q`, `ruff check` |
 | 5 | A live run on this repository: the size, the output of `check_page` on the real file (an empty list), and whether the planted marker appears (it does not); the file itself stays local; `fresh-review`; the pull request | none committed but the record in `DECISIONS.md` | the command output in the pull request body |
 
+Carried into steps 1 and 2 from the fourth review (`0bc542b`): `git log` gets `refs/heads/NAME` and a closing `--`, so a tag, a short SHA or a path of the same name is never read; a branch absent from the clone (exit 128) gives "no evidence lookup: branch not in this clone" on the page and no error; the git tests assert outcomes (which `git log` calls were made), not exit codes of one git version, build their own reflog for `@{-1}`, and fail, never skip, when git is missing.
+
 The owner promoted #77 with `tracker owner ready 77` on 2026-11-21, so the item can be claimed. Merging follows the standing word of 2026-11-18 (green checks and a `fresh-review` with no open finding).
 
 ## 6. The owner's answers (2026-11-21, the recommended ones)

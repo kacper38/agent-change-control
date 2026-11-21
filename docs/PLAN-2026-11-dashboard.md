@@ -1,6 +1,6 @@
 # Plan — the task page (#77): a local, read-only HTML record of a task
 
-Status: APPROVED by the owner on 2026-11-21 ("i agree to 77"), with the session's recommended answers to the four open questions (section 6). Not part of Phase 1 (`docs/PLAN-2026-11-phase-1.md`); tracker item #77, filed in `status/backlog` on 2026-11-20.
+Status: APPROVED by the owner on 2026-11-21 ("i agree to 77"), with the session's recommended answers to the four open questions (section 6). Not part of Phase 1 (`docs/PLAN-2026-11-phase-1.md`); tracker item #77, filed in `status/backlog` on 2026-11-20 and promoted to `status/ready` by the owner on 2026-11-21.
 
 Method: written by the Opus session that put it up, not by the `platform-planner` agent on Fable: the Fable limit was reached on 2026-11-20 (reset 2026-11-24) and the owner chose not to wait (`DECISIONS.md`, block of 2026-11-21).
 
@@ -25,6 +25,8 @@ The frame is a penetration test's: scope, activity log, gate decisions, findings
 - Every text taken from a transcript, a log or a receipt goes through `html.escape`.
 - Output: `<telemetry>/pages/<UTC>.html` by default (directory 0700, file 0600); `--out PATH` is refused inside a git work tree. The file is never committed and never published.
 - Both homes are read: `~/.claude` (or `CLAUDE_CONFIG_DIR`) and `~/.agent-box/claude-home`; each session is labelled `host` or `box`.
+- Boundary: the page still shows session titles (`aiTitle`), folders, branch names and review finding summaries, which can name a client. It covers every repository whose transcripts are on the machine, `boundary: client` ones included, because it holds a subset of what the transcripts beside it already hold and stays on the same machine under the same user. It is never attached to a ticket, a pull request, a chat or an evidence pack, and never copied off the machine.
+- Values read from transcripts are untrusted input. A branch name reaches git only as one argv element after `--end-of-options`, and only once `git check-ref-format --branch` accepts it; any other name is shown on the page but gets no evidence lookup.
 
 ## 4. The page
 
@@ -45,13 +47,13 @@ The frame is a penetration test's: scope, activity log, gate decisions, findings
 | Step | What | Files | Check |
 |---|---|---|---|
 | 0 | This plan and its `DECISIONS.md` lines | `docs/PLAN-2026-11-dashboard.md`, `DECISIONS.md` | `uv run --offline pytest tools/tests -q` |
-| 1 | `collect(project, days, homes)`: sessions of both homes grouped by branch, tool calls joined with the guard log, receipts, evidence paths | `tools/telemetry/page.py`, `tools/telemetry/tests/test_page.py`, fixtures (host and box) | `uv run --offline pytest tools/telemetry -q`, `uv run --offline ruff check tools/telemetry` |
-| 2 | `render(data) -> str` | same | tests: no `<script`, no `http`, the CSP present, planted markup shown as text, a planted secret in a fixture's tool input absent from the page |
+| 1 | `collect(project, days, homes)`: sessions of both homes grouped by branch, tool calls joined with the guard log, receipts, evidence paths | `tools/telemetry/page.py`, `tools/telemetry/tests/test_page.py`, fixtures (host and box) | `uv run --offline --with pytest python -m pytest tools/telemetry -q`, `uv run --offline --with ruff ruff check tools/telemetry`; tests include a branch named `--output=x` and one `check-ref-format` refuses: neither reaches git as an option |
+| 2 | `render(data) -> str` | same | tests: the CSP meta tag present exactly once; no `<script`, no `src=` or `href=` attribute other than a `#` anchor, no `url(` and no `@import` in the markup outside escaped text; a planted `<img src=http://x>` in a fixture's title shown as text; a planted secret in a fixture's tool input absent from the page |
 | 3 | CLI: `page.py [--days 7] [--session ID] [--out PATH]`, output place and modes, refusal inside a work tree, prints the path | same | tests for modes, the refusal, the default place |
 | 4 | Into the kit: `kit.manifest`, `install.sh`, `docs/SYSTEM.md` row, `README.md` line | those files | full `uv run --offline pytest -q`, `ruff check` |
-| 5 | A live run on this repository: size, counts of `http`, `<script` and the planted marker in the real file (the file itself stays local); `fresh-review`; the pull request | none committed but the record in `DECISIONS.md` | the command output in the pull request body |
+| 5 | A live run on this repository: size, and counts of `<script`, of `src=`/`href=` attributes other than `#` anchors, of `url(` and of the planted marker in the real file (the file itself stays local); `fresh-review`; the pull request | none committed but the record in `DECISIONS.md` | the command output in the pull request body |
 
-The owner promotes #77 with `tracker owner ready 77` before the item is claimed. Merging follows the standing word of 2026-11-18 (green checks and a `fresh-review` with no open finding).
+The owner promoted #77 with `tracker owner ready 77` on 2026-11-21, so the item can be claimed. Merging follows the standing word of 2026-11-18 (green checks and a `fresh-review` with no open finding).
 
 ## 6. The owner's answers (2026-11-21, the recommended ones)
 

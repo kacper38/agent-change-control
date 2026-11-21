@@ -3547,7 +3547,42 @@ def _box_merge_failed(ev: Event) -> Optional[str]:
         return f"`{_MERGE_HEAD} SHA` is missing"
     if not _FULL_SHA_RE.fullmatch(sha):
         return "the head is not a full 40-character lower-case hash"
-    return _receipt_failed(ev.cwd, sha)
+    return _receipt_failed(ev.cwd, sha) or _merge_paths_failed(ev.cwd, sha)
+
+
+# review of 0.11.0 (MAJOR): in a box guard-config edits are logged and the receipt is a file the session could
+# write, so without this a box could merge a change to its own next judge. A box merges no head that changes a
+# path guard-config guards (the guard, its hooks and settings, CI workflows, the tracker, the test guard, the
+# scans) or deletes a test file, measured against origin/main in the clone; those merges stay the owner's.
+_MERGE_BASE_REF = "origin/main"
+
+
+def _merge_paths_failed(cwd: str, sha: str) -> Optional[str]:
+    """None when the head changes no guarded path and deletes no test, else what it touches, in words."""
+    def git_out(*args: str) -> Optional[str]:
+        try:
+            r = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, timeout=3,
+                               stdin=subprocess.DEVNULL)
+        except (OSError, subprocess.SubprocessError, ValueError):
+            return None
+        return r.stdout if r.returncode == 0 else None
+
+    base = git_out("merge-base", _MERGE_BASE_REF, sha)
+    if not base or not base.strip():
+        return f"the guard cannot find {sha} and {_MERGE_BASE_REF} in this clone (fetch both), so it cannot see " \
+               "what the merge changes"
+    out = git_out("diff", "--name-status", "--no-renames", "-z", base.strip(), sha)
+    if out is None:
+        return f"the guard cannot list what {sha} changes"
+    fields = out.split("\0")
+    for status, path in zip(fields[0::2], fields[1::2]):
+        what = guard_config_class(path)
+        if what:
+            return f"the pull request changes {path}, which is {what}; that merge is the owner's"
+        parts = path.split("/")
+        if status.startswith("D") and ("tests" in parts[:-1] or parts[-1].startswith("test_")):
+            return f"the pull request deletes the test file {path}; that merge is the owner's"
+    return None
 
 
 def _receipt_failed(cwd: str, sha: str) -> Optional[str]:

@@ -26,6 +26,10 @@ if facts is not None:
     g.box_facts = lambda *a, **k: dict(facts)
 sys.exit(g.main(["hook", "pre", "--wrapper", "claude"]))
 '''
+# Rows whose answer the review of 0.11.0 changed after the rows were hashed: a box merges no head the clone does
+# not have, and the rows' SHA is no commit in their scratch repository (fix `_merge_paths_failed`). The file keeps
+# the answer written before the build; here each change is named with the words its new answer must hold.
+CHANGED_BY_REVIEW = {"X19": ("deny", "cannot find"), "X20": ("deny", "cannot find")}
 VALID = {"dockerenv": True, "marker_exists": True,
          "marker": {"schema": "agent-box/1", "name": "t", "seat": "t", "image": "x", "judge": "x",
                     "boundary": "own", "firewall": "set", "started": "2026-11-20T00:00:00Z"},
@@ -114,4 +118,7 @@ def test_heldout_row(rid, env, expect, tool, text, guard_path, tmp_path):
         log = tel / "decisions.jsonl"
         lines = [json.loads(x) for x in log.read_text().splitlines() if x.strip()] if log.exists() else []
         got = "logged" if any(x.get("verdict") == "logged" for x in lines) else "silent"
+    if rid in CHANGED_BY_REVIEW:
+        expect, words = CHANGED_BY_REVIEW[rid]
+        assert words in r.stdout, f"{rid}: {r.stdout or r.stderr}"
     assert got == expect, f"{rid}: {r.stdout or r.stderr}"

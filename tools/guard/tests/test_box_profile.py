@@ -922,6 +922,11 @@ MERGE_ROWS = [
 ]
 
 
+def _no_path_check(guard, monkeypatch):
+    # these rows test the receipt; the paths a head changes have their own rows (test_a_box_merges_no_head_that_*)
+    monkeypatch.setattr(guard, "_merge_paths_failed", lambda cwd, sha: None, raising=False)
+
+
 def _receipts(work, specs):
     for spec in specs:
         body, _, n = spec.rpartition("@")
@@ -939,6 +944,7 @@ def _receipts(work, specs):
 @pytest.mark.parametrize("rid, specs, expected, command", MERGE_ROWS, ids=[r[0] for r in MERGE_ROWS])
 def test_the_merge_row(guard, monkeypatch, judge, work, rid, specs, expected, command):
     _receipts(work, specs)
+    _no_path_check(guard, monkeypatch)
     _box(guard, monkeypatch, judge, NO_MARKER)
     host, _rows = _hook(guard, monkeypatch, _bash(work, command))
     assert host is not None, command
@@ -969,6 +975,7 @@ def test_a_denied_merge_names_the_first_condition_that_failed(guard, monkeypatch
 def test_the_receipt_is_found_from_a_folder_below_the_root(guard, monkeypatch, judge, work):
     (work / "sub").mkdir()
     _receipt(work, SHA, "COMMENT")
+    _no_path_check(guard, monkeypatch)
     _box(guard, monkeypatch, judge)
     final, rows = _hook(guard, monkeypatch, _bash(work / "sub", MERGE))
     assert _answer(final, rows) == "logged", (final, rows)
@@ -1033,3 +1040,78 @@ def main(argv: list) -> int:
 
 if __name__ == "__main__":
     sys.exit(main(sys.argv[1:]))
+
+
+# review of 0.11.0 (MAJOR): a box merges no head that changes a guarded path or deletes a test file, measured
+# against origin/main in the clone; a head or base the clone does not have is a deny
+def _git(repo, *args):
+    return subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True, text=True).stdout.strip()
+
+
+def _head_with(work, change):
+    """A commit on main as origin/main, then one commit on feat/x that applies `change`; its full hash."""
+    for k, v in (("user.name", "t"), ("user.email", "t@example.invalid"), ("commit.gpgsign", "false")):
+        _git(work, "config", k, v)
+    (work / "docs").mkdir(exist_ok=True)
+    (work / "docs" / "a.md").write_text("a\n")
+    (work / "tools" / "x" / "tests").mkdir(parents=True, exist_ok=True)
+    (work / "tools" / "x" / "tests" / "test_a.py").write_text("def test_a():\n    pass\n")
+    _git(work, "add", "-A")
+    _git(work, "commit", "-q", "-m", "base")
+    _git(work, "update-ref", "refs/remotes/origin/main", "HEAD")
+    change(work)
+    _git(work, "add", "-A")
+    _git(work, "commit", "-q", "-m", "head")
+    return _git(work, "rev-parse", "HEAD")
+
+
+def _write(rel, text="x\n"):
+    def change(work):
+        path = work / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text)
+    return change
+
+
+def _delete(rel):
+    return lambda work: (work / rel).unlink()
+
+
+PATH_ROWS = [
+    ("docs", _write("docs/b.md"), "logged", None),
+    ("edit-a-test", _write("tools/x/tests/test_a.py", "def test_a():\n    assert True\n"), "logged", None),
+    ("the-guard", _write("tools/guard/guard.py"), "deny", "tools/guard/guard.py"),
+    ("a-workflow", _write(".github/workflows/ci.yml"), "deny", ".github/workflows/ci.yml"),
+    ("settings", _write(".claude/settings.json", "{}\n"), "deny", ".claude/settings.json"),
+    ("the-tracker", _write("tools/tracker/tracker.py"), "deny", "tools/tracker/tracker.py"),
+    ("delete-a-test", _delete("tools/x/tests/test_a.py"), "deny", "deletes the test file"),
+]
+
+
+@pytest.mark.parametrize("rid, change, expected, named", PATH_ROWS, ids=[r[0] for r in PATH_ROWS])
+def test_a_box_merges_no_head_that_changes_a_guarded_path(guard, monkeypatch, judge, work, rid, change, expected,
+                                                          named):
+    sha = _head_with(work, change)
+    _receipt(work, sha, "COMMENT")
+    _box(guard, monkeypatch, judge)
+    final, rows = _hook(guard, monkeypatch, _bash(work, f"gh pr merge 76 --merge --match-head-commit {sha}"))
+    assert _answer(final, rows) == expected, (rid, final, rows)
+    if named:
+        assert named in final[1], final[1]
+
+
+def test_a_box_merges_no_head_the_clone_does_not_have(guard, monkeypatch, judge, work):
+    _head_with(work, _write("docs/b.md"))
+    _receipt(work, SHA, "COMMENT")  # a receipt for a hash that is no commit here
+    _box(guard, monkeypatch, judge)
+    final, rows = _hook(guard, monkeypatch, _bash(work, MERGE))
+    assert final is not None and final[0] == "deny" and "cannot find" in final[1], final
+
+
+def test_a_box_merges_nothing_without_origin_main(guard, monkeypatch, judge, work):
+    sha = _head_with(work, _write("docs/b.md"))
+    _git(work, "update-ref", "-d", "refs/remotes/origin/main")
+    _receipt(work, sha, "COMMENT")
+    _box(guard, monkeypatch, judge)
+    final, rows = _hook(guard, monkeypatch, _bash(work, f"gh pr merge 76 --merge --match-head-commit {sha}"))
+    assert final is not None and final[0] == "deny" and "origin/main" in final[1], final

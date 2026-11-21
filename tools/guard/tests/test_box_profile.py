@@ -1125,12 +1125,13 @@ def test_a_box_merges_no_head_the_clone_does_not_have(guard, monkeypatch, judge,
     assert final is not None and final[0] == "deny" and "cannot find" in final[1], final
 
 
-@pytest.mark.parametrize("marked", [None, "x", "0" * 39, OTHER_SHA])
+@pytest.mark.parametrize("marked", ["no-key", None, "x", "0" * 39, OTHER_SHA, 7])
 def test_a_box_merges_nothing_without_the_judges_commit(guard, monkeypatch, judge, work, marked):
     sha, _base = _head_with(work, _write("docs/b.md"))
     _receipt(work, sha, "COMMENT")
     facts = copy.deepcopy(VALID)
-    if marked is not None:
+    facts["marker"].pop("judge", None)
+    if marked != "no-key":
         facts["marker"]["judge"] = marked
     _box(guard, monkeypatch, judge, facts)
     final, rows = _hook(guard, monkeypatch, _bash(work, f"gh pr merge 76 --merge --match-head-commit {sha}"))
@@ -1146,4 +1147,47 @@ def test_a_moved_origin_main_does_not_hide_a_change_to_the_guard(guard, monkeypa
     _receipt(work, sha, "COMMENT")
     _box(guard, monkeypatch, judge, _judged(base))
     final, rows = _hook(guard, monkeypatch, _bash(work, f"gh pr merge 76 --merge --match-head-commit {sha}"))
+    assert final is not None and final[0] == "deny" and "tools/guard/guard.py" in final[1], final
+
+
+# round 3 of the review (MAJOR): replace objects, grafts and diff.relative are files and settings of the clone the
+# session can write; the merge check reads the real commits and every path
+def _clean_commit(work, base):
+    """A commit on top of `base` that changes only docs/, without moving any branch; its hash."""
+    tree = _git(work, "write-tree")  # the index holds the head's tree; build the clean tree from base instead
+    _git(work, "read-tree", base)
+    (work / "docs" / "clean.md").write_text("c\n")
+    _git(work, "update-index", "--add", "docs/clean.md")
+    clean_tree = _git(work, "write-tree")
+    _git(work, "read-tree", tree)
+    return subprocess.run(["git", "-C", str(work), "commit-tree", clean_tree, "-p", base, "-m", "clean"],
+                          check=True, capture_output=True, text=True).stdout.strip()
+
+
+def test_a_replaced_head_does_not_hide_a_change_to_the_guard(guard, monkeypatch, judge, work):
+    sha, base = _head_with(work, _write("tools/guard/guard.py"))
+    _git(work, "replace", sha, _clean_commit(work, base))
+    assert _git(work, "diff", "--name-only", base, sha) == "docs/clean.md"  # plain git is fooled
+    _receipt(work, sha, "COMMENT")
+    _box(guard, monkeypatch, judge, _judged(base))
+    final, rows = _hook(guard, monkeypatch, _bash(work, f"gh pr merge 76 --merge --match-head-commit {sha}"))
+    assert final is not None and final[0] == "deny" and "tools/guard/guard.py" in final[1], final
+
+
+def test_a_graft_does_not_hide_a_change_to_the_guard(guard, monkeypatch, judge, work):
+    sha, base = _head_with(work, _write("tools/guard/guard.py"))
+    (work / ".git" / "info").mkdir(exist_ok=True)
+    (work / ".git" / "info" / "grafts").write_text(f"{base} {sha}\n")  # base claims the head as its parent
+    _receipt(work, sha, "COMMENT")
+    _box(guard, monkeypatch, judge, _judged(base))
+    final, rows = _hook(guard, monkeypatch, _bash(work, f"gh pr merge 76 --merge --match-head-commit {sha}"))
+    assert final is not None and final[0] == "deny" and "tools/guard/guard.py" in final[1], final
+
+
+def test_diff_relative_in_the_clone_does_not_hide_a_change_to_the_guard(guard, monkeypatch, judge, work):
+    sha, base = _head_with(work, _write("tools/guard/guard.py"))
+    _git(work, "config", "diff.relative", "true")
+    _receipt(work, sha, "COMMENT")
+    _box(guard, monkeypatch, judge, _judged(base))
+    final, rows = _hook(guard, monkeypatch, _bash(work / "docs", f"gh pr merge 76 --merge --match-head-commit {sha}"))
     assert final is not None and final[0] == "deny" and "tools/guard/guard.py" in final[1], final

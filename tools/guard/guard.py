@@ -3571,10 +3571,16 @@ def _is_test_file(parts: list) -> bool:
 def _merge_paths_failed(cwd: str, sha: str, judge: Optional[str]) -> Optional[str]:
     """None when the head changes no guarded path and deletes no test against the judge's commit, else what it
     touches or why it cannot be seen, in words."""
+    # round 3: replace objects and grafts would let the session show another commit's tree under a hash, and a
+    # `diff.relative` setting would hide paths outside the cwd; both are files and settings of the clone, so git
+    # runs here without them and without any inherited GIT_* variable
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    env.update(GIT_NO_REPLACE_OBJECTS="1", GIT_GRAFT_FILE=os.devnull)
+
     def git_out(*args: str) -> Optional[str]:
         try:
-            r = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, timeout=3,
-                               stdin=subprocess.DEVNULL)
+            r = subprocess.run(["git", "--no-replace-objects", *args], cwd=cwd, capture_output=True, text=True,
+                               timeout=3, stdin=subprocess.DEVNULL, env=env)
         except (OSError, subprocess.SubprocessError, ValueError):
             return None
         return r.stdout if r.returncode == 0 else None
@@ -3584,7 +3590,7 @@ def _merge_paths_failed(cwd: str, sha: str, judge: Optional[str]) -> Optional[st
     base = git_out("merge-base", judge, sha)
     if not base or not base.strip():
         return f"the guard cannot find {sha} and the judge's commit {judge} in this clone (fetch origin), {_MERGE_SEES}"
-    out = git_out("diff", "--name-status", "--no-renames", "-z", base.strip(), sha)
+    out = git_out("diff", "--name-status", "--no-renames", "--no-relative", "-z", base.strip(), sha)
     if out is None:
         return f"the guard cannot list what {sha} changes"
     fields = out.split("\0")

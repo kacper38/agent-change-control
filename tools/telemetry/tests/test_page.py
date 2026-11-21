@@ -324,3 +324,75 @@ def test_without_origin_main_no_branch_gets_a_lookup(page, world, git_calls):
 
 def test_no_tool_input_reaches_the_data(page, world):
     assert SECRET not in repr(collected(page, world))
+
+
+# ---- step 2: render and check_page --------------------------------------------------------------------------------
+
+CSP_TAG = "<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; style-src 'unsafe-inline'\">"
+
+
+def minimal(body="", head=CSP_TAG, style="p{color:red}"):
+    """A hand-written page that passes the check, so a breach found below comes from what a test puts in."""
+    return (f'<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">{head}<title>t</title>'
+            f"<style>{style}</style></head><body>{body}</body></html>")
+
+
+def test_the_rendered_fixtures_pass_the_check(page, world):
+    html = page.render(collected(page, world))
+    assert page.check_page(html) == []
+    assert html.count(CSP_TAG.replace("'", "&#x27;")) == 1
+    for section in ("Tasks", "Scope", "Agents", "Timeline", "Gate", "Findings", "Re-test", "Evidence", "Notes"):
+        assert f"<h2>{section}</h2>" in html or f"<h3>{section}</h3>" in html, section
+
+
+def test_an_empty_page_passes_the_check(page, tmp_path, git_bin):
+    homes = [{"label": "host", "config": str(tmp_path / "none"), "telemetry": str(tmp_path / "t"),
+              "root": str(tmp_path), "results": None}]
+    html = page.render(page.collect(str(tmp_path), 7, homes, now=NOW, prices=PRICES))
+    assert page.check_page(html) == [] and "no session of this project in the last 7 days" in html
+
+
+def test_a_title_holding_markup_is_shown_as_text(page, world):
+    html = page.render(collected(page, world))
+    assert "&lt;img src=http://x&gt;" in html and "<img" not in html
+    assert page.check_page(html) == []
+
+
+def test_no_tool_input_reaches_the_page(page, world):
+    assert SECRET not in page.render(collected(page, world))
+
+
+def test_the_hand_written_page_passes_and_escaped_text_never_counts(page):
+    assert page.check_page(minimal()) == []
+    assert page.check_page(minimal("<p>&lt;script src=http://x&gt; url( url= @import \\</p>")) == []
+
+
+@pytest.mark.parametrize("name, html", [
+    ("no CSP tag", minimal(head="")),
+    ("two CSP tags", minimal(head=CSP_TAG * 2)),
+    ("default-src *", minimal(head=CSP_TAG.replace("default-src 'none'", "default-src *"))),
+    ("CSP tag in the body", minimal(head="", body=CSP_TAG)),
+    ("script", minimal("<script>x()</script>")),
+    ("meta refresh", minimal(head=CSP_TAG + '<meta http-equiv="refresh" content="0;url=http://x">')),
+    ("form action", minimal('<form action="http://x"><p>x</p></form>')),
+    ("img srcset", minimal('<img srcset="http://x 1x">')),
+    ("style attribute with url(", minimal('<p style="background:url(x)">x</p>')),
+    ("@import in style", minimal(style="@import 'x.css';")),
+    ("CSS escape for url(", minimal(style="p{background:\\75 rl(x)}")),
+    ("link", minimal(head=CSP_TAG + '<link rel="stylesheet" href="x.css">')),
+    ("href to a site", minimal('<a href="https://x">x</a>')),
+    ("first of two hrefs", minimal('<a href="//x" href="#ok">x</a>')),
+    ("url( spelled with an entity", minimal('<p class="u&#114;l(x)">x</p>')),
+    ("svg", minimal("<svg></svg>")),
+    ("comment", minimal("<!-- x -->")),
+    # each of these breaks one rule only, so each rule is shown to hold by itself
+    ("event handler attribute", minimal('<p onclick="x()">x</p>')),
+    ("style attribute", minimal('<p style="color:red">x</p>')),
+    ("url= in an attribute", minimal('<p class="0;url=x">x</p>')),
+    ("a scheme in an attribute", minimal('<p id="http://x">x</p>')),
+    ("a scheme in style", minimal(style="p{font-family:'http://x'}")),
+    ("meta name", minimal(head=CSP_TAG + '<meta name="referrer" content="unsafe-url">')),
+    ("meta refresh without a url", minimal(head=CSP_TAG + '<meta http-equiv="refresh" content="5">')),
+])
+def test_each_breach_is_found(page, name, html):
+    assert page.check_page(html), name

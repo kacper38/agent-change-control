@@ -17,12 +17,14 @@ session controls its .git/config). Standard library only, Python >= 3.9.
 """
 import datetime as _dt
 import glob
+import html
 import importlib.util
 import json
 import math
 import os
 import re
 import subprocess
+from html.parser import HTMLParser
 from typing import Optional
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -441,3 +443,298 @@ def collect(project: str, days: int, homes: list, now: Optional[_dt.datetime] = 
     tasks.sort(key=lambda t: (t["end"] is None, -(t["end"] or _EPOCH).timestamp(), t["branch"] or ""))
     return {"project": project, "days": days, "since": since, "now": now, "homes": read_homes, "tasks": tasks,
             "reviews_untied": sum(id(r) not in tied for r in receipts), "reviews": len(receipts), **counts}
+
+
+# ---- the page ---------------------------------------------------------------------------------------------------
+
+CSP = "default-src 'none'; style-src 'unsafe-inline'"
+# The page's only style: no url(, no @import, no ://, no backslash (check_page refuses each, and a CSS escape could
+# spell url( past a text search).
+STYLE = """
+:root{color-scheme:light dark;--fg:#1d1d1f;--muted:#5f6368;--bg:#ffffff;--line:#d9d9de;--ask:#8a5a00;
+--deny:#b3261e;--ok:#1a7f37}
+@media (prefers-color-scheme:dark){:root{--fg:#e6e6e9;--muted:#a0a3a8;--bg:#16171a;--line:#34363b;--ask:#e3b341;
+--deny:#ff7b72;--ok:#56d364}}
+body{margin:0;padding:1.5rem 1rem;background:var(--bg);color:var(--fg);font:14px/1.45 -apple-system,system-ui,
+sans-serif}
+main{max-width:84rem;margin:0 auto}
+h1{font-size:1.4rem;margin:0 0 .4rem}
+h2{font-size:1.15rem;margin:2.2rem 0 .4rem;border-top:1px solid var(--line);padding-top:1rem}
+h3{font-size:1rem;margin:1.4rem 0 .3rem}
+.wide{overflow-x:auto}
+table{border-collapse:collapse;margin:.3rem 0 1rem;min-width:100%}
+th,td{text-align:left;padding:.25rem .6rem;border-bottom:1px solid var(--line);vertical-align:top}
+th{color:var(--muted);font-weight:600;white-space:nowrap}
+.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.muted{color:var(--muted)}
+.ask{color:var(--ask)}
+.deny{color:var(--deny)}
+.ok{color:var(--ok)}
+code{font:12px ui-monospace,Menlo,monospace}
+details{margin:.5rem 0;padding:.3rem .7rem;border:1px solid var(--line);border-radius:6px}
+summary{cursor:pointer}
+"""
+LEGEND = ("verdict `-`: the guard wrote no line for the call (no rule spoke, or no guard ran); `ask` then `ran`: "
+          "the owner let an asked call go ahead; `ask` with `no ran line`: it never ran; `skipped`: a rule switched "
+          "off by configuration would have spoken; `logged`: a box let the call run and logged it",
+          "cost: the ledger's figure for a session that ended (Claude Code's own or the ledger's own count, as its "
+          "basis says), else the ledger's own count from the transcripts; a task's cost is n/a when one of its "
+          "sessions has none",
+          "re-test: each review against the one before it, by file, line and summary; a delta review saw only the "
+          "change since the review before it, so a finding that went may only lie outside that change",
+          "state: inferred from the end of each transcript, so a session cut off reads as running",
+          "this page is a local, read-only record: it holds titles, folders, branch names and finding summaries "
+          "and is never attached to a ticket, a pull request, a chat or an evidence pack, nor copied off this "
+          "machine")
+
+
+def _e(value) -> str:
+    """Any value as escaped HTML text: every text on the page goes through here."""
+    return html.escape("" if value is None else str(value), quote=True)
+
+
+def _time(when: Optional[_dt.datetime], long: bool = False) -> str:
+    if when is None:
+        return "-"
+    return when.astimezone(_dt.timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC" if long else "%m-%d %H:%M:%S")
+
+
+def _cell(value, cls: str = "") -> str:
+    return f'<td class="{cls}">{_e(value)}</td>' if cls else f"<td>{_e(value)}</td>"
+
+
+def _table(head: list, rows: list, nums: tuple = ()) -> str:
+    """A table of escaped cells; `rows` holds lists of (text, class) or text; `nums` the columns set right."""
+    out = ['<div class="wide"><table><thead><tr>']
+    out += [f'<th class="num">{_e(h)}</th>' if i in nums else f"<th>{_e(h)}</th>" for i, h in enumerate(head)]
+    out.append("</tr></thead><tbody>")
+    for row in rows:
+        out.append("<tr>")
+        for i, cell in enumerate(row):
+            text, cls = cell if isinstance(cell, tuple) else (cell, "")
+            out.append(_cell(text, " ".join(c for c in (cls, "num" if i in nums else "") if c)))
+        out.append("</tr>")
+    out.append("</tbody></table></div>")
+    return "".join(out)
+
+
+def _verdict(verdict: str) -> tuple:
+    return verdict, {"ask": "ask", "deny": "deny"}.get(verdict, "muted" if verdict == "-" else "")
+
+
+def _ran(ran: Optional[bool], has_call: bool = True) -> tuple:
+    if ran is None:
+        return ("no call id", "muted") if not has_call else ("", "")
+    return ("ran", "ok") if ran else ("no ran line", "deny")
+
+
+def _rules(pairs: list) -> str:
+    return ", ".join(f"{name}: {verdict}" for name, verdict in pairs)
+
+
+def _finding(f: dict) -> str:
+    where = f["file"] + (f":{f['line']}" if f["line"] is not None else "")
+    return f"{f['severity']} {where} {f['summary']}"
+
+
+def _session_section(s: dict) -> str:
+    asks = sum(g["verdict"] == "ask" for g in s["gate"])
+    denies = sum(g["verdict"] == "deny" for g in s["gate"])
+    out = [f'<details id="s-{_e(s["id"])}"><summary>{_e(s["home"])} session <code>{_e(s["id"])}</code> &middot; '
+           f'{_e(s["title"] or "(no title)")} &middot; {len(s["calls"])} tool calls, asks {asks}, denies {denies}'
+           "</summary>"]
+    out.append("<h3>Agents</h3>")
+    out.append(_table(["state", "duration", "cost", "tool calls", "model", "agent"], [
+        [a["state"], ledger.fmt_duration(a["seconds"]), ledger.fmt_cost(a["cost"], a["read"]),
+         "-" if a["tools"] is None else a["tools"], a["model"] or "-",
+         "  " * a["depth"] + ("└ " if a["depth"] else "") + (a["label"] or "")]
+        for a in s["agents"]], nums=(1, 2, 3)))
+    out.append("<h3>Timeline</h3>")
+    if s["calls"]:
+        out.append(_table(["time", "agent", "tool", "verdict", "rules", "ran"], [
+            [_time(c["when"]), c["agent"], c["tool"], _verdict(c["verdict"]), _rules(c["rules"]),
+             _ran(c["ran"])] for c in s["calls"]]))
+    else:
+        out.append('<p class="muted">no tool calls</p>')
+    out.append("<h3>Gate</h3>")
+    if s["gate"]:
+        out.append(_table(["time", "tool", "verdict", "rules", "ran"], [
+            [_time(g["when"]), g["tool"], _verdict(g["verdict"]), _rules(g["rules"]),
+             _ran(g["ran"], g["call"] is not None) if g["verdict"] == "ask" else ""] for g in s["gate"]]))
+    else:
+        out.append('<p class="muted">no ask and no deny</p>')
+    out.append("</details>")
+    return "".join(out)
+
+
+def _task_section(n: int, t: dict) -> str:
+    name = t["branch"] or "(no branch)"
+    out = [f'<section id="task-{n}"><h2>{_e(name)}</h2>']
+    facts = [f"PR {', '.join('#' + str(p) for p in t['prs'])}" if t["prs"] else "no PR seen",
+             f"cost {ledger.fmt_cost(t['cost'])}", f"asks {t['asks']}, denies {t['denies']}"]
+    out.append(f'<p class="muted">{_e(" · ".join(facts))}</p>')
+    out.append("<h3>Scope</h3>")
+    rows = []
+    for s in t["sessions"]:
+        others = sorted(b for b in s["branches"] if b != s["branch"])
+        box = s["box"]
+        box_text = (f"box {box['name']}, seat {box['seat']}, exit {box['exit']}, image {box['image']}, "
+                    f"head {(box['head_before'] or '-')[:12]} to {(box['head_after'] or '-')[:12]}" if box else "")
+        rows.append([s["id"][:8], s["home"], s["title"] or "-", ", ".join([s["branch"] or "-"] + others),
+                     ", ".join(f for f in s["folders"] if f), s["model"] or "-", s["state"], _time(s["start"]),
+                     ledger.fmt_duration(s["seconds"]), f"{ledger.fmt_cost(s['cost'])} ({s['cost_basis']})",
+                     ", ".join("#" + str(p) for p in sorted(s["prs"])) or "-", box_text])
+    out.append(_table(["session", "home", "title", "branch", "folder", "model", "state", "start", "duration",
+                       "cost", "PR", "box run"], rows, nums=(8,)))
+    out += [_session_section(s) for s in t["sessions"]]
+    out.append("<h3>Findings</h3>")
+    if not t["reviews"]:
+        out.append('<p class="muted">no fresh-review receipt tied to this branch in the window</p>')
+    for r in t["reviews"]:
+        cost = ledger.fmt_cost(r["cost"])
+        out.append(f"<p><code>{_e(r['sha'][:12])}</code> {_e(_time(r['when']))} &middot; {_e(r['verdict'])} &middot; "
+                   f"base {_e(r['base'] or '-')} &middot; {_e(cost)} &middot; {_e(r['where'])}</p>")
+        if r["findings"]:
+            out.append(_table(["severity", "file", "line", "summary"], [
+                [f["severity"], f["file"], "-" if f["line"] is None else f["line"], f["summary"]]
+                for f in r["findings"]], nums=(2,)))
+        else:
+            out.append('<p class="muted">no findings</p>')
+    out.append("<h3>Re-test</h3>")
+    if not t["retests"]:
+        out.append('<p class="muted">fewer than two reviews: nothing to compare</p>')
+    for rt in t["retests"]:
+        kind = "delta review" if rt["delta"] else "review"
+        out.append(f"<p><code>{_e(rt['from'][:12])}</code> to <code>{_e(rt['to'][:12])}</code> ({_e(kind)}): "
+                   f"went {len(rt['went'])}, stayed {len(rt['stayed'])}, new {len(rt['new'])}</p>")
+        items = ([("went", f) for f in rt["went"]] + [("stayed", f) for f in rt["stayed"]]
+                 + [("new", f) for f in rt["new"]])
+        if items:
+            out.append("<ul>" + "".join(f"<li>{_e(k)}: {_e(_finding(f))}</li>" for k, f in items) + "</ul>")
+    out.append("<h3>Evidence</h3>")
+    if t["lookup"] != "ok":
+        out.append(f'<p class="muted">{_e(LOOKUP_TEXT.get(t["lookup"], t["lookup"]))}</p>')
+    else:
+        out.append(f"<p>{_e(t['commits'])} commits in origin/main..refs/heads/{_e(t['branch'])}</p>")
+        out.append("<ul>" + "".join(f"<li><code>{_e(p)}</code></li>" for p in t["evidence"]) + "</ul>"
+                   if t["evidence"] else '<p class="muted">no evidence/ path changed</p>')
+    out.append("</section>")
+    return "".join(out)
+
+
+def render(data: dict) -> str:
+    """The page as one HTML string: no script, no link, no image, nothing loaded from outside the file."""
+    homes = "; ".join(f"{h['label']} {h['config']}: " + (f"{h['sessions']} sessions" if h["read"] else "not read")
+                      for h in data["homes"])
+    head = (f"window {_time(data['since'], True)} to {_time(data['now'], True)} ({data['days']} days) · {homes} · "
+            f"reviews in the window {data['reviews']}, tied to no branch here {data['reviews_untied']}")
+    out = ["<!DOCTYPE html>", '<html lang="en"><head><meta charset="utf-8">',
+           f'<meta http-equiv="Content-Security-Policy" content="{_e(CSP)}">',
+           f"<title>Task page {_e(os.path.basename(data['project']))}</title><style>{STYLE}</style></head>",
+           "<body><main><header>", f"<h1>Task page &middot; {_e(data['project'])}</h1>",
+           f'<p class="muted">{_e(head)}</p>']
+    if data["files_not_read"] or data["lines_not_read"]:
+        out.append(f'<p class="deny">not read: files {_e(data["files_not_read"])}, lines '
+                   f'{_e(data["lines_not_read"])} (what they held is missing below)</p>')
+    out.append("</header><h2>Tasks</h2>")
+    if data["tasks"]:
+        out.append('<div class="wide"><table><thead><tr><th>task</th><th>PR</th><th class="num">sessions</th>'
+                   '<th class="num">cost</th><th class="num">asks</th><th class="num">denies</th>'
+                   '<th class="num">reviews</th><th>last line</th></tr></thead><tbody>')
+        for n, t in enumerate(data["tasks"], 1):
+            homes_of = [s["home"] for s in t["sessions"]]
+            count = ", ".join(f"{homes_of.count(h)} {h}" for h in ("host", "box") if h in homes_of)
+            out.append(f'<tr><td><a href="#task-{n}">{_e(t["branch"] or "(no branch)")}</a></td>'
+                       f'<td>{_e(", ".join("#" + str(p) for p in t["prs"]) or "-")}</td>'
+                       f'<td class="num">{_e(count)}</td><td class="num">{_e(ledger.fmt_cost(t["cost"]))}</td>'
+                       f'<td class="num">{_e(t["asks"])}</td><td class="num">{_e(t["denies"])}</td>'
+                       f'<td class="num">{_e(len(t["reviews"]))}</td><td>{_e(_time(t["end"]))}</td></tr>')
+        out.append("</tbody></table></div>")
+        out += [_task_section(n, t) for n, t in enumerate(data["tasks"], 1)]
+    else:
+        out.append(f'<p class="muted">no session of this project in the last {_e(data["days"])} days</p>')
+    out.append("<h2>Notes</h2><ul>" + "".join(f"<li>{_e(line)}</li>" for line in LEGEND) + "</ul>")
+    out.append("</main></body></html>\n")
+    return "".join(out)
+
+
+# ---- the page's own check ---------------------------------------------------------------------------------------
+
+def check_page(page: str) -> list:
+    """Every breach of the page's allowlist, as text; [] for a page that loads nothing from outside the file. The
+    lists are written here and never taken from the renderer. html.parser reads the page, so escaped text is data
+    and never counts; attribute values arrive unescaped and are checked as the browser would read them."""
+    tags ={"html", "head", "meta", "title", "style", "body", "main", "header", "section", "div", "h1", "h2", "h3",
+            "p", "table", "thead", "tbody", "tr", "th", "td", "details", "summary", "ul", "li", "code", "a"}
+    attrs = {"html": {"lang"}, "meta": {"charset", "http-equiv", "content"}, "a": {"href"}}
+    anywhere = {"class", "id"}
+    banned = ("://", "url(", "url=", "@import", "\\")
+    csp = "default-src 'none'; style-src 'unsafe-inline'"
+    breaches: list = []
+    state = {"csp": 0, "in_head": False, "in_style": False}
+
+    def loads(text: str) -> Optional[str]:
+        low = text.lower()
+        return next((b for b in banned if b in low), None)
+
+    class Check(HTMLParser):
+        def handle_starttag(self, tag, attributes):
+            if tag not in tags:
+                breaches.append(f"tag <{tag}> is not on the allowlist")
+            for name, value in attributes:
+                if name not in anywhere and name not in attrs.get(tag, ()):
+                    breaches.append(f"attribute {name} on <{tag}> is not on the allowlist")
+                hit = loads(value or "")
+                if hit:
+                    breaches.append(f"attribute {name} on <{tag}> holds {hit}")
+                if name == "href" and not re.fullmatch(r"#[A-Za-z0-9_-]+", value or ""):  # each one: a browser
+                    breaches.append("an href that is no # anchor")  # takes the first of two, dict() the last
+            names, given = sorted(n for n, _ in attributes), dict(attributes)
+            if tag == "meta":
+                if names == ["charset"]:
+                    pass
+                elif names == ["content", "http-equiv"] and \
+                        (given["http-equiv"] or "").lower() == "content-security-policy":
+                    state["csp"] += 1
+                    if given["content"] != csp:
+                        breaches.append(f"CSP tag with the content {given['content']!r}")
+                    if not state["in_head"]:
+                        breaches.append("CSP tag outside <head>")
+                else:
+                    breaches.append(f"<meta> that is neither charset nor the CSP tag: {names}")
+            if tag == "head":
+                state["in_head"] = True
+            if tag == "style":
+                state["in_style"] = True
+
+        def handle_endtag(self, tag):
+            if tag == "head":
+                state["in_head"] = False
+            if tag == "style":
+                state["in_style"] = False
+
+        def handle_data(self, data):
+            if state["in_style"]:
+                hit = loads(data)
+                if hit:
+                    breaches.append(f"<style> holds {hit}")
+
+        def handle_comment(self, data):
+            breaches.append("a comment (the renderer writes none)")
+
+        def handle_decl(self, decl):
+            if decl.lower() != "doctype html":
+                breaches.append(f"declaration <!{decl}>")
+
+        def handle_pi(self, data):
+            breaches.append("a processing instruction")
+
+        def unknown_decl(self, data):
+            breaches.append("an unknown declaration")
+
+    parser = Check()  # attribute values are unescaped either way; <style> text never is
+    parser.feed(page)
+    parser.close()
+    if state["csp"] != 1:
+        breaches.append(f"the CSP tag appears {state['csp']} times, not once")
+    return breaches

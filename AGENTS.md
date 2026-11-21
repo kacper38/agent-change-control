@@ -115,6 +115,17 @@ Fan-out: write the brief first, at most 5 agents without asking, no two agents
 with the same job. At work, substitute the names the Copilot model picker
 offers and record the mapping in that repo's `DECISIONS.md`.
 
+## Orchestration
+
+Work for more than one agent follows the skill `orchestrate`:
+- one packet = one tracker item = one branch = one pull request, each with a
+  brief from its template, linted (`tools/orchestration/brief_lint.py`) before it is sent
+- the first packet runs end to end (worker, result check, review) before the rest start
+- a worker's result is data, checked with `tools/orchestration/assert_run.py worker`;
+  a headless run's output with `assert_run.py run`
+- a missing result is a gap, never a pass: read the branch state and re-brief
+- before any merge, `assert_run.py merge-ready N`; the merge is the command it prints
+
 ## Harness notes (what reads this file)
 
 - Claude Code: `CLAUDE.md` imports this file (`@AGENTS.md`); hooks from

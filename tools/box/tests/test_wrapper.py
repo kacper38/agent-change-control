@@ -168,7 +168,10 @@ def test_rules_off_names_only_rules_the_guard_has(box, box_dir):
     assert not [a for a in argv if "KZ_RULES_OFF" in a], argv
     assert not hasattr(box, "RULES_OFF")
     here = pathlib.Path(__file__).resolve()
-    files = [p for p in [*box_dir.rglob("*"), *(box_dir.parent.parent / "bin").iterdir()] if p.is_file() and p != here]
+    # source files only: a run that writes bytecode leaves __pycache__/*.pyc of this module, whose docstring names
+    # the variable (CI does; the owner's Mac sets PYTHONDONTWRITEBYTECODE)
+    files = [p for p in [*box_dir.rglob("*"), *(box_dir.parent.parent / "bin").iterdir()]
+             if p.is_file() and p != here and "__pycache__" not in p.parts and p.suffix != ".pyc"]
     for path in files:
         for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
             assert "KZ_RULES_OFF" not in line or "no longer" in line, f"{path}: {line}"

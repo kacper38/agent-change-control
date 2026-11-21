@@ -7,6 +7,7 @@ The git tests run against the git on the machine and fail when it is missing.
 """
 import datetime as dt
 import importlib.util
+import io
 import json
 import os
 import pathlib
@@ -396,3 +397,125 @@ def test_the_hand_written_page_passes_and_escaped_text_never_counts(page):
 ])
 def test_each_breach_is_found(page, name, html):
     assert page.check_page(html), name
+
+
+# ---- step 3: the command ------------------------------------------------------------------------------------------
+
+@pytest.fixture
+def cli(page, world, tmp_path, monkeypatch):
+    """main() with the world's homes: CLAUDE_CONFIG_DIR and KZ_TELEMETRY_DIR set, HOME holding the box's folder."""
+    home = tmp_path / "home"
+    home.mkdir()
+    os.symlink(tmp_path / "box", home / ".agent-box")
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", world["homes"][0]["config"])
+    monkeypatch.setenv("KZ_TELEMETRY_DIR", world["homes"][0]["telemetry"])
+
+    def run(*argv, cwd=None):
+        out, err = io.StringIO(), io.StringIO()
+        code = page.main(list(argv), out, err, cwd=cwd or world["project"], now=NOW)
+        return code, out.getvalue(), err.getvalue()
+
+    return run
+
+
+def mode(path):
+    return os.stat(path).st_mode & 0o777
+
+
+def test_the_default_place_and_its_modes(page, world, cli):
+    pages = pathlib.Path(world["homes"][0]["telemetry"]) / "pages"
+    pages.mkdir(parents=True, mode=0o755)
+    os.chmod(pages, 0o755)
+    code, out, err = cli()
+    assert (code, err) == (0, "")
+    assert out == str(pages / "20261121T120000Z.html") + "\n"  # the path alone, so a shell can open it
+    assert (mode(pages), mode(out.strip())) == (0o700, 0o600)
+    html = pathlib.Path(out.strip()).read_text(encoding="utf-8")
+    assert page.check_page(html) == [] and SECRET not in html
+    assert "box home not read: this repository has no bin/box" in html and "s-b1" not in html
+
+
+def test_the_box_home_is_read_in_a_repository_with_bin_box(world, cli):
+    (world["repo"] / "bin").mkdir()
+    (world["repo"] / "bin" / "box").write_text("#!/bin/sh\n")
+    code, out, _ = cli()
+    html = pathlib.Path(out.strip()).read_text(encoding="utf-8")
+    assert code == 0 and 'id="s-b1"' in html and "box guard, seat guard" in html
+
+
+def test_a_run_from_a_worktree_is_the_page_of_the_repository(world, cli):
+    code, out, _ = cli(cwd=os.path.join(world["project"], ".claude", "worktrees", "wt"))
+    html = pathlib.Path(out.strip()).read_text(encoding="utf-8")
+    assert code == 0 and 'id="s-s1"' in html and 'id="s-s2"' in html
+
+
+@pytest.mark.parametrize("where", ["page.html", os.path.join(".claude", "worktrees", "wt", "page.html"),
+                                   os.path.join(".git", "page.html")])
+def test_out_inside_a_work_tree_is_refused(world, cli, where):
+    target = os.path.join(world["project"], where)
+    code, out, err = cli("--out", target)
+    assert (code, out) == (1, "") and "lies in the git work tree" in err
+    assert not os.path.exists(target)
+
+
+def test_the_default_place_inside_a_work_tree_is_refused(world, cli, monkeypatch):
+    monkeypatch.setenv("KZ_TELEMETRY_DIR", os.path.join(world["project"], "telemetry"))
+    code, _, err = cli()
+    assert code == 1 and "lies in the git work tree" in err
+    assert not os.path.exists(os.path.join(world["project"], "telemetry"))
+
+
+def test_out_outside_a_work_tree_is_written_0600(tmp_path, cli):
+    (tmp_path / "elsewhere").mkdir()
+    target = tmp_path / "elsewhere" / "p.html"
+    code, out, _ = cli("--out", str(target))
+    assert (code, out, mode(target)) == (0, f"{target}\n", 0o600)
+
+
+def test_an_existing_file_is_never_overwritten(tmp_path, cli):
+    target = tmp_path / "p.html"
+    target.write_text("mine")
+    code, _, err = cli("--out", str(target))
+    assert code == 1 and "never overwritten" in err and target.read_text() == "mine"
+    os.symlink(tmp_path / "nowhere", tmp_path / "link.html")
+    assert cli("--out", str(tmp_path / "link.html"))[0] == 1 and not (tmp_path / "nowhere").exists()
+
+
+def test_out_into_a_missing_folder_is_refused(tmp_path, cli):
+    code, _, err = cli("--out", str(tmp_path / "no" / "p.html"))
+    assert code == 1 and "no folder" in err
+
+
+def test_one_session(tmp_path, cli):
+    code, out, _ = cli("--session", "s1", "--out", str(tmp_path / "one.html"))
+    html = (tmp_path / "one.html").read_text(encoding="utf-8")
+    assert code == 0 and 'id="s-s1"' in html and 'id="s-s2"' not in html
+    assert cli("--session", "s")[0:1] == (1,) and "fits 7 sessions" in cli("--session", "s")[2]
+    assert "no session fits zz" in cli("--session", "zz")[2]
+    assert cli("--session", "../x")[0] == 2
+
+
+@pytest.mark.parametrize("argv", [["--days", "0"], ["--days", "x"], ["--nope"]])
+def test_usage_errors(cli, argv):
+    assert cli(*argv)[0] == 2
+
+
+def test_outside_a_repository(tmp_path, cli):
+    (tmp_path / "plain").mkdir()
+    code, _, err = cli(cwd=str(tmp_path / "plain"))
+    assert code == 1 and "no git repository here" in err
+
+
+def test_help(page):
+    out = io.StringIO()
+    assert page.main(["--help"], out) == 0 and "page.py [--days 7] [--session ID] [--out PATH]" in out.getvalue()
+
+
+def test_git_variables_in_the_environment_do_not_move_the_repository(world, cli, tmp_path, monkeypatch):
+    other = tmp_path / "other"
+    other.mkdir()
+    git(other, "init", "-q")
+    monkeypatch.setenv("GIT_DIR", str(other / ".git"))  # as inside a git hook
+    code, out, _ = cli()
+    assert code == 0 and 'id="s-s1"' in pathlib.Path(out.strip()).read_text(encoding="utf-8")

@@ -2,6 +2,17 @@
 """page — the task page (tracker item #77, docs/PLAN-2026-11-dashboard.md): a local, read-only record of the tasks
 of one repository over the last N days, read from files already on the machine.
 
+  page.py [--days 7] [--session ID] [--out PATH]
+                                 write one HTML page for the repository of the current folder and print its path:
+                                 <telemetry>/pages/<UTC>.html by default (folder 0700, file 0600; telemetry =
+                                 KZ_TELEMETRY_DIR or ~/.claude/telemetry). The page goes nowhere else: a folder
+                                 inside a git work tree is refused (the page is never committed), an existing file
+                                 is never overwritten, and nothing is published. Sessions come from
+                                 <CLAUDE_CONFIG_DIR or ~/.claude>/projects and, in a repository that has bin/box,
+                                 from the box's ~/.agent-box/claude-home. --session ID: one session, a full id or a
+                                 prefix that fits one. No server, no port, no network call, no JavaScript.
+                                 Exit codes: 0 written, 1 refused or failed (one line on stderr says why), 2 usage.
+
   collect(project, days, homes)  the sessions of every home given (the owner's Claude home, the box's) whose
                                  folder lies in the project (or, for the box, in /work), grouped by the branch most
                                  of their lines carry; per session its scope, agents (ledger.read_agents), every
@@ -15,6 +26,7 @@ git only as checked by `git check-ref-format --branch` (unchanged, no `@{`), aft
 `refs/heads/NAME`, with a closing `--`. Git runs only in the project folder (never in a box's clone: the box
 session controls its .git/config). Standard library only, Python >= 3.9.
 """
+import argparse
 import datetime as _dt
 import glob
 import html
@@ -24,6 +36,7 @@ import math
 import os
 import re
 import subprocess
+import sys
 from html.parser import HTMLParser
 from typing import Optional
 
@@ -55,12 +68,18 @@ LOOKUP_TEXT = {
 }
 
 
+# Variables that point git at a repository other than the one its folder lies in: dropped, so `cwd` decides.
+GIT_LOCATORS = ("GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY",
+                "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_NAMESPACE")
+
+
 def run_git(args: list, cwd: str) -> tuple:
     """(exit code or None, stdout) of `git ARGS` in `cwd`; None when git cannot be started or times out. The one way
     this module calls git, so a test can record every call."""
+    env = {k: v for k, v in os.environ.items() if k not in GIT_LOCATORS}
     try:
         r = subprocess.run(["git", *args], cwd=cwd, capture_output=True, encoding="utf-8", errors="replace",
-                           timeout=GIT_TIMEOUT, env={**os.environ, "GIT_TERMINAL_PROMPT": "0"})
+                           timeout=GIT_TIMEOUT, env=dict(env, GIT_TERMINAL_PROMPT="0"))
     except (OSError, subprocess.SubprocessError):  # no git, no folder, or a hang: the caller says "git failed"
         return None, ""
     return r.returncode, r.stdout
@@ -226,9 +245,10 @@ def _session_cost(row: Optional[dict], own: Optional[float]) -> tuple:
     return own, "own count, no ledger line"
 
 
-def read_home(home: dict, since: _dt.datetime, prices: dict) -> tuple:
+def read_home(home: dict, since: _dt.datetime, prices: dict, session: Optional[str] = None) -> tuple:
     """(sessions, counters) of one home: every transcript of a project folder of home["root"] written since `since`
-    whose folder lies in the root. A session id in two project folders counts once, the transcript written last."""
+    whose folder lies in the root (with `session`, only ids that start with it). A session id in two project
+    folders counts once, the transcript written last."""
     counts = {"files_not_read": 0, "lines_not_read": 0, "read": False}
     projects = os.path.join(home["config"], "projects")
     root = home["root"]
@@ -255,6 +275,8 @@ def read_home(home: dict, since: _dt.datetime, prices: dict) -> tuple:
             if mtime < since.timestamp() * 1e9:
                 continue
             sid = name[:-len(".jsonl")]
+            if session and not sid.startswith(session):
+                continue
             if sid not in newest or (mtime, path) > newest[sid]:
                 newest[sid] = (mtime, path)
     guard = read_guard_log(home["telemetry"])
@@ -399,10 +421,11 @@ def retests(reviews: list) -> list:
 
 
 def collect(project: str, days: int, homes: list, now: Optional[_dt.datetime] = None,
-            prices: Optional[dict] = None) -> dict:
+            prices: Optional[dict] = None, session: Optional[str] = None) -> dict:
     """Everything the page shows, read from local files and the project's git; writes nothing. `homes` is a list of
     {"label", "config", "telemetry", "root", "results"}: a Claude home, its guard and ledger folder, the folder its
-    sessions' cwd must lie in, and (for the box) the folder of the box runs."""
+    sessions' cwd must lie in, and (for the box) the folder of the box runs. `session`: only the sessions whose id
+    is it, or, when none is, those whose id starts with it."""
     now = now or _dt.datetime.now(_dt.timezone.utc)
     since = now - _dt.timedelta(days=days)
     prices = ledger.load_prices() if prices is None else prices
@@ -410,12 +433,14 @@ def collect(project: str, days: int, homes: list, now: Optional[_dt.datetime] = 
     sessions, counts = [], {"files_not_read": 0, "lines_not_read": 0}
     read_homes = []
     for home in homes:
-        found, c = read_home(home, since, prices)
+        found, c = read_home(home, since, prices, session)
         sessions += found
         counts["files_not_read"] += c["files_not_read"]
         counts["lines_not_read"] += c["lines_not_read"]
         read_homes.append({"label": home["label"], "config": home["config"], "read": c["read"],
                            "sessions": len(found)})
+    if session and any(s["id"] == session for s in sessions):  # the full id wins over the ids it is a prefix of
+        sessions = [s for s in sessions if s["id"] == session]
     code, out = run_git(["rev-parse", "--path-format=absolute", "--git-common-dir"], project)
     common = out.strip() if code == 0 and out.strip() else None
     has_base = common is not None and run_git(["rev-parse", "--verify", "--quiet", "--end-of-options",
@@ -633,6 +658,7 @@ def render(data: dict) -> str:
            f"<title>Task page {_e(os.path.basename(data['project']))}</title><style>{STYLE}</style></head>",
            "<body><main><header>", f"<h1>Task page &middot; {_e(data['project'])}</h1>",
            f'<p class="muted">{_e(head)}</p>']
+    out += [f'<p class="muted">{_e(note)}</p>' for note in data.get("notes", [])]
     if data["files_not_read"] or data["lines_not_read"]:
         out.append(f'<p class="deny">not read: files {_e(data["files_not_read"])}, lines '
                    f'{_e(data["lines_not_read"])} (what they held is missing below)</p>')
@@ -738,3 +764,130 @@ def check_page(page: str) -> list:
     if state["csp"] != 1:
         breaches.append(f"the CSP tag appears {state['csp']} times, not once")
     return breaches
+
+
+# ---- the command ------------------------------------------------------------------------------------------------
+
+def project_of(cwd: str) -> Optional[str]:
+    """The main work tree of the repository `cwd` lies in, so a page run from a worktree is the page of the whole
+    repository; None outside a repository (or in a bare one)."""
+    code, out = run_git(["rev-parse", "--path-format=absolute", "--git-common-dir"], cwd)
+    common = out.strip() if code == 0 else ""
+    if not common:
+        return None
+    if os.path.basename(common) == ".git":
+        return os.path.dirname(common)
+    code, out = run_git(["rev-parse", "--show-toplevel"], cwd)  # a common dir elsewhere (--separate-git-dir)
+    return out.strip() if code == 0 and out.strip() else None
+
+
+def default_homes(project: str) -> tuple:
+    """(homes, notes): the owner's Claude home, and the box's when the project has bin/box, since a box only clones
+    the repository that starts it and tools/box is not in kit.manifest (box sessions hold no repository name)."""
+    host = {"label": "host", "config": os.path.expanduser(os.environ.get("CLAUDE_CONFIG_DIR") or "~/.claude"),
+            "telemetry": ledger.telemetry_dir(), "root": project, "results": None}
+    if not os.path.isfile(os.path.join(project, "bin", "box")):
+        return [host], ["box home not read: this repository has no bin/box, and a box only runs on the repository "
+                        "that starts it"]
+    base = os.path.expanduser("~/.agent-box")  # the folder tools/box/box.py keeps everything in
+    claude_home = os.path.join(base, "claude-home")
+    return [host, {"label": "box", "config": claude_home, "telemetry": os.path.join(claude_home, "telemetry"),
+                   "root": BOX_ROOT, "results": os.path.join(base, "boxes")}], []
+
+
+def inside_work_tree(folder: str) -> Optional[str]:
+    """The nearest folder at or above `folder` that holds a .git entry, else None. Stricter than git's discovery on
+    purpose: the refusal needs no git and no config, and an ownership or ceiling setting cannot turn it off."""
+    here = os.path.realpath(folder)
+    while True:
+        if os.path.lexists(os.path.join(here, ".git")):
+            return here
+        up = os.path.dirname(here)
+        if up == here:
+            return None
+        here = up
+
+
+def write_page(text: str, path: str) -> None:
+    """A new file of mode 0600; an existing file (or a link in its place) raises FileExistsError and stays as it is."""
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    if hasattr(os, "fchmod"):  # the mode, whatever the umask
+        os.fchmod(fd, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        fh.write(text)
+
+
+def main(argv: list, out=None, err=None, cwd: Optional[str] = None, now: Optional[_dt.datetime] = None) -> int:
+    out, err = out or sys.stdout, err or sys.stderr
+    if argv and argv[0] in ("help", "-h", "--help"):
+        out.write(__doc__.strip() + "\n")
+        return 0
+    ap = argparse.ArgumentParser(prog="page", add_help=False)
+    ap.add_argument("--days", type=int, default=7)
+    ap.add_argument("--session")
+    ap.add_argument("--out")
+    try:
+        ns = ap.parse_args(argv)
+    except SystemExit:  # argparse printed the usage line
+        return 2
+    if ns.days < 1:
+        err.write("page: --days is a whole number of days, 1 or more\n")
+        return 2
+    if ns.session is not None and not re.fullmatch(r"[A-Za-z0-9_-]+", ns.session):
+        err.write("page: a session id holds only letters, digits, - and _\n")
+        return 2
+    try:
+        cwd = cwd or os.getcwd()
+    except FileNotFoundError:  # the folder was removed under the shell (a worktree gone)
+        err.write("page: the current folder is gone; run it inside the repository whose tasks it shows\n")
+        return 1
+    project = project_of(cwd)
+    if project is None:
+        err.write("page: no git repository here; run it inside the repository whose tasks it shows\n")
+        return 1
+    now = now or _dt.datetime.now(_dt.timezone.utc)
+    if ns.out:
+        path = os.path.abspath(os.path.expanduser(ns.out))
+        folder = os.path.dirname(path)
+    else:
+        folder = os.path.join(ledger.telemetry_dir(), "pages")
+        path = os.path.join(folder, now.strftime("%Y%m%dT%H%M%SZ") + ".html")
+    tree = inside_work_tree(folder)
+    if tree:
+        err.write(f"page: refused: {folder} lies in the git work tree {tree}; the page is never committed, so it is "
+                  "written outside any work tree\n")
+        return 1
+    if ns.out and not os.path.isdir(folder):
+        err.write(f"page: no folder {folder}\n")
+        return 1
+    homes, notes = default_homes(project)
+    data = collect(project, ns.days, homes, now=now, session=ns.session)
+    data["notes"] = notes
+    if ns.session:
+        ids = {s["id"] for t in data["tasks"] for s in t["sessions"]}
+        if len(ids) != 1:
+            err.write(f"page: no session fits {ns.session} in the last {ns.days} days\n" if not ids else
+                      f"page: {ns.session} fits {len(ids)} sessions; give more of the id\n")
+            return 1
+    text = render(data)
+    breaches = check_page(text)
+    if breaches:  # the renderer's own output must pass; a page that does not is never written
+        err.write("page: refused, the page breaks its own check: " + "; ".join(breaches[:5]) + "\n")
+        return 1
+    try:
+        if not ns.out:
+            os.makedirs(folder, mode=0o700, exist_ok=True)
+            os.chmod(folder, 0o700)  # also a folder made earlier with a wider mode
+        write_page(text, path)
+    except FileExistsError:
+        err.write(f"page: {path} exists and is never overwritten; give another --out\n")
+        return 1
+    except OSError as exc:
+        err.write(f"page: cannot write {path}: {exc}\n")
+        return 1
+    out.write(path + "\n")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

@@ -187,7 +187,7 @@ def test_worker_main_on_a_missing_file_is_a_gap(ar, tmp_path, capsys):
 @pytest.mark.parametrize("field,value", [("branch", ""), ("head", "A" * 40), ("head", "abc"), ("checks", []),
                                          ("not_verified", "none")])
 def test_worker_bad_field_is_a_gap_naming_it(ar, field, value):
-    problems = ar.check_worker(worker(SHA, **{field: value}), SHA)
+    problems = ar.check_worker(dict(worker(SHA), **{field: value}), SHA)
     assert any(p.startswith("GAP: ") and field in p for p in problems)
 
 

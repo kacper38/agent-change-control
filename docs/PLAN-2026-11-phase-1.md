@@ -2,6 +2,8 @@
 
 Status: APPROVED by the owner on 2026-11-18, by his words at 20:16 UTC and by the `ready` marks on the nine items (`DECISIONS.md`, block "Phase 1 plan put up", last line). It was put up as PROPOSED the same day, and nothing in it was built before the approval.
 
+Amended 2026-11-21 by the owner's word: step 0.3 (item #39, pull request I) moves to Phase 2, so Phase 1 is the eight pull requests A to H (`DECISIONS.md`, block of 2026-11-21). The text below is the approved text, unchanged.
+
 Parent: `docs/PLAN-2026-11-orchestration-ci.md` (rev 3). "Row" below means that plan's row, unchanged (lines 227 to 245); only additions are written out. Line numbers in this file refer to `main` at `0a1cf2b`; they are evidence for the facts as read on 2026-11-18. They move when guard 0.9.0 is merged, so each step's brief reads its places again at its start.
 
 Method: drafted by the `platform-planner` agent from a brief, then edited by the session that puts it up. The edit changed three things after the owner's words of 19:53 UTC (section 5): owner verbs once per phase, boxes started by a host session, and a review receipt in front of a merge in a box.

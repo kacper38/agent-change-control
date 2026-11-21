@@ -1178,6 +1178,7 @@ def test_a_graft_does_not_hide_a_change_to_the_guard(guard, monkeypatch, judge, 
     sha, base = _head_with(work, _write("tools/guard/guard.py"))
     (work / ".git" / "info").mkdir(exist_ok=True)
     (work / ".git" / "info" / "grafts").write_text(f"{base} {sha}\n")  # base claims the head as its parent
+    assert _git(work, "merge-base", base, sha) == sha  # plain git is fooled: the diff from the base would be empty
     _receipt(work, sha, "COMMENT")
     _box(guard, monkeypatch, judge, _judged(base))
     final, rows = _hook(guard, monkeypatch, _bash(work, f"gh pr merge 76 --merge --match-head-commit {sha}"))
@@ -1189,5 +1190,16 @@ def test_diff_relative_in_the_clone_does_not_hide_a_change_to_the_guard(guard, m
     _git(work, "config", "diff.relative", "true")
     _receipt(work, sha, "COMMENT")
     _box(guard, monkeypatch, judge, _judged(base))
+    final, rows = _hook(guard, monkeypatch, _bash(work / "docs", f"gh pr merge 76 --merge --match-head-commit {sha}"))
+    assert final is not None and final[0] == "deny" and "tools/guard/guard.py" in final[1], final
+
+
+@pytest.mark.parametrize("var, value", [("GIT_DIR", "/nonexistent-git-dir"), ("GIT_WORK_TREE", "/nonexistent"),
+                                        ("GIT_CONFIG_PARAMETERS", "'core.commitGraph=true' 'diff.relative=true'")])
+def test_an_inherited_git_variable_does_not_steer_the_merge_check(guard, monkeypatch, judge, work, var, value):
+    sha, base = _head_with(work, _write("tools/guard/guard.py"))
+    _receipt(work, sha, "COMMENT")
+    _box(guard, monkeypatch, judge, _judged(base))
+    monkeypatch.setenv(var, value)
     final, rows = _hook(guard, monkeypatch, _bash(work / "docs", f"gh pr merge 76 --merge --match-head-commit {sha}"))
     assert final is not None and final[0] == "deny" and "tools/guard/guard.py" in final[1], final

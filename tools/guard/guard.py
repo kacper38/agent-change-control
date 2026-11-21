@@ -3568,18 +3568,28 @@ def _is_test_file(parts: list) -> bool:
             or name == "conftest.py")
 
 
+def _box_git_env() -> dict:
+    """The environment of the merge check's git calls: no inherited GIT_* variable, no replace objects, no grafts."""
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    env.update(GIT_NO_REPLACE_OBJECTS="1", GIT_GRAFT_FILE=os.devnull)
+    return env
+
+
 def _merge_paths_failed(cwd: str, sha: str, judge: Optional[str]) -> Optional[str]:
     """None when the head changes no guarded path and deletes no test against the judge's commit, else what it
     touches or why it cannot be seen, in words."""
     # round 3: replace objects and grafts would let the session show another commit's tree under a hash, and a
     # `diff.relative` setting would hide paths outside the cwd; both are files and settings of the clone, so git
-    # runs here without them and without any inherited GIT_* variable
-    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
-    env.update(GIT_NO_REPLACE_OBJECTS="1", GIT_GRAFT_FILE=os.devnull)
+    # runs here without them, without the commit-graph file and without any inherited GIT_* variable. Named limit
+    # (round 4): the object store itself is a folder of the clone; git does not re-hash what it reads, so a
+    # session that forges objects can still hide a change. This check stops a careless merge, not a hostile one:
+    # a hostile box holds a token that merges through the API with no shell form the guard reads.
+    env = _box_git_env()
 
     def git_out(*args: str) -> Optional[str]:
         try:
-            r = subprocess.run(["git", "--no-replace-objects", *args], cwd=cwd, capture_output=True, text=True,
+            r = subprocess.run(["git", "--no-replace-objects", "-c", "core.commitGraph=false", *args], cwd=cwd,
+                               capture_output=True, text=True,
                                timeout=3, stdin=subprocess.DEVNULL, env=env)
         except (OSError, subprocess.SubprocessError, ValueError):
             return None
@@ -3609,7 +3619,7 @@ def _receipt_failed(cwd: str, sha: str) -> Optional[str]:
     (tools/review/fresh_review.py); the highest number is the newest, the bare file is number 1."""
     try:
         r = subprocess.run(["git", "rev-parse", "--git-dir"], cwd=cwd, capture_output=True, text=True, timeout=3,
-                           stdin=subprocess.DEVNULL)
+                           stdin=subprocess.DEVNULL, env=_box_git_env())
     except (OSError, subprocess.SubprocessError, ValueError):  # no git, no folder, a timeout
         return "the guard found no git repository at the call's folder"
     git_dir = r.stdout.strip()

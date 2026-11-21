@@ -849,6 +849,15 @@ def _box_local_tokens(text: str) -> bool:
     return True
 
 
+_BOX_SHELLS = ("bash", "sh", "zsh")
+_BOX_SCRIPT_PUSH_RE = re.compile(r"\bgit\b[\s\S]{0,80}?\bpush\b")
+
+
+def _box_shell_script(m: "re.Match") -> bool:
+    """A SCRIPT_RE match that a shell runs: the interpreter is a shell, or the file ends in a shell's suffix."""
+    return m.group(1) in _BOX_SHELLS or m.group(4) in ("sh", "bash", "zsh")
+
+
 def _box_local_delete(ev: Event) -> bool:
     """D6: True only when every delete the call holds is local to the box: ExitWorktree's remove, or a shell call
     whose text, folded text, every script it names and every simple command hold only local forms. A shell that
@@ -871,6 +880,14 @@ def _box_local_delete(ev: Event) -> bool:
                 except (OSError, ValueError):  # not a readable file: the rule scanned nothing there either
                     continue
                 if not (_box_local_text(content) and _box_local_text(fold_names(content))):
+                    return False
+                # review of 0.11.0: the text pass misses `push -d` and option prefixes, which only the token
+                # pass reads, so a shell script gets the token pass too; a script in any other language that
+                # names git and push at all is not shown to be local (its argument lists are not shell words)
+                if _box_shell_script(m):
+                    if not (_box_local_tokens(content) and _box_local_tokens(fold_names(content))):
+                        return False
+                elif _BOX_SCRIPT_PUSH_RE.search(content) or _BOX_SCRIPT_PUSH_RE.search(fold_names(content)):
                     return False
         return True
     except Exception:  # CommandNotRead or a crash: not shown to be local

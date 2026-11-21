@@ -680,6 +680,32 @@ def test_a_script_with_only_local_deletes_is_logged_and_one_with_a_remote_delete
     assert final is not None and final[0] == "deny", (final, rows)
 
 
+# review of 0.11.0 (MAJOR): the forms only the token pass reads, inside a script the call names
+SCRIPT_ROWS = [
+    ("short-d", "x.sh", "bash x.sh", "rm -rf build\ngit push -d origin topic\n", "deny"),
+    ("combined", "x.sh", "sh x.sh", "rm -rf build\ngit push -fd origin topic\n", "deny"),
+    ("prefix", "x.sh", "bash x.sh", "rm -rf build\ngit push --del origin topic\n", "deny"),
+    ("prefix-zsh", "x.zsh", "zsh x.zsh", "rm -rf build\ngit push --forc origin feat/x\n", "deny"),
+    ("by-suffix", "x.sh", "bash ./x.sh", "rm -rf build\ngit push -d origin topic\n", "deny"),
+    ("local-sh", "x.sh", "bash x.sh", "rm -rf build\ngit branch -D old\ngit push origin feat/x\n", "logged"),
+    ("py-push", "x.py", "python3 x.py",
+     "import shutil, subprocess\nshutil.rmtree('build')\nsubprocess.run(['git', 'push', '-d', 'origin', 't'])\n",
+     "deny"),
+    ("py-local", "x.py", "python3 x.py", "import os, shutil\nshutil.rmtree('build')\nos.remove('x.log')\n", "logged"),
+]
+
+
+@pytest.mark.parametrize("rid, name, command, content, expected", SCRIPT_ROWS, ids=[r[0] for r in SCRIPT_ROWS])
+def test_a_script_is_read_by_the_token_pass_too(guard, monkeypatch, judge, work, rid, name, command, content,
+                                                expected):
+    (work / name).write_text(content)
+    _box(guard, monkeypatch, judge)
+    final, rows = _hook(guard, monkeypatch, _bash(work, command))
+    if not rows:  # the command asks on no rule of the host: there is nothing for the box to log or deny
+        pytest.fail(f"{rid}: no rule spoke on {command!r} with {content!r}")
+    assert _answer(final, rows) == expected, (rid, final, rows)
+
+
 @pytest.mark.parametrize("action, expected", [("remove", "logged"), ("delete", "deny"), (None, "deny")])
 def test_exit_worktree(guard, monkeypatch, judge, work, action, expected):
     _box(guard, monkeypatch, judge)

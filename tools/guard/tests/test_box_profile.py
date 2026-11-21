@@ -687,6 +687,7 @@ SCRIPT_ROWS = [
     ("prefix", "x.sh", "bash x.sh", "rm -rf build\ngit push --del origin topic\n", "deny"),
     ("prefix-zsh", "x.zsh", "zsh x.zsh", "rm -rf build\ngit push --forc origin feat/x\n", "deny"),
     ("by-suffix", "x.sh", "bash ./x.sh", "rm -rf build\ngit push -d origin topic\n", "deny"),
+    ("suffix-not-shell", "x.sh", "python3 x.sh", "rm -rf build\ngit push -d origin topic\n", "deny"),
     ("local-sh", "x.sh", "bash x.sh", "rm -rf build\ngit branch -D old\ngit push origin feat/x\n", "logged"),
     ("py-push", "x.py", "python3 x.py",
      "import shutil, subprocess\nshutil.rmtree('build')\nsubprocess.run(['git', 'push', '-d', 'origin', 't'])\n",
@@ -924,7 +925,7 @@ MERGE_ROWS = [
 
 def _no_path_check(guard, monkeypatch):
     # these rows test the receipt; the paths a head changes have their own rows (test_a_box_merges_no_head_that_*)
-    monkeypatch.setattr(guard, "_merge_paths_failed", lambda cwd, sha: None, raising=False)
+    monkeypatch.setattr(guard, "_merge_paths_failed", lambda *a, **k: None, raising=False)
 
 
 def _receipts(work, specs):
@@ -1049,20 +1050,32 @@ def _git(repo, *args):
 
 
 def _head_with(work, change):
-    """A commit on main as origin/main, then one commit on feat/x that applies `change`; its full hash."""
+    """A commit on main as origin/main, then one commit on feat/x that applies `change`; (head, base) hashes."""
     for k, v in (("user.name", "t"), ("user.email", "t@example.invalid"), ("commit.gpgsign", "false")):
         _git(work, "config", k, v)
     (work / "docs").mkdir(exist_ok=True)
     (work / "docs" / "a.md").write_text("a\n")
     (work / "tools" / "x" / "tests").mkdir(parents=True, exist_ok=True)
     (work / "tools" / "x" / "tests" / "test_a.py").write_text("def test_a():\n    pass\n")
+    (work / "tools" / "x" / "tests" / "conftest.py").write_text("\n")
+    (work / "lib" / "test").mkdir(parents=True, exist_ok=True)
+    (work / "lib" / "test" / "helpers.py").write_text("\n")
+    (work / "lib" / "parse_test.py").write_text("\n")
     _git(work, "add", "-A")
     _git(work, "commit", "-q", "-m", "base")
+    base = _git(work, "rev-parse", "HEAD")
     _git(work, "update-ref", "refs/remotes/origin/main", "HEAD")
     change(work)
     _git(work, "add", "-A")
     _git(work, "commit", "-q", "-m", "head")
-    return _git(work, "rev-parse", "HEAD")
+    return _git(work, "rev-parse", "HEAD"), base
+
+
+def _judged(base):
+    """VALID facts whose marker names `base` as the judge's commit, as bin/box writes BOX_JUDGE."""
+    facts = copy.deepcopy(VALID)
+    facts["marker"]["judge"] = base
+    return facts
 
 
 def _write(rel, text="x\n"):
@@ -1085,15 +1098,19 @@ PATH_ROWS = [
     ("settings", _write(".claude/settings.json", "{}\n"), "deny", ".claude/settings.json"),
     ("the-tracker", _write("tools/tracker/tracker.py"), "deny", "tools/tracker/tracker.py"),
     ("delete-a-test", _delete("tools/x/tests/test_a.py"), "deny", "deletes the test file"),
+    ("delete-a-conftest", _delete("tools/x/tests/conftest.py"), "deny", "deletes the test file"),
+    ("delete-in-test", _delete("lib/test/helpers.py"), "deny", "deletes the test file"),
+    ("delete-a-suffix-test", _delete("lib/parse_test.py"), "deny", "deletes the test file"),
+    ("delete-a-doc", _delete("docs/a.md"), "logged", None),
 ]
 
 
 @pytest.mark.parametrize("rid, change, expected, named", PATH_ROWS, ids=[r[0] for r in PATH_ROWS])
 def test_a_box_merges_no_head_that_changes_a_guarded_path(guard, monkeypatch, judge, work, rid, change, expected,
                                                           named):
-    sha = _head_with(work, change)
+    sha, base = _head_with(work, change)
     _receipt(work, sha, "COMMENT")
-    _box(guard, monkeypatch, judge)
+    _box(guard, monkeypatch, judge, _judged(base))
     final, rows = _hook(guard, monkeypatch, _bash(work, f"gh pr merge 76 --merge --match-head-commit {sha}"))
     assert _answer(final, rows) == expected, (rid, final, rows)
     if named:
@@ -1101,17 +1118,32 @@ def test_a_box_merges_no_head_that_changes_a_guarded_path(guard, monkeypatch, ju
 
 
 def test_a_box_merges_no_head_the_clone_does_not_have(guard, monkeypatch, judge, work):
-    _head_with(work, _write("docs/b.md"))
+    _sha, base = _head_with(work, _write("docs/b.md"))
     _receipt(work, SHA, "COMMENT")  # a receipt for a hash that is no commit here
-    _box(guard, monkeypatch, judge)
+    _box(guard, monkeypatch, judge, _judged(base))
     final, rows = _hook(guard, monkeypatch, _bash(work, MERGE))
     assert final is not None and final[0] == "deny" and "cannot find" in final[1], final
 
 
-def test_a_box_merges_nothing_without_origin_main(guard, monkeypatch, judge, work):
-    sha = _head_with(work, _write("docs/b.md"))
-    _git(work, "update-ref", "-d", "refs/remotes/origin/main")
+@pytest.mark.parametrize("marked", [None, "x", "0" * 39, OTHER_SHA])
+def test_a_box_merges_nothing_without_the_judges_commit(guard, monkeypatch, judge, work, marked):
+    sha, _base = _head_with(work, _write("docs/b.md"))
     _receipt(work, sha, "COMMENT")
-    _box(guard, monkeypatch, judge)
+    facts = copy.deepcopy(VALID)
+    if marked is not None:
+        facts["marker"]["judge"] = marked
+    _box(guard, monkeypatch, judge, facts)
     final, rows = _hook(guard, monkeypatch, _bash(work, f"gh pr merge 76 --merge --match-head-commit {sha}"))
-    assert final is not None and final[0] == "deny" and "origin/main" in final[1], final
+    assert final is not None and final[0] == "deny", final
+    assert "cannot see what the merge changes" in final[1], final[1]
+
+
+def test_a_moved_origin_main_does_not_hide_a_change_to_the_guard(guard, monkeypatch, judge, work):
+    # delta review of 0.11.0 (MAJOR): the session can move refs/remotes/origin/main to its head; the base is the
+    # judge's commit from the marker, so the change to the guard is still seen
+    sha, base = _head_with(work, _write("tools/guard/guard.py"))
+    _git(work, "update-ref", "refs/remotes/origin/main", sha)
+    _receipt(work, sha, "COMMENT")
+    _box(guard, monkeypatch, judge, _judged(base))
+    final, rows = _hook(guard, monkeypatch, _bash(work, f"gh pr merge 76 --merge --match-head-commit {sha}"))
+    assert final is not None and final[0] == "deny" and "tools/guard/guard.py" in final[1], final

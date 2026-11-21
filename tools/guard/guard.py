@@ -3506,8 +3506,9 @@ RECEIPT_VERDICTS = ("APPROVE", "COMMENT")
 _RECEIPT_MAX = 1024 * 1024
 
 
-def _box_merge_failed(ev: Event) -> Optional[str]:
-    """None when the call is the merge a box runs (D7), else the first condition that failed, in words."""
+def _box_merge_failed(ev: Event, judge: Optional[str] = None) -> Optional[str]:
+    """None when the call is the merge a box runs (D7), else the first condition that failed, in words. `judge`:
+    the judge's commit as the marker names it."""
     if ev.tool != "Bash" or not ev.command:
         return "only a Bash command can merge"
     text = ev.command.strip()
@@ -3547,18 +3548,29 @@ def _box_merge_failed(ev: Event) -> Optional[str]:
         return f"`{_MERGE_HEAD} SHA` is missing"
     if not _FULL_SHA_RE.fullmatch(sha):
         return "the head is not a full 40-character lower-case hash"
-    return _receipt_failed(ev.cwd, sha) or _merge_paths_failed(ev.cwd, sha)
+    return _receipt_failed(ev.cwd, sha) or _merge_paths_failed(ev.cwd, sha, judge)
 
 
 # review of 0.11.0 (MAJOR): in a box guard-config edits are logged and the receipt is a file the session could
 # write, so without this a box could merge a change to its own next judge. A box merges no head that changes a
 # path guard-config guards (the guard, its hooks and settings, CI workflows, the tracker, the test guard, the
-# scans) or deletes a test file, measured against origin/main in the clone; those merges stay the owner's.
-_MERGE_BASE_REF = "origin/main"
+# scans) or deletes a test file; those merges stay the owner's. The base is the judge's commit as the root-owned
+# marker names it (BOX_JUDGE: main when the box started), never a ref of the clone, which the session can move
+# (delta review of 0.11.0); a commit is its hash, so the session cannot fake its content. A head built on a newer
+# main than the judge is measured against the judge and may be denied for changes it did not make: fail closed.
+_MERGE_SEES = "so the guard cannot see what the merge changes"
+_TEST_FOLDERS = ("tests", "test")
 
 
-def _merge_paths_failed(cwd: str, sha: str) -> Optional[str]:
-    """None when the head changes no guarded path and deletes no test, else what it touches, in words."""
+def _is_test_file(parts: list) -> bool:
+    name = parts[-1]
+    return (any(p in _TEST_FOLDERS for p in parts[:-1]) or name.startswith("test_") or name.endswith("_test.py")
+            or name == "conftest.py")
+
+
+def _merge_paths_failed(cwd: str, sha: str, judge: Optional[str]) -> Optional[str]:
+    """None when the head changes no guarded path and deletes no test against the judge's commit, else what it
+    touches or why it cannot be seen, in words."""
     def git_out(*args: str) -> Optional[str]:
         try:
             r = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, timeout=3,
@@ -3567,10 +3579,11 @@ def _merge_paths_failed(cwd: str, sha: str) -> Optional[str]:
             return None
         return r.stdout if r.returncode == 0 else None
 
-    base = git_out("merge-base", _MERGE_BASE_REF, sha)
+    if not isinstance(judge, str) or not _FULL_SHA_RE.fullmatch(judge):
+        return f"the box's marker names no judge commit, {_MERGE_SEES}"
+    base = git_out("merge-base", judge, sha)
     if not base or not base.strip():
-        return f"the guard cannot find {sha} and {_MERGE_BASE_REF} in this clone (fetch both), so it cannot see " \
-               "what the merge changes"
+        return f"the guard cannot find {sha} and the judge's commit {judge} in this clone (fetch origin), {_MERGE_SEES}"
     out = git_out("diff", "--name-status", "--no-renames", "-z", base.strip(), sha)
     if out is None:
         return f"the guard cannot list what {sha} changes"
@@ -3579,8 +3592,7 @@ def _merge_paths_failed(cwd: str, sha: str) -> Optional[str]:
         what = guard_config_class(path)
         if what:
             return f"the pull request changes {path}, which is {what}; that merge is the owner's"
-        parts = path.split("/")
-        if status.startswith("D") and ("tests" in parts[:-1] or parts[-1].startswith("test_")):
+        if status.startswith("D") and _is_test_file(path.split("/")):
             return f"the pull request deletes the test file {path}; that merge is the owner's"
     return None
 
@@ -5782,7 +5794,7 @@ def _rule_verdict(name: str, ev: Event, cfg: dict) -> Optional[Decision]:
     """One rule's decision; in the box profile (run_hook names it in cfg) after the box table, so the checks of
     D6 and D7 run in the child, inside the budget."""
     d = RULES[name](ev, cfg)
-    return box_turn(name, d, ev) if d and cfg.get("profile") == "box" else d
+    return box_turn(name, d, ev, cfg) if d and cfg.get("profile") == "box" else d
 
 
 def _rules_in_process(names: list, ev: Event, cfg: dict) -> Verdicts:
@@ -6054,7 +6066,7 @@ def _is_reader_reason(reason: str) -> bool:
     return any(mark in reason for mark in _READER_MARKS)
 
 
-def box_turn(name: str, decision: Decision, ev: Event) -> Decision:
+def box_turn(name: str, decision: Decision, ev: Event, cfg: Optional[dict] = None) -> Decision:
     """A decision after the box table (D5): a deny stays as it is; an ask becomes ("logged", "") when its class
     logs (and, for delete-guard, the delete is local) or it is the merge of D7, and a deny otherwise. An ask a
     rule gives because it could not read the call is a deny whatever the class."""
@@ -6066,7 +6078,7 @@ def box_turn(name: str, decision: Decision, ev: Event) -> Decision:
         if entry == "log" and (name != "delete-guard" or _box_local_delete(ev)):
             return "logged", ""
         if entry == "merge":
-            failed = _box_merge_failed(ev)
+            failed = _box_merge_failed(ev, (cfg or {}).get("box_judge"))
             return ("logged", "") if failed is None else ("deny", BOX_MERGE_MSG.format(failed=failed, reason=reason))
     return "deny", BOX_ASK_MSG.format(reason=reason)
 
@@ -6100,6 +6112,8 @@ def run_hook(target: str, wrapper: Optional[str]) -> int:
         return 0
     names = PRE_RULES if target == "pre" else [target]
     cfg["profile"] = profile(None, facts, cfg)  # set here, after the configuration: no guard.json can name it
+    if cfg["profile"] == "box":  # the judge's commit, from the root-owned marker: the base of the merge check
+        cfg["box_judge"] = (facts.get("marker") or {}).get("judge")
     table = PROFILES[cfg["profile"]]
     box = "table" in table  # each ask is turned by the box table (D5): in the rules' child, and below for the guard's
     # rules_off silences a rule's asks in an own repo where the profile lets it; its denies stand, and any other

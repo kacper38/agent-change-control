@@ -26,10 +26,13 @@ if facts is not None:
     g.box_facts = lambda *a, **k: dict(facts)
 sys.exit(g.main(["hook", "pre", "--wrapper", "claude"]))
 '''
-# Rows whose answer the review of 0.11.0 changed after the rows were hashed: a box merges no head the clone does
-# not have, and the rows' SHA is no commit in their scratch repository (fix `_merge_paths_failed`). The file keeps
-# the answer written before the build; here each change is named with the words its new answer must hold.
-CHANGED_BY_REVIEW = {"X19": ("deny", "cannot find"), "X20": ("deny", "cannot find")}
+# Rows whose answer the review of 0.11.0 changed after the rows were hashed: a box merges no head whose changes it
+# cannot see against the judge's commit the marker names (fix `_merge_paths_failed`); these rows' marker names no
+# such commit and their SHA is no commit in their scratch repository. The file keeps the answer written before the
+# build; here each change is named with the words its new answer must hold. The case they held out, a logged merge
+# with a valid receipt, keeps the in-repository rows of test_box_profile.py (PATH_ROWS `docs`, `edit-a-test`).
+CHANGED_BY_REVIEW = {"X19": ("deny", "cannot see what the merge changes"),
+                     "X20": ("deny", "cannot see what the merge changes")}
 VALID = {"dockerenv": True, "marker_exists": True,
          "marker": {"schema": "agent-box/1", "name": "t", "seat": "t", "image": "x", "judge": "x",
                     "boundary": "own", "firewall": "set", "started": "2026-11-20T00:00:00Z"},

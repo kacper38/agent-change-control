@@ -94,6 +94,53 @@ def branch_tip(repo: str, branch: str) -> str | None:
     return branch_ref(repo, f"refs/heads/{branch}") or branch_ref(repo, f"refs/remotes/origin/{branch}")
 
 
+def gh_pr_view(number: int, repo: str):
+    out = _run(["gh", "pr", "view", str(number), "--json", PR_FIELDS], repo, GH_TIMEOUT_S)
+    try:
+        return None if out is None else json.loads(out)
+    except ValueError:
+        return None
+
+
+def remote_tip(repo: str, branch: str) -> str | None:
+    """origin's commit for refs/heads/<branch> now, by `git ls-remote`; None when absent or unreachable."""
+    out = _run(["git", "ls-remote", "origin", f"refs/heads/{branch}"], repo, GH_TIMEOUT_S) or ""
+    tips = [ln.split("\t")[0] for ln in out.splitlines() if ln.endswith(f"\trefs/heads/{branch}")]
+    return tips[0] if len(tips) == 1 else None
+
+
+def receipt_folder(repo: str) -> str | None:
+    """<git dir>/fresh-review, where bin/fresh-review writes its receipts (tools/review/fresh_review.py)."""
+    out = _run(["git", "rev-parse", "--git-dir"], repo, GIT_TIMEOUT_S)
+    if not out or not out.strip():
+        return None
+    return os.path.join(os.path.join(os.path.abspath(repo), out.strip()), "fresh-review")
+
+
+def read_receipt(folder: str | None, sha: str):
+    """The newest receipt for sha as (file name, parsed object or None when unreadable), None when there is none.
+    <sha>.json is number 1, <sha>.<n>.json with n >= 2 the re-runs (fresh_review.receipt_path); the highest wins."""
+    try:
+        names = os.listdir(folder) if folder else []
+    except OSError:
+        names = []
+    numbered = []
+    for name in names:
+        m = re.fullmatch(re.escape(sha) + r"(?:\.([0-9]+))?\.json", name)
+        if m and (m.group(1) is None or int(m.group(1)) >= 2):
+            numbered.append((int(m.group(1) or 1), name))
+    if not numbered:
+        return None
+    name = max(numbered)[1]
+    try:
+        with open(os.path.join(folder, name), encoding="utf-8") as fh:
+            body = fh.read(RECEIPT_MAX + 1)
+        data = json.loads(body) if len(body) <= RECEIPT_MAX else None
+    except (OSError, UnicodeDecodeError, ValueError, RecursionError):
+        data = None
+    return name, data if isinstance(data, dict) else None
+
+
 # --- checks: parsed data in, problems out ---------------------------------------------------------------------------
 
 def check_run(messages: list | None, name: str) -> list:
@@ -174,6 +221,56 @@ def not_verified(data) -> list:
     return [f"NOT VERIFIED: {e}" for e in entries] if isinstance(entries, list) else []
 
 
+def _check_problems(rollup: list) -> list:
+    if not rollup:
+        return ["FAIL: no checks ran"]
+    problems, green = [], False
+    for c in rollup:
+        c = c if isinstance(c, dict) else {}
+        kind, name = c.get("__typename"), c.get("name") or c.get("context")
+        if kind == "CheckRun" and c.get("status") == "COMPLETED" and c.get("conclusion") in CHECK_RUN_OK:
+            green = green or c.get("conclusion") == "SUCCESS"
+        elif kind == "StatusContext" and c.get("state") == "SUCCESS":
+            green = True
+        else:
+            state = c.get("conclusion") or c.get("status") or c.get("state")
+            problems.append(f"FAIL: check {name!r} ({kind}) is {state!r}, not green")
+    if not problems and not green:
+        problems.append("FAIL: no check succeeded")
+    return problems
+
+
+def check_merge(pr, remote: str | None, local: str | None, receipt) -> list:
+    """Pull request data from gh, origin's and the local tip of its branch, the newest receipt (read_receipt)."""
+    if not (isinstance(pr, dict) and isinstance(pr.get("state"), str) and isinstance(pr.get("headRefName"), str)
+            and isinstance(pr.get("statusCheckRollup"), list) and isinstance(pr.get("files"), list)):
+        return ["GAP: gh pr view gave no usable JSON"]
+    problems = []
+    if pr["state"] != "OPEN":
+        problems.append(f"FAIL: the pull request is {pr['state']}, not OPEN")
+    head, branch = pr.get("headRefOid"), pr["headRefName"]
+    if not _is_sha(head):
+        problems.append("GAP: headRefOid is not 40 lower-case hex digits")
+    else:
+        if remote is None:
+            problems.append(f"GAP: no tip of {branch} at origin")
+        elif remote != head:
+            problems.append(f"FAIL: origin's tip {remote} of {branch} is not the head {head}")
+        if local is not None and local != head:
+            problems.append(f"FAIL: the local tip {local} of {branch} is not the head {head}")
+        if receipt is None:
+            problems.append(f"FAIL: no fresh-review receipt for {head}")
+        elif receipt[1] is None or receipt[1].get("sha") != head:
+            problems.append(f"FAIL: the newest receipt {receipt[0]} is no receipt for {head}")
+        elif receipt[1].get("verdict") not in RECEIPT_VERDICTS:
+            problems.append(f"FAIL: the newest receipt {receipt[0]} has the verdict {receipt[1].get('verdict')!r}")
+    problems += _check_problems(pr["statusCheckRollup"])
+    if not any(isinstance(f, dict) and f.get("path") == "DECISIONS.md" and (_int(f.get("additions")) or 0) > 0
+               for f in pr["files"]):
+        problems.append("FAIL: the pull request adds no DECISIONS.md line")
+    return problems
+
+
 # --- command line ---------------------------------------------------------------------------------------------------
 
 def report(mode: str, problems: list, info: list, out) -> int:
@@ -181,6 +278,25 @@ def report(mode: str, problems: list, info: list, out) -> int:
         out.write(line + "\n")
     out.write(f"assert_run {mode}: FAIL ({len(problems)} problems)\n" if problems else f"assert_run {mode}: PASS\n")
     return 1 if problems else 0
+
+
+def _pr_number(text: str) -> int:
+    if not text.isdigit() or int(text) < 1:
+        raise argparse.ArgumentTypeError(f"not a pull request number: {text}")
+    return int(text)
+
+
+def merge_ready(number: int, repo: str, out) -> int:
+    pr = gh_pr_view(number, repo)
+    branch = pr.get("headRefName") if isinstance(pr, dict) else None
+    head = pr.get("headRefOid") if isinstance(pr, dict) else None
+    ok_branch = isinstance(branch, str) and bool(branch)
+    remote = remote_tip(repo, branch) if ok_branch else None
+    local = branch_ref(repo, f"refs/heads/{branch}") if ok_branch else None
+    receipt = read_receipt(receipt_folder(repo), head) if _is_sha(head) else None
+    problems = check_merge(pr, remote, local, receipt)
+    info = [] if problems else [f"gh pr merge {number} --merge --match-head-commit {head}"]
+    return report("merge-ready", problems, info, out)
 
 
 def main(argv: list | None = None, out=None) -> int:
@@ -192,7 +308,12 @@ def main(argv: list | None = None, out=None) -> int:
     w = sub.add_parser("worker")
     w.add_argument("file")
     w.add_argument("--repo", default=os.getcwd())
+    m = sub.add_parser("merge-ready")
+    m.add_argument("number", type=_pr_number)
+    m.add_argument("--repo", default=os.getcwd())
     ns = ap.parse_args(argv)
+    if ns.mode == "merge-ready":
+        return merge_ready(ns.number, ns.repo, out)
     if ns.mode == "run":
         return report("run", check_run(load_messages(ns.file), ns.file), [], out)
     data = load_json(ns.file)

@@ -221,8 +221,8 @@ def spawns_for(session: str, tdir: str) -> list:
                 row = json.loads(line)
             except ValueError:
                 continue
-            if row.get("session") == session and row.get("event") == "PreToolUse":
-                out.append({"agent": row.get("agent"), "model": row.get("model")})
+            if row.get("session") == session and row.get("event") == "PreToolUse" and row.get("tool") != "Workflow":
+                out.append({"agent": row.get("agent"), "model": row.get("model")})  # a Workflow launch is no spawn
     return out
 
 

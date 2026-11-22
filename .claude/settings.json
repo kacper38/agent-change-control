@@ -1,5 +1,8 @@
 {
-  "_about": "Hooks run tools/guard (both harnesses). The permissions block is a Claude-Code-only belt duplicating a subset of the guard rules; Copilot ignores it. Hook commands resolve from $CLAUDE_PROJECT_DIR (Claude Code) or the cwd (Copilot), never from the shell's current directory.",
+  "_about": "Hooks run tools/guard (both harnesses). The permissions block is a Claude-Code-only belt duplicating a subset of the guard rules; Copilot ignores it. Hook commands resolve from $CLAUDE_PROJECT_DIR (Claude Code) or the cwd (Copilot), never from the shell's current directory. The env pins the subagent spawn depth at 2, and the PreToolUse guard hook blocks the call when the guard times out or fails (onFailure block, guard 0.12.0).",
+  "env": {
+    "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH": "2"
+  },
   "hooks": {
     "PreToolUse": [
       {
@@ -9,6 +12,7 @@
             "type": "command",
             "command": "python3 \"${CLAUDE_PROJECT_DIR:-.}\"/tools/guard/guard.py hook pre --wrapper claude",
             "timeout": 5,
+            "onFailure": "block",
             "statusMessage": "guard"
           }
         ]

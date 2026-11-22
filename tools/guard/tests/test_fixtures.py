@@ -40,9 +40,16 @@ def test_fixture(guard, monkeypatch, rule, harness, decision, path):
 FILESYSTEM_RULES = {"scratch-md", "protected-branch", "fan-out"}
 
 
+# rules a harness has no tool for: Copilot has no Workflow tool (0.12.0, A4 of item #67)
+NO_CORPUS = {("workflow-launch", "copilot")}
+
+
 def test_every_rule_has_a_corpus(guard):
     for name in guard.RULES:
         for harness in ("claude", "copilot"):
+            if (name, harness) in NO_CORPUS:
+                assert not (FIX / name / harness).exists(), f"{name}/{harness}: listed as having no corpus"
+                continue
             d = FIX / name / harness
             assert (d / "allow").exists(), f"{name}/{harness}: no allow cases"
             if name not in FILESYSTEM_RULES:

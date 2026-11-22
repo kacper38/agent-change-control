@@ -13,6 +13,7 @@ HERE = pathlib.Path(__file__).resolve().parent
 FIX = HERE / "fixtures"
 
 CLIENT = {"boundary": "client"}
+LISTED = {"workflows": ["review-panel"]}  # guard 0.12.0: the committed list of workflows
 
 
 def shell(decision, *commands):
@@ -574,6 +575,22 @@ CASES: dict = {
         ("allow", "call", {"claude": "Skill", "input": {"skill": "loop", "args": "5m /verify"}}),
         ("allow", "call", {"claude": "Workflow", "input": {"name": "review-panel"}}),
         ("allow", "call", {"claude": "CronCreate", "input": {"cron": "7 * * * *", "prompt": "x"}}),
+    ],
+    # guard 0.12.0 (D3 of item #67): only a listed name starts a workflow unasked; Copilot has no Workflow tool
+    "workflow-launch": [
+        ("allow", "call", {"claude": "Workflow", "input": {"name": "review-panel"}}, LISTED),
+        ("allow", "call", {"claude": "Workflow", "input": {"name": "review-panel", "args": {"pr": 3}}}, LISTED),
+        ("allow", "call", {"claude": "Workflow", "input": {"name": "review-panel", "resumeFromRunId": "wf_1"}},
+         LISTED),
+        ("ask", "call", {"claude": "Workflow", "input": {"name": "other"}}, LISTED),
+        ("ask", "call", {"claude": "Workflow", "input": {"name": "review-panel"}}),
+        ("ask", "call", {"claude": "Workflow", "input": {"script": "await agent('go')"}}, LISTED),
+        ("ask", "call", {"claude": "Workflow", "input": {"name": "review-panel", "script": "await agent('go')"}},
+         LISTED),
+        ("ask", "call", {"claude": "Workflow", "input": {"scriptPath": ".claude/workflows/x.js"}}, LISTED),
+        ("ask", "call", {"claude": "Workflow", "input": {"name": 5}}, LISTED),  # the crash cases: a reader ask
+        ("ask", "call", {"claude": "Workflow", "input": {}}, LISTED),
+        ("ask", "call", {"claude": "Workflow", "input": {"name": ""}}, LISTED),
     ],
     # guard 0.10.0 (D5): a GitHub tool of the harness gets the verdict of the same act in a shell or a file tool
     "github-tools": [

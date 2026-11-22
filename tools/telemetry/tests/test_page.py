@@ -435,16 +435,26 @@ def test_an_unreadable_transcript_line_is_counted_once(page, world):
 def test_a_box_record_tied_to_no_session_is_counted(page, world):
     before = collected(page, world)["files_not_read"]
     runs = pathlib.Path(world["homes"][1]["results"]) / "guard" / "results"
-    for stamp, text in (("20261120T110000Z", '{"schema": '), ("20261120T111000Z", json.dumps({"result": None})),
-                        ("20261120T112000Z", json.dumps({"result": {"session_id": "../b1"}})),
-                        ("manual", json.dumps({"result": None})),  # a folder the wrapper did not name: counted
-                        ("20261101T000000Z", '{"schema": '),  # cut off before the window: may be any session's
-                        ("20261102T000000Z", json.dumps({"result": None})),  # before the window, no session: not
-                        ("20261103T000000Z", json.dumps({"result": {"session_id": "../b1"}}))):  # counted
-        (runs / stamp).mkdir()
-        (runs / stamp / "result.json").write_text(text)  # cut off; the CLI wrote no JSON; no session file's id
+    since, hour, odd = NOW - dt.timedelta(days=7), dt.timedelta(hours=1), {"session_id": "../b1"}  # no file's id
+
+    def run(start, end, result):  # a record as the wrapper writes it: its start and end, the CLI's result or None
+        return json.dumps({"started": start.strftime("%Y-%m-%dT%H:%M:%SZ"), "ended": end.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                           "result": result})
+    cases = ((NOW - 6 * hour, '{"schema": ', 1),
+             (NOW - 5 * hour, run(NOW - 5 * hour, NOW - hour, None), 1),
+             (NOW - 4 * hour, run(NOW - 4 * hour, NOW - hour, odd), 1),
+             (NOW - 3 * hour, json.dumps({"result": None}), 1),  # no end time says it is old
+             (since - 6 * hour, '{"schema": ', 1),  # does not parse: may be any session's, so it counts at any age
+             (since - 5 * hour, run(since - 5 * hour, since - hour, None), 0),
+             (since - 4 * hour, run(since - 4 * hour, since - hour, odd), 0),
+             (since - 3 * hour, run(since - 3 * hour, since + hour, None), 1))  # started before the window, ended in it
+    for start, text, _ in cases:  # each in the folder the wrapper names by the run's start
+        folder = runs / start.strftime("%Y%m%dT%H%M%SZ")
+        folder.mkdir()
+        (folder / "result.json").write_text(text)
     data = collected(page, world)
-    assert data["files_not_read"] == before + 5 and sessions_of(data)["b1"]["box"]["name"] == "guard"
+    assert data["files_not_read"] == before + sum(c for _, _, c in cases)
+    assert sessions_of(data)["b1"]["box"]["name"] == "guard"
 
 
 def test_a_branch_list_that_fails_is_named_on_the_page(page, world, monkeypatch):

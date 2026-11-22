@@ -229,7 +229,8 @@ def test_the_box_profile_entry(guard):
 
 
 def test_the_version_is_0_11_0(guard):
-    assert guard.VERSION == "0.11.0"
+    # 0.11.0 brought the box profile; the guard is 0.12.0 since item #67 (test_guard_0120.py)
+    assert guard.VERSION == "0.12.0"
 
 
 # ----------------------------------------------------------------------------

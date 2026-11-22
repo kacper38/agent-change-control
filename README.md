@@ -136,7 +136,10 @@ On the laptop, before a tool call runs:
   protected-branch commits, `gh issue …`, `gh label …`, `az boards work-item`
   writes, `az devops invoke`, any `bypassRules` and raw API writes, every
   cloud launch and a read of the stored GitHub login; gives the harness's
-  GitHub tools the verdict of their shell twin; counts subagent spawns. Every rule ships with allow, ask, deny and crash fixtures
+  GitHub tools the verdict of their shell twin; counts subagent spawns,
+  a workflow's agents included; starts only a listed workflow unasked. A
+  guard that times out or crashes blocks the call (`onFailure: block`, Claude
+  Code only), and `env` pins the subagent spawn depth at 2. Every rule ships with allow, ask, deny and crash fixtures
   from both harnesses.
 - `.githooks/commit-msg`: `type(scope): imperative subject`, no closing keywords.
 - `tools/egress/egress_screen.py --target <name> [--pass] [files]`: the last
@@ -200,7 +203,7 @@ variables (`KZ_TRACKER_REPO`, `KZ_TRACKER_AREA`, `KZ_TRACKER_ADO_MODE`,
 
 - `tools/guard/guard.py` takes its knobs from the committed `.claude/guard.json`
   (`protected_branches`, `boundary`, `scratch_md_mode`, `host_install`,
-  telemetry dir). `host_install` is `auto` (the default), `ask` or `off`, and
+  `workflows`, telemetry dir). `host_install` is `auto` (the default), `ask` or `off`, and
   `KZ_HOST_INSTALL` overrides it: `auto` silences the install asks where the
   hook itself runs in a container, a dev container, a Codespace, a Claude Code
   cloud session or on a GitHub Actions or Azure Pipelines agent, and every ask
@@ -226,6 +229,22 @@ variables (`KZ_TRACKER_REPO`, `KZ_TRACKER_AREA`, `KZ_TRACKER_ADO_MODE`,
   that is the agreed route for installs. The guard reads text and prompts; it
   is no sandbox, and `DECISIONS.md` (2026-11-16, 2026-11-17, 2026-11-18 and
   2026-11-19) lists the forms it does not see.
+- Since guard 0.12.0 (item #67) `.claude/settings.json` pins
+  `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=2` under `env`, and the PreToolUse
+  guard hook carries `onFailure: block`: a guard that runs past its 5 s
+  timeout or exits 1 blocks the call instead of letting it run (the guard's
+  own 3.5 s budget answers first wherever it can measure). The rule
+  `workflow-launch` asks before every `Workflow` call with a `script` or a
+  `scriptPath`, and before one whose `name` is not in `workflows` of the
+  committed `.claude/guard.json` (exact match; on the host the nearest one,
+  in a box the judge's; `guard.local.json` cannot add names); a listed name
+  gets no answer, so the harness's permission rules decide. In a box and in
+  cloud its ask is a deny. `fan-out` counts a workflow's agents: every row of
+  `spawns.jsonl` carries `tool` and the session's `total` (the larger of the
+  Agent/Task calls and the SubagentStart rows), a `Workflow` call leaves one
+  row with its name, and the ask comes once whenever the total crosses 6,
+  16, 26, ... (a SubagentStart cannot ask, so a workflow's agents count
+  toward the next Agent call). `guard-config` covers `.claude/workflows/**`.
 - Since guard 0.11.0 (item #66) a third profile, `box`, holds inside the
   agent box, and only there: `/.dockerenv` exists, the marker
   `/etc/agent-box/box.json` is root's, neither it nor its folder is writable

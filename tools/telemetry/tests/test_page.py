@@ -346,7 +346,9 @@ def test_reviews_stay_tied_to_a_merged_branch(page, world):
 def test_a_block_written_on_two_lines_is_one_call(page, world):
     path = pathlib.Path(world["homes"][0]["config"]) / "projects" / encoded(world["project"]) / "s6.jsonl"
     lines = path.read_text().splitlines()
-    path.write_text("\n".join(lines + [lines[-1]]) + "\n")  # the same assistant line, written again
+    calls = [line for line in lines if json.loads(line)["type"] == "assistant"]
+    assert len(calls) == 1
+    path.write_text("\n".join(lines + calls) + "\n")  # the same assistant line, written again
     assert [c["tool"] for c in sessions_of(collected(page, world))["s6"]["calls"]] == ["Read"]
 
 

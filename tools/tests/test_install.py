@@ -8,6 +8,7 @@ A pre-rename install left `claude-platform-setup.manifest`; the installer now wr
 
 from __future__ import annotations
 
+import json
 import os
 import pathlib
 import subprocess
@@ -230,9 +231,65 @@ def test_explicit_forge_overrides_detection_and_leaves_other_forge_files_in_plac
     (["--forge", "gitlab"], "--forge takes github or ado"),
     (["--forge"], "--forge takes github or ado"),
     (["--frobnicate"], "unknown argument: --frobnicate"),
+    (["--boundary", "x"], "--boundary takes own or client"),
+    (["--boundary"], "--boundary takes own or client"),
 ])
 def test_bad_arguments_are_refused_before_any_copy(tmp_path, args, message):
     t = target_repo(tmp_path, None)
     r = into(t, *args)
     assert r.returncode == 1 and message in r.stderr
     assert not (t / ".claude").exists()
+
+
+# --- repo scope: the boundary of a new target (plan step 1.8) ------------------
+
+def boundary_of(target: pathlib.Path) -> str:
+    return json.loads((target / ".claude/guard.json").read_text())["boundary"]
+
+
+def test_a_new_target_gets_boundary_client_and_a_second_run_changes_nothing(tmp_path):
+    t = target_repo(tmp_path, None)
+
+    r = into(t)
+
+    assert r.returncode == 0, r.stderr
+    assert boundary_of(t) == "client"
+    assert "  boundary: client (new file)" in r.stdout
+    kit = (ROOT / ".claude/guard.json").read_text().splitlines()
+    got = (t / ".claude/guard.json").read_text().splitlines()
+    assert [a for a, b in zip(kit, got) if a != b] == ['  "boundary": "own",'] and len(kit) == len(got)
+    r = into(t)
+    assert "changes: 0 " in r.stdout and "  boundary: left as is (existing file)" in r.stdout
+    assert "note: .claude/guard.json exists; boundary left as it is (check it: client is the default for new " \
+           "targets)" in r.stdout
+
+
+def test_boundary_own_is_written_when_asked(tmp_path):
+    t = target_repo(tmp_path, None)
+    r = into(t, "--boundary", "own")
+    assert r.returncode == 0, r.stderr
+    assert boundary_of(t) == "own" and "  boundary: own (new file)" in r.stdout
+
+
+@pytest.mark.parametrize("args", [["--boundary", "own"], ["--force"], ["--boundary", "client", "--force"]])
+def test_an_existing_guard_json_is_never_touched(tmp_path, args):
+    t = target_repo(tmp_path, None)
+    (t / ".claude").mkdir()
+    mine = b'{\n  "boundary": "client",\n  "protected_branches": ["trunk"]\n}\n'
+    (t / ".claude/guard.json").write_bytes(mine)
+
+    r = into(t, *args)
+
+    assert r.returncode == 0, r.stderr
+    assert (t / ".claude/guard.json").read_bytes() == mine
+    assert "boundary: left as is (existing file)" in r.stdout
+
+
+def test_the_skill_and_the_orchestration_tools_land_in_the_target(tmp_path):
+    t = target_repo(tmp_path, None)
+    assert into(t).returncode == 0
+    for name in ("SKILL.md", "brief-template.md", "brief-example.md"):
+        got = (t / ".claude/skills/orchestrate" / name).read_bytes()
+        assert got == (ROOT / "skills/orchestrate" / name).read_bytes(), name
+    for name in ("assert_run.py", "brief_lint.py"):
+        assert (t / "tools/orchestration" / name).read_bytes() == (ROOT / "tools/orchestration" / name).read_bytes()

@@ -254,8 +254,8 @@ def _session_cost(row: Optional[dict], own: Optional[float]) -> tuple:
 def agent_label(row: dict) -> str:
     """The label of a tree row without what a tool call wrote into it: an agent's type (the ledger's `type`, never
     its label, which adds the description the Agent call gave), a workflow without its script's name (the plan's
-    answer 1: no tool-call content in this version); the session's own row and an agent with no transcript keep the
-    ledger's label, which holds an id or a type only."""
+    answer 1: no tool-call content in this version); the session's own row and an agent with no transcript (kind
+    `missing`, its type from the spawn log) keep the ledger's label, which holds an id or a type only."""
     if row.get("kind") == "agent":
         return row.get("type") or "agent"
     if row.get("kind") == "workflow":
@@ -745,12 +745,19 @@ def check_page(page: str) -> list:
     anywhere = {"class", "id"}
     banned = ("://", "url(", "url=", "@import", "\\")
     csp = "default-src 'none'; style-src 'unsafe-inline'"
+    # The page opens with these, in this order, nothing between (not even whitespace): there every browser applies
+    # the CSP tag, so the check needs no model of where a browser ends the head.
+    opening = ["doctype", "html", "head", "meta charset", "meta csp"]
     breaches: list = []
-    state = {"csp": 0, "head": "before", "in_style": False, "in_title": False}  # head: before, open, closed
+    state = {"csp": 0, "in_style": False, "first": []}
 
     def loads(text: str) -> Optional[str]:
         low = text.lower()
         return next((b for b in banned if b in low), None)
+
+    def seen(event: str) -> None:
+        if len(state["first"]) < len(opening):
+            state["first"].append(event)
 
     class Check(HTMLParser):
         def handle_starttag(self, tag, attributes):
@@ -765,48 +772,45 @@ def check_page(page: str) -> list:
                 if name == "href" and not re.fullmatch(r"#[A-Za-z0-9_-]+", value or ""):  # each one: a browser
                     breaches.append("an href that is no # anchor")  # takes the first of two, dict() the last
             names, given = sorted(n for n, _ in attributes), dict(attributes)
+            event = tag
             if tag == "meta":
                 if names == ["charset"]:
-                    pass
+                    event = "meta charset"
                 elif names == ["content", "http-equiv"] and \
                         (given["http-equiv"] or "").lower() == "content-security-policy":
+                    event = "meta csp"
                     state["csp"] += 1
                     if given["content"] != csp:
                         breaches.append(f"CSP tag with the content {given['content']!r}")
-                    if state["head"] != "open":
-                        breaches.append("CSP tag outside <head>")
                 else:
                     breaches.append(f"<meta> that is neither charset nor the CSP tag: {names}")
-            if tag == "head":
-                if state["head"] == "before":  # a second <head> opens nothing: a browser drops it
-                    state["head"] = "open"
-            elif tag not in ("html", "meta", "title", "style"):  # body content ends the head, </head> or not
-                state["head"] = "closed"
-            if tag in ("style", "title"):
-                state["in_" + tag] = True
+            seen(event)
+            if tag == "style":
+                state["in_style"] = True
 
         def handle_endtag(self, tag):
-            if tag == "head":
-                state["head"] = "closed"
-            if tag in ("style", "title"):
-                state["in_" + tag] = False
+            seen("/" + tag)
+            if tag == "style":
+                state["in_style"] = False
 
         def handle_data(self, data):
+            seen("text")
             if state["in_style"]:
                 hit = loads(data)
                 if hit:
                     breaches.append(f"<style> holds {hit}")
-            elif state["head"] == "open" and not state["in_title"] and data.strip(" \t\n\r\f"):  # HTML's own
-                state["head"] = "closed"  # whitespace only: other text, a no-break space too, ends the head
 
         def handle_comment(self, data):
+            seen("comment")
             breaches.append("a comment (the renderer writes none)")
 
         def handle_decl(self, decl):
+            seen("doctype" if decl.lower() == "doctype html" else "declaration")
             if decl.lower() != "doctype html":
                 breaches.append(f"declaration <!{decl}>")
 
         def handle_pi(self, data):
+            seen("processing instruction")
             breaches.append("a processing instruction")
 
         def unknown_decl(self, data):
@@ -815,8 +819,10 @@ def check_page(page: str) -> list:
     parser = Check()  # attribute values are unescaped either way; <style> text never is
     parser.feed(page)
     parser.close()
-    if state["csp"] != 1:
+    if state["csp"] > 1:  # none at all breaks the opening
         breaches.append(f"the CSP tag appears {state['csp']} times, not once")
+    if state["first"] != opening:
+        breaches.append(f"the page opens with {state['first']}, not with {opening}")
     return breaches
 
 

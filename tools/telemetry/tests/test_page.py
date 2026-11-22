@@ -473,7 +473,6 @@ def test_no_tool_input_reaches_the_page(page, world):
 def test_the_hand_written_page_passes_and_escaped_text_never_counts(page):
     assert page.check_page(minimal()) == []
     assert page.check_page(minimal("<p>&lt;script src=http://x&gt; url( url= @import \\</p>")) == []
-    assert page.check_page(minimal(head="<title>t</title>\n " + CSP_TAG)) == []  # title text, whitespace: still head
 
 
 @pytest.mark.parametrize("name, html", [
@@ -511,8 +510,14 @@ def test_the_hand_written_page_passes_and_escaped_text_never_counts(page):
      + CSP_TAG + "</head></body></html>"),
     ("text in the head before the CSP tag",
      '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">x' + CSP_TAG + "<title>t</title></head></html>"),
-    ("a no-break space in the head before the CSP tag",  # str.strip() would take it for whitespace; HTML does not
+    ("a no-break space in the head before the CSP tag",  # text to a browser, whitespace to Python's isspace()
      '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">\u00a0' + CSP_TAG + "<title>t</title></head></html>"),
+    ("text before <head>",  # a browser starts the body there and drops the later <head>
+     '<!DOCTYPE html><html lang="en">x<head><meta charset="utf-8">' + CSP_TAG + "<title>t</title></head></html>"),
+    ("</body> in the head before the CSP tag",
+     '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"></body>' + CSP_TAG + "<title>t</title></head></html>"),
+    ("whitespace before the CSP tag", minimal(head="\n" + CSP_TAG)),  # nothing between: the check stays this simple
+    ("the CSP tag after the title", minimal(head="<title>t</title>" + CSP_TAG)),
 ])
 def test_each_breach_is_found(page, name, html):
     assert page.check_page(html), name

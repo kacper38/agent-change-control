@@ -3,7 +3,8 @@
 
   python3 tools/orchestration/probe.py [--only NAME ...] [--model haiku] [--claude-bin claude]
                                        [--out PATH] [--workdir DIR]
-  python3 tools/orchestration/probe.py hook LOG [--only-allow NAME] [--block-tool TOOL]   (internal: the recorder)
+  python3 tools/orchestration/probe.py hook LOG [--only-allow NAME] [--block-tool TOOL] [--sleep S] [--exit-code N]
+                                                                      (internal: the recorder)
   python3 tools/orchestration/probe.py mcp-server LOG                   (internal: a stdio MCP server, `github`)
 
 Each canary is one scripted `claude -p` run (depth-pin uses two; ledger-own-cost judges the workflow-by-name
@@ -26,6 +27,7 @@ import shlex
 import subprocess
 import sys
 import tempfile
+import time
 from typing import Callable, NamedTuple, Optional
 
 TIMEOUT_S = 300
@@ -70,7 +72,10 @@ TOOL_LIST_PROMPT = "Answer with the single word ok. Use no tools."
 WORKFLOWS = {  # name: (description, prompt, label)
     "kit-probe-run": ("Canary: one agent runs one fixed Bash command", RUN_PROMPT, "ran"),
     "kit-probe-hook": ("Canary: one agent runs an allowed and a forbidden Bash command", TWO_CMDS_PROMPT, "hook"),
+    "kit-probe-six": ("Canary: six agents in sequence, each answers leaf", LEAF, "leaf"),
 }
+WORKFLOW_AGENTS = {"kit-probe-six": 6}  # a workflow not named here starts one agent
+SIX = 6
 AGENTS = {  # name: (description, tools, body)
     "probe-outer": ("Canary relay: starts probe-inner", "Agent", RELAY.format(next="probe-inner")),
     "probe-inner": ("Canary leaf: runs an allowed and a forbidden Bash command", "Bash", LEAF_BASH),
@@ -108,6 +113,9 @@ class Run(NamedTuple):
     fanout: bool
     mcp: bool = False          # register the probe's MCP server as `github`; the pre hook matches its tools
     stream: bool = False       # stream-json output, so the init message with the tool list is kept
+    pre_timeout: int = 10      # the timeout of the PreToolUse recorder hook, in seconds
+    on_failure: Optional[str] = None  # the recorder hook's onFailure key; None leaves it out
+    hook_mode: tuple = ()      # extra recorder arguments: ("--sleep", "8") or ("--exit-code", "1")
 
 
 class Canary(NamedTuple):
@@ -126,6 +134,8 @@ def hook_main(argv: list) -> int:
     ap.add_argument("log")
     ap.add_argument("--only-allow")
     ap.add_argument("--block-tool")
+    ap.add_argument("--sleep", type=float)  # write the row, then sleep: a hook that runs past its timeout
+    ap.add_argument("--exit-code", type=int)  # write the row, then exit with this code: a hook that fails
     ns = ap.parse_args(argv)
     try:
         data = json.loads(sys.stdin.read())
@@ -158,6 +168,11 @@ def hook_main(argv: list) -> int:
     if blocked:
         sys.stderr.write("probe hook: blocked by the canary rule\n")
         return 2
+    if ns.sleep is not None:
+        time.sleep(ns.sleep)
+    if ns.exit_code is not None:
+        sys.stderr.write(f"probe hook: exiting {ns.exit_code} as asked\n")
+        return ns.exit_code
     return 0
 
 
@@ -223,7 +238,7 @@ def append_row(path: str, row: dict) -> None:
 def build_scratch(scratch: str, run: Run, model: str) -> None:
     q = shlex.quote
     rec = f"{q(sys.executable)} -I {q(PROBE)} hook {q(os.path.join(scratch, 'hook.jsonl'))}"
-    pre_cmd = rec + (f" --only-allow {q(ALLOWED)}" if run.block else "")
+    pre_cmd = rec + (f" --only-allow {q(ALLOWED)}" if run.block else "") + "".join(f" {q(a)}" for a in run.hook_mode)
     if run.mcp:
         pre_cmd = rec + f" --block-tool {q(MCP_BLOCKED)}"
         server = {"type": "stdio", "command": sys.executable,
@@ -234,9 +249,11 @@ def build_scratch(scratch: str, run: Run, model: str) -> None:
         fanout = (f"KZ_TELEMETRY_DIR={q(os.path.join(scratch, 'telemetry'))} {q(sys.executable)} {q(GUARD)} "
                   "hook fan-out --wrapper claude")
         start_hooks.append({"type": "command", "command": fanout, "timeout": 10})
+    pre_hook = {"type": "command", "command": pre_cmd, "timeout": run.pre_timeout}
+    if run.on_failure is not None:
+        pre_hook["onFailure"] = run.on_failure
     settings: dict = {"hooks": {
-        "PreToolUse": [{"matcher": "mcp__github__.*" if run.mcp else "Bash|Agent|Workflow",
-                        "hooks": [{"type": "command", "command": pre_cmd, "timeout": 10}]}],
+        "PreToolUse": [{"matcher": "mcp__github__.*" if run.mcp else "Bash|Agent|Workflow", "hooks": [pre_hook]}],
         "SubagentStart": [{"hooks": start_hooks}],
     }}
     if run.env:
@@ -244,10 +261,18 @@ def build_scratch(scratch: str, run: Run, model: str) -> None:
     write(os.path.join(scratch, ".claude", "settings.json"), json.dumps(settings, indent=2) + "\n")
     for name in run.workflows:
         description, prompt, label = WORKFLOWS[name]
-        write(os.path.join(scratch, ".claude", "workflows", f"{name}.js"),
-              f"export const meta = {{\n  name: '{name}',\n  description: '{description}',\n}}\n\n"
-              f"const reply = await agent({json.dumps(prompt)}, {{ model: '{model}', label: '{label}' }})\n"
-              "return { reply }\n")
+        head = f"export const meta = {{\n  name: '{name}',\n  description: '{description}',\n}}\n\n"
+        count = WORKFLOW_AGENTS.get(name, 1)
+        if count == 1:
+            body = (f"const reply = await agent({json.dumps(prompt)}, {{ model: '{model}', label: '{label}' }})\n"
+                    "return { reply }\n")
+        else:  # in sequence: each agent starts after the one before has answered
+            body = ("const replies = []\n"
+                    f"for (let i = 1; i <= {count}; i++) {{\n"
+                    f"  replies.push(await agent({json.dumps(prompt)}, "
+                    f"{{ model: '{model}', label: `{label}-${{i}}` }}))\n"
+                    "}\nreturn { replies }\n")
+        write(os.path.join(scratch, ".claude", "workflows", f"{name}.js"), head + body)
     for name in run.agents:
         description, tools, body = AGENTS[name]
         write(os.path.join(scratch, ".claude", "agents", f"{name}.md"),
@@ -533,6 +558,59 @@ def judge_spawn_log(ev: Evidence) -> tuple:
     return "inconclusive", "no workflow agent ran, so the spawn log had nothing to see", observed
 
 
+def judge_hook_failure(open_ev: Evidence, block_ev: Evidence, exit_ev: Evidence) -> tuple:
+    """A pre hook that times out lets the call run (the control); with onFailure block, a timeout or an exit 1
+    blocks it."""
+    runs = (("open-timeout", open_ev), ("block-timeout", block_ev), ("block-exit1", exit_ev))
+
+    def hook_row(ev: Evidence) -> bool:
+        return any(touched(r.get("command")) == RAN for r in rows_where(ev, event="PreToolUse", tool="Bash"))
+
+    observed = {}
+    for key, ev in runs:
+        observed[f"{key}_marker"] = RAN in ev.markers
+        observed[f"{key}_hook_row"] = hook_row(ev)
+        observed[f"{key}_exit_code"] = ev.exit_code
+    for key, ev in runs:
+        reason = broken(ev)
+        if reason:
+            return "inconclusive", f"{key} run: {reason}", observed
+    for key, ev in runs[1:]:
+        if RAN in ev.markers:
+            return "fails", f"the call ran in the {key} run although the hook failed with onFailure block", observed
+    for key, ev in runs:
+        reason = unclean(ev)
+        if reason:
+            return "inconclusive", f"{key} run: {reason}", observed
+    for key, ev in runs:
+        if not hook_row(ev):
+            return "inconclusive", f"the {key} run has no hook row for the command, so the hook was not shown to " \
+                "fail", observed
+    if RAN not in open_ev.markers:
+        return ("inconclusive", "the control (no onFailure) did not run the call, so a missing marker under block "
+                "proves nothing", observed)
+    return "holds", "", observed
+
+
+def judge_workflow_total(ev: Evidence) -> tuple:
+    """Six workflow agents in one session: the sixth SubagentStart row of spawns.jsonl carries total 6."""
+    session = result_field(ev, "session_id")
+    rows = [r for r in ev.spawn_rows if r.get("event") == "SubagentStart"]
+    mine = [r for r in rows if r.get("session") == session]
+    sixth = mine[SIX - 1] if len(mine) >= SIX else None
+    observed = {"spawn_rows": len(rows), "session_rows": len(mine),
+                "totals": [str(r.get("total")) for r in mine],
+                "sixth_total": sixth.get("total") if sixth and isinstance(sixth.get("total"), int) else None}
+    reason = unclean(ev)
+    if reason:
+        return "inconclusive", reason, observed
+    if sixth is None:
+        return "inconclusive", f"the session has {len(mine)} SubagentStart rows, not {SIX}", observed
+    if sixth.get("total") == SIX and not isinstance(sixth.get("total"), bool):
+        return "holds", "", observed
+    return "fails", f"the sixth SubagentStart row carries total {sixth.get('total')!r}, not {SIX}", observed
+
+
 def judge_mcp_hook(ev: Evidence) -> tuple:
     hook_tools = sorted({str(r.get("tool")) for r in ev.hook_rows if r.get("event") == "PreToolUse"})
     server_calls = sorted({str(r.get("tool")) for r in ev.server_rows})
@@ -662,6 +740,14 @@ def wf_run(allowed: tuple = ALLOW_RUN, env: Optional[dict] = None, fanout: bool 
     return Run("run", "/kit-probe-run", allowed, ("kit-probe-run",), (), False, env or {}, fanout)
 
 
+ALLOW_BASH_RUN = (f"Bash(touch {RAN})", f"Bash(touch */{RAN})")
+
+
+def failure_run(key: str, hook_mode: tuple, on_failure: Optional[str], pre_timeout: int = 10) -> Run:
+    return Run(key, RUN_PROMPT, ALLOW_BASH_RUN, (), (), False, {}, False, pre_timeout=pre_timeout,
+               on_failure=on_failure, hook_mode=hook_mode)
+
+
 def depth_run(key: str, pin: str) -> Run:
     return Run(key, MAIN_SPAWN.format(agent="probe-l1"), ("Agent",), (), tuple(CHAIN), False, {DEPTH_VAR: pin}, False)
 
@@ -716,6 +802,21 @@ CANARIES = (
            "step 1.7 (#65), criterion 11",
            (Run("run", TOOL_LIST_PROMPT, (), (), (), False, {}, False, stream=True),),
            lambda e: judge_tool_list(e["run"])),
+    Canary("hook-failure-blocks",
+           "a PreToolUse hook that runs past its timeout lets the call run; with onFailure block on the hook entry, "
+           "a timeout or an exit 1 blocks the call",
+           "step 1.1, fact 6",
+           (failure_run("open-timeout", ("--sleep", "8"), None, pre_timeout=2),
+            failure_run("block-timeout", ("--sleep", "8"), "block", pre_timeout=2),
+            failure_run("block-exit1", ("--exit-code", "1"), "block")),
+           lambda e: judge_hook_failure(e["open-timeout"], e["block-timeout"], e["block-exit1"])),
+    Canary("workflow-agents-total",
+           "a saved workflow that starts six agents in sequence leaves six SubagentStart rows in spawns.jsonl for "
+           "the session, the sixth with total 6 (the guard's fan-out hook)",
+           "step 1.2",
+           (Run("run", "/kit-probe-six", ("Skill(kit-probe-six)", "Workflow(kit-probe-six)"), ("kit-probe-six",), (),
+                False, {}, True),),
+           lambda e: judge_workflow_total(e["run"])),
 )
 CANARY_BY_NAME = {c.name: c for c in CANARIES}
 

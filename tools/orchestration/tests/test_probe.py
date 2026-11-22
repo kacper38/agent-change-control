@@ -23,7 +23,7 @@ DEPTH, BG = "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH", "CLAUDE_CODE_DISABLE_BACKGRO
 SUCCESS = {"type": "result", "subtype": "success", "is_error": False, "session_id": "s1"}
 NAMES = ["workflow-by-name", "denial-exits-zero", "hook-blocks-workflow-agent", "hook-blocks-nested-subagent",
          "depth-pin", "spawn-log-workflow-agents", "workflow-background-off", "ledger-own-cost", "mcp-hook",
-         "tool-list"]
+         "tool-list", "hook-failure-blocks", "workflow-agents-total"]
 
 
 def pre(tool, agent_type=None, command=None, subagent_type=None, blocked=False, env=None):
@@ -57,6 +57,10 @@ MCP_BOTH = [pre("mcp__github__get_me"), pre("mcp__github__merge_pull_request", b
 
 def mcp_ev(rows=(), calls=(), **kw):
     return dict(ev(rows=rows, **kw), server_rows=tuple({"tool": c} for c in calls))
+
+
+def sp(total, session="s1"):
+    return {"event": "SubagentStart", "session": session, "agent": WA, "tool": None, "total": total}
 
 
 INNER_BLOCK_ABS = INNER_BLOCK[:4] + [pre("Bash", "probe-inner", "touch " + ABS + "allowed.marker"),
@@ -173,6 +177,44 @@ CASES = [
      "fails", "added none; removed CronCreate"),
     ("tools-3-runner-error", "tool-list", {"run": ev(error="timed out after 300 s")}, "inconclusive", "timed out"),
     ("tools-4-not-a-list", "tool-list", {"run": dict(ev(), init={"tools": "Bash"})}, "inconclusive", "no init"),
+    # item #67, D2 (a): a failed pre hook fails open without onFailure, and blocks with onFailure block
+    ("fail-1-holds", "hook-failure-blocks", {"open-timeout": ev(rows=[pre("Bash", None, RAN)], markers=["ran.marker"]),
+                                             "block-timeout": ev(rows=[pre("Bash", None, RAN)]),
+                                             "block-exit1": ev(rows=[pre("Bash", None, RAN)])}, "holds", ""),
+    ("fail-2-block-timeout-ran", "hook-failure-blocks",
+     {"open-timeout": ev(rows=[pre("Bash", None, RAN)], markers=["ran.marker"]),
+      "block-timeout": ev(rows=[pre("Bash", None, RAN)], markers=["ran.marker"]),
+      "block-exit1": ev(rows=[pre("Bash", None, RAN)])}, "fails", "the block-timeout run"),
+    ("fail-3-block-exit1-ran", "hook-failure-blocks",
+     {"open-timeout": ev(rows=[pre("Bash", None, RAN)], markers=["ran.marker"]),
+      "block-timeout": ev(rows=[pre("Bash", None, RAN)]),
+      "block-exit1": ev(rows=[pre("Bash", None, RAN)], markers=["ran.marker"])}, "fails", "the block-exit1 run"),
+    ("fail-4-control-did-not-run", "hook-failure-blocks",
+     {"open-timeout": ev(rows=[pre("Bash", None, RAN)]), "block-timeout": ev(rows=[pre("Bash", None, RAN)]),
+      "block-exit1": ev(rows=[pre("Bash", None, RAN)])}, "inconclusive", "the control"),
+    ("fail-5-no-hook-row", "hook-failure-blocks",
+     {"open-timeout": ev(rows=[pre("Bash", None, RAN)], markers=["ran.marker"]), "block-timeout": ev(),
+      "block-exit1": ev(rows=[pre("Bash", None, RAN)])}, "inconclusive", "block-timeout run has no hook row"),
+    ("fail-6-unclean", "hook-failure-blocks",
+     {"open-timeout": ev(rows=[pre("Bash", None, RAN)], markers=["ran.marker"]),
+      "block-timeout": ev(exit_code=1, rows=[pre("Bash", None, RAN)]),
+      "block-exit1": ev(rows=[pre("Bash", None, RAN)])}, "inconclusive", "block-timeout run: exit code 1"),
+    ("fail-7-runner-error", "hook-failure-blocks",
+     {"open-timeout": ev(error="timed out after 300 s"), "block-timeout": ev(), "block-exit1": ev()},
+     "inconclusive", "open-timeout run: timed out"),
+    # item #67, D2 (b): six workflow agents, the sixth SubagentStart row carries the session total 6
+    ("total-1-holds", "workflow-agents-total", {"run": ev(spawns=[sp(n) for n in range(1, 7)])}, "holds", ""),
+    ("total-2-wrong-total", "workflow-agents-total",
+     {"run": ev(spawns=[sp(n) for n in range(1, 6)] + [sp(5)])}, "fails", "total 5, not 6"),
+    ("total-3-no-total", "workflow-agents-total",
+     {"run": ev(spawns=[sp(n) for n in range(1, 6)] + [sp(None)])}, "fails", "total None"),
+    ("total-4-five-rows", "workflow-agents-total", {"run": ev(spawns=[sp(n) for n in range(1, 6)])},
+     "inconclusive", "5 SubagentStart rows"),
+    ("total-5-other-session", "workflow-agents-total",
+     {"run": ev(spawns=[sp(n, session="s2") for n in range(1, 7)])}, "inconclusive", "0 SubagentStart rows"),
+    ("total-6-unclean", "workflow-agents-total",
+     {"run": ev(is_error=True, subtype="error_max_budget_usd", spawns=[sp(n) for n in range(1, 7)])},
+     "inconclusive", "error_max_budget_usd"),
 ]
 
 
@@ -296,6 +338,7 @@ def test_hook_records_the_variables_under_test(tmp_path):
 # --- the scratch builder -----------------------------------------------------------------------------------------
 
 ALLOW_WF = ["Skill(kit-probe-run)", "Workflow(kit-probe-run)", "Bash(touch ran.marker)", "Bash(touch */ran.marker)"]
+ALLOW_RAN = ["Bash(touch ran.marker)", "Bash(touch */ran.marker)"]
 ALLOW_TWO = ["Bash(touch allowed.marker)", "Bash(touch */allowed.marker)", "Bash(touch forbidden.marker)",
              "Bash(touch */forbidden.marker)"]
 TABLE = {  # (canary, run key): (prompt start, allow rules, workflows, agents, block mode, env, fan-out hook)
@@ -313,6 +356,18 @@ TABLE = {  # (canary, run key): (prompt start, allow rules, workflows, agents, b
                               {DEPTH: "2"}, False),
     ("spawn-log-workflow-agents", "run"): ("/kit-probe-run", ALLOW_WF, ["kit-probe-run"], [], False, {}, True),
     ("workflow-background-off", "run"): ("/kit-probe-run", ALLOW_WF, ["kit-probe-run"], [], False, {BG: "1"}, False),
+    ("hook-failure-blocks", "open-timeout"): ("Run this Bash command", ALLOW_RAN, [], [], False, {}, False),
+    ("hook-failure-blocks", "block-timeout"): ("Run this Bash command", ALLOW_RAN, [], [], False, {}, False),
+    ("hook-failure-blocks", "block-exit1"): ("Run this Bash command", ALLOW_RAN, [], [], False, {}, False),
+    ("workflow-agents-total", "run"): ("/kit-probe-six", ["Skill(kit-probe-six)", "Workflow(kit-probe-six)"],
+                                       ["kit-probe-six"], [], False, {}, True),
+}
+# item #67, D2: the recorder hook entry of each run (timeout, onFailure, extra arguments); every other run keeps
+# the entry it had, byte for byte
+HOOK_ENTRY = {
+    ("hook-failure-blocks", "open-timeout"): (2, None, " --sleep 8"),
+    ("hook-failure-blocks", "block-timeout"): (2, "block", " --sleep 8"),
+    ("hook-failure-blocks", "block-exit1"): (10, "block", " --exit-code 1"),
 }
 
 
@@ -424,6 +479,12 @@ def test_scratch_project_for_every_run(probe, tmp_path, name, key):
     (pre_group,) = settings["hooks"]["PreToolUse"]
     assert pre_group["matcher"] == "Bash|Agent|Workflow"
     pre_cmd = pre_group["hooks"][0]["command"]
+    timeout, on_failure, extra = HOOK_ENTRY.get((name, key), (10, None, ""))
+    want = {"type": "command", "command": pre_cmd, "timeout": timeout}
+    if on_failure:
+        want["onFailure"] = on_failure
+    assert pre_group["hooks"][0] == want
+    assert pre_cmd.endswith(extra) and (bool(extra) or not re.search(r" --(sleep|exit-code)\b", pre_cmd))
     start_cmds = [h["command"] for h in settings["hooks"]["SubagentStart"][0]["hooks"]]
     for cmd in (pre_cmd, start_cmds[0]):
         assert cmd.startswith(f"{sys.executable} -I ") and cmd.split()[3:5] == ["hook", str(scratch / "hook.jsonl")]
@@ -476,15 +537,15 @@ def test_success_that_does_nothing_holds_nothing(probe, tmp_path):
     data = json.loads(record.read_text())
     assert list(data) == ["schema", "cli_version", "date", "model", "models", "cost_usd", "canaries"]
     assert data["schema"] == "orchestration-probe/1" and data["cli_version"] == "9.9.9" and data["model"] == "haiku"
-    assert data["models"] == ["claude-fake-1"] and data["cost_usd"] == 0.1
+    assert data["models"] == ["claude-fake-1"] and data["cost_usd"] == 0.14
     assert list(data["canaries"]) == NAMES
-    assert [c["status"] for c in data["canaries"].values()] == ["inconclusive"] * 10
+    assert [c["status"] for c in data["canaries"].values()] == ["inconclusive"] * 12
     assert data["canaries"]["depth-pin"]["cost_usd"] == 0.02
     assert list(data["canaries"]["workflow-by-name"]) == ["status", "reason", "expect", "backs", "observed",
                                                           "cost_usd"]
     assert text.splitlines()[0] == "inconclusive  workflow-by-name              $0.0100"
     assert data["canaries"]["ledger-own-cost"]["cost_usd"] == 0.0, "a reused run is paid for once"
-    assert text.splitlines()[-1] == f"probe: CLI 9.9.9, 0 of 10 canaries hold, $0.1000; wrote {record}"
+    assert text.splitlines()[-1] == f"probe: CLI 9.9.9, 0 of 12 canaries hold, $0.1400; wrote {record}"
     assert not record.with_name("verified.json.tmp").exists()
 
 
@@ -803,3 +864,49 @@ def test_keep_box_key(probe, tmp_path):
     assert probe.keep_box_key(str(path)) == {}
     path.write_text(json.dumps({"canaries": {}, "box": {"schema": "box-probe/1"}}), encoding="utf-8")
     assert probe.keep_box_key(str(path)) == {"box": {"schema": "box-probe/1"}}
+
+
+# --- item #67, D2: the recorder's failure modes, the defaults, the six-agent workflow -----------------------------
+
+def test_hook_sleeps_after_writing_the_row(tmp_path):
+    import time
+    t = time.monotonic()
+    r, rows = hook(tmp_path, bash(RAN), "--sleep", "0.5")
+    assert r.returncode == 0 and time.monotonic() - t >= 0.5
+    assert len(rows) == 1 and rows[0]["command"] == RAN and rows[0]["blocked"] is False
+
+
+def test_hook_exits_with_the_asked_code_after_writing_the_row(tmp_path):
+    r, rows = hook(tmp_path, bash(RAN), "--exit-code", "1")
+    assert r.returncode == 1 and len(rows) == 1 and rows[0]["command"] == RAN
+
+
+def test_the_new_run_fields_default_to_the_old_scratch_project(probe, tmp_path):
+    # every run that sets none of the new fields writes the settings it wrote before them, byte for byte
+    for canary in probe.CANARIES:
+        for run in canary.runs:
+            if (canary.name, run.key) in HOOK_ENTRY:
+                continue
+            assert (run.pre_timeout, run.on_failure, run.hook_mode) == (10, None, ()), (canary.name, run.key)
+            old = probe.Run(*run[:10])  # the ten fields a Run had before item #67
+            a, b = tmp_path / f"{canary.name}-{run.key}-a", tmp_path / f"{canary.name}-{run.key}-b"
+            probe.build_scratch(str(a), run, "haiku")
+            probe.build_scratch(str(b), old, "haiku")
+            got = (a / ".claude" / "settings.json").read_text().replace(str(a), "<s>")
+            assert got == (b / ".claude" / "settings.json").read_text().replace(str(b), "<s>")
+            assert '"onFailure"' not in got and "--sleep" not in got and "--exit-code" not in got
+
+
+def test_the_six_agent_workflow_starts_six_leaf_agents_in_sequence(probe, tmp_path):
+    run = probe.CANARY_BY_NAME["workflow-agents-total"].runs[0]
+    probe.build_scratch(str(tmp_path), run, "haiku")
+    text = (tmp_path / ".claude" / "workflows" / "kit-probe-six.js").read_text()
+    assert text.startswith("export const meta = {\n  name: 'kit-probe-six',")
+    assert "for (let i = 1; i <= 6; i++)" in text and text.count("await agent(") == 1
+    assert json.dumps(probe.LEAF) in text and "model: 'haiku'" in text
+    one = (tmp_path / "one")
+    probe.build_scratch(str(one), probe.CANARY_BY_NAME["workflow-by-name"].runs[0], "haiku")
+    assert (one / ".claude" / "workflows" / "kit-probe-run.js").read_text().count("await agent(") == 1
+    settings = json.loads((tmp_path / ".claude" / "settings.json").read_text())
+    assert settings["hooks"]["PreToolUse"][0]["matcher"] == "Bash|Agent|Workflow"
+    assert "guard.py" not in json.dumps(settings["hooks"]["PreToolUse"]), "the scratch project runs no guard pre hook"

@@ -92,7 +92,7 @@ KNOWN_CLAUDE_TOOLS = {
     "ToolSearch": "harmless",
     "WebFetch": "harmless",
     "WebSearch": "harmless",
-    "Workflow": "cloud-launch",  # a script whose agent() asks for isolation remote
+    "Workflow": "judged",  # cloud-launch reads the script (isolation remote), workflow-launch the name (0.12.0)
     "Write": "judged",
 }
 COPILOT_TOOLS = {
@@ -191,6 +191,7 @@ DEFAULTS = {
     "scratch_md_mode": "ask",  # ask | deny | off
     "host_install": "auto",  # auto (silent only in a container or CI) | ask | off
     "rules_off": [],  # rules whose asks are silenced (own repos only): guard.json, guard.local.json, KZ_RULES_OFF
+    "workflows": [],  # the saved workflows a session starts unasked (0.12.0): only the committed guard.json lists them
     "scratch_md_allow": [
         "docs/", ".claude/", ".github/", "skills/", "agents/", ".agents/", "evidence/",
         "README.md", "DECISIONS.md", "AGENTS.md", "CLAUDE.md", "CHANGELOG.md", "CONTRIBUTING.md",
@@ -4468,7 +4469,7 @@ def _workflow_script(ev: Event) -> tuple:
         except OSError as exc:
             return None, f"the Workflow script {path} could not be read ({type(exc).__name__})"
     if isinstance(ev.args.get("name"), str):
-        return None, None  # a named workflow: step 1.2 reads it (named limit)
+        return None, None  # a named workflow: workflow-launch reads the name (0.12.0)
     return None, "a Workflow call with no script, scriptPath or name"
 
 
@@ -4507,6 +4508,42 @@ def rule_cloud_launch(ev: Event, cfg: dict) -> Optional[Decision]:
         if script and _REMOTE_ISOLATION_RE.search(script):
             return "deny", CLOUD_LAUNCH_MSG.format(what="a Workflow whose agent asks for isolation remote")
     return None
+
+
+# ----------------------------------------------------------------------------
+# workflow-launch: only a reviewed, listed workflow starts unasked (item #67, plan step 1.2)
+# ----------------------------------------------------------------------------
+
+WORKFLOW_SCRIPT_MSG = ("workflow-launch: an inline or file script (`script`, `scriptPath`) is not a reviewed, listed "
+                       "workflow; confirm the call.")
+WORKFLOW_UNKNOWN_MSG = ("workflow-launch: the workflow `{name}` is not listed; the list is `workflows` in the "
+                        "committed .claude/guard.json. Confirm the call.")
+
+
+def listed_workflows(cfg: dict) -> set:
+    """The names in `workflows`: its string entries; missing is empty, anything but a list is empty with a note."""
+    names = cfg.get("workflows", [])
+    if not isinstance(names, list):
+        print("guard: ignoring workflows: expected a list of workflow names", file=sys.stderr)
+        return set()
+    if not all(isinstance(n, str) for n in names):
+        print("guard: workflows: entries that are not text are ignored", file=sys.stderr)
+    return {n for n in names if isinstance(n, str)}
+
+
+def rule_workflow_launch(ev: Event, cfg: dict) -> Optional[Decision]:
+    """A Workflow call: a script or scriptPath asks; a name asks unless `workflows` lists it exactly. Listed: no
+    answer (the harness's permission rules decide). `args` and `resumeFromRunId` change nothing."""
+    if ev.event != "PreToolUse" or ev.kind != "workflow":
+        return None
+    if "script" in ev.args or "scriptPath" in ev.args:
+        return "ask", WORKFLOW_SCRIPT_MSG
+    name = ev.args.get("name")
+    if not isinstance(name, str) or not name:
+        return "ask", READER_MSG.format(rule="workflow-launch", what="a Workflow call without a name as text")
+    if name in listed_workflows(cfg):
+        return None
+    return "ask", WORKFLOW_UNKNOWN_MSG.format(name=name)
 
 
 # ----------------------------------------------------------------------------
@@ -5721,6 +5758,7 @@ RULES: dict[str, Rule] = {
     "tracker-guard": judged_twice("tracker-guard", rule_tracker_guard),
     "host-install": judged_twice("host-install", rule_host_install),
     "cloud-launch": judged_twice("cloud-launch", rule_cloud_launch),
+    "workflow-launch": rule_workflow_launch,
     "github-tools": rule_github_tools,
 }
 PRE_RULES = list(RULES)
@@ -6063,6 +6101,7 @@ BOX_TABLE = {
     "tracker-guard": "merge",
     "host-install": "deny",
     "cloud-launch": "deny",
+    "workflow-launch": "deny",
     "github-tools": "deny",  # the harness's merge tool too: it carries no head hash this check reads
     "unreadable-args": "deny",
     "budget": "deny",

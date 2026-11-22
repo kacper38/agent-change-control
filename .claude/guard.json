@@ -4,5 +4,6 @@
   "protected_branches": ["main"],
   "boundary": "own",
   "scratch_md_mode": "ask",
-  "host_install": "auto"
+  "host_install": "auto",
+  "workflows": []
 }

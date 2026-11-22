@@ -172,12 +172,18 @@ def work(tmp_path):
 
 def _setup(setup: str, judge, work) -> None:
     """`work.KEY=JSON; judge.KEY=JSON; local.KEY=JSON`: a key of the work clone's guard.json, the judge's, or the
-    work clone's guard.local.json."""
+    work clone's guard.local.json. `file.PATH=JSON` and `user.PATH=JSON` write the JSON string as a file at PATH in
+    the work clone or in the user's Claude folder (CLAUDE_CONFIG_DIR, set by _profile)."""
     for item in (p.strip() for p in setup.split(";")):
         if not item or item == "-":
             continue
         key, _, value = item.partition("=")
         where, _, name = key.partition(".")
+        if where in ("file", "user"):
+            path = (work if where == "file" else judge.parent / "config") / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.loads(value))
+            continue
         path = {"work": work / ".claude" / "guard.json", "judge": judge / ".claude" / "guard.json",
                 "local": work / ".claude" / "guard.local.json"}[where]
         data = json.loads(path.read_text()) if path.exists() else {}
@@ -190,6 +196,7 @@ def _profile(guard, monkeypatch, judge, name: str) -> None:
     monkeypatch.setattr(guard, "box_facts", lambda: copy.deepcopy(facts))
     monkeypatch.setattr(guard, "guard_root", lambda: str(judge))
     monkeypatch.setattr(guard, "current_branch", lambda cwd: "feat/x")
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(judge.parent / "config"))  # the user's folder: empty but for a row
     if name == "cloud":
         monkeypatch.setenv("CLAUDE_CODE_REMOTE", "1")
 
@@ -275,6 +282,20 @@ W7 | host | local.rules_off=["workflow-launch"] | skipped | - | Workflow | {"nam
 W7 | host | work.rules_off=["workflow-launch"]; work.boundary="client" | ask | workflow-launch | Workflow | {"name": "other"}
 W7 | cloud | work.rules_off=["workflow-launch"] | deny | workflow-launch | Workflow | {"name": "other"}
 W7 | box | work.rules_off=["workflow-launch"]; judge.rules_off=["workflow-launch"] | deny | workflow-launch | Workflow | {"name": "other"}
+# --- a name is resolved (0.10.0's named limit, closed in the first review): cloud-launch reads every
+# .claude/workflows/<name>.js above the call's folder and in the user's Claude folder, as it reads a scriptPath;
+# none found answers as 0.11.0 did
+W9 | host | work.workflows=["review-panel"]; file..claude/workflows/review-panel.js="await agent('go')\n" | silent | - | Workflow | {"name": "review-panel"}
+W9 | host | work.workflows=["review-panel"]; file..claude/workflows/review-panel.js="await agent('go', { isolation: 'remote' })\n" | deny | cloud-launch | Workflow | {"name": "review-panel"}
+W9 | cloud | work.workflows=["review-panel"]; file..claude/workflows/review-panel.js="await agent('go', { isolation: 'remote' })\n" | deny | cloud-launch | Workflow | {"name": "review-panel"}
+W9 | box | judge.workflows=["review-panel"]; file..claude/workflows/review-panel.js="await agent('go', { isolation: 'remote' })\n" | deny | cloud-launch | Workflow | {"name": "review-panel"}
+W9 | host | work.workflows=["review-panel"]; user.workflows/review-panel.js="await agent('go', { isolation: 'remote' })\n" | deny | cloud-launch | Workflow | {"name": "review-panel"}
+W9 | box | judge.workflows=["review-panel"]; user.workflows/review-panel.js="await agent('go', { isolation: 'remote' })\n" | deny | cloud-launch | Workflow | {"name": "review-panel"}
+W9 | host | work.workflows=["review-panel"]; file..claude/workflows/review-panel.js/x="a folder" | ask | cloud-launch | Workflow | {"name": "review-panel"}
+W9 | box | judge.workflows=["review-panel"]; file..claude/workflows/review-panel.js/x="a folder" | deny | cloud-launch | Workflow | {"name": "review-panel"}
+W9 | host | work.workflows=["../review-panel"] | ask | cloud-launch | Workflow | {"name": "../review-panel"}
+W9 | host | work.workflows=[".review-panel"] | ask | cloud-launch | Workflow | {"name": ".review-panel"}
+W9 | host | work.workflows=["review-panel"]; file..claude/workflows/other.js="await agent('go', { isolation: 'remote' })\n" | silent | - | Workflow | {"name": "review-panel"}
 # --- D11: a saved workflow started through Skill ends in a Workflow call; the Skill call answers as at 0.11.0
 W8 | host | - | silent | - | Skill | {"skill": "review-panel"}
 W8 | host | work.workflows=["review-panel"] | silent | - | Skill | {"skill": "review-panel", "args": "3"}
@@ -294,8 +315,33 @@ def test_the_workflow_row(guard, monkeypatch, judge, work, rid, prof, setup, exp
         (line,) = [r for r in rows if r["verdict"] == expected]
         assert rule in line["rules"], line
         assert line["profile"] == prof, line
-    if prof == "box" and expected == "deny" and rid != "W6":  # W6: cloud-launch's own deny comes first
+    if prof == "box" and expected == "deny" and rule != "cloud-launch" and rid != "W6":  # cloud-launch's own deny
         assert final[1].startswith(BP.BOX_PREFIX), final
+
+
+def test_a_named_workflow_is_read_above_the_call_and_in_the_home_folder(guard, monkeypatch, tmp_path):
+    """W9's two cases a row cannot hold: a call from a subfolder reads the project's file, and with no
+    CLAUDE_CONFIG_DIR the user's folder is ~/.claude."""
+    remote = "await agent('go', { isolation: 'remote' })\n"
+    proj, home = tmp_path / "proj", tmp_path / "home"
+    (proj / "sub" / "dir").mkdir(parents=True)
+    monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
+    monkeypatch.setenv("HOME", str(home))
+
+    def launch(cwd):
+        return guard.rule_cloud_launch(guard.Event({
+            "hook_event_name": "PreToolUse", "tool_name": "Workflow", "tool_input": {"name": "rp"},
+            "cwd": str(cwd), "session_id": "s1", "transcript_path": "/t"}), {})
+
+    assert launch(proj / "sub" / "dir") is None  # no file anywhere: as at 0.11.0
+    (proj / ".claude" / "workflows").mkdir(parents=True)
+    (proj / ".claude" / "workflows" / "rp.js").write_text(remote)
+    assert launch(proj / "sub" / "dir")[0] == "deny"
+    (proj / ".claude" / "workflows" / "rp.js").write_text("await agent('go')\n")
+    assert launch(proj / "sub" / "dir") is None
+    (home / ".claude" / "workflows").mkdir(parents=True)
+    (home / ".claude" / "workflows" / "rp.js").write_text(remote)
+    assert launch(proj)[0] == "deny"
 
 
 def _wf(guard, tool_input, event="PreToolUse", tool="Workflow"):

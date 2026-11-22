@@ -4478,8 +4478,58 @@ def _cloud_seg(seg: list[str]) -> Optional[Decision]:
 WORKFLOW_SCRIPT_MAX = 1_000_000
 
 
+WORKFLOW_NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*\Z")  # a name that is one plain file name
+
+
+def _read_script_file(full: str, path: str) -> tuple:
+    """(text, None) of one Workflow script file, or (None, why); `path` is how the message names it."""
+    try:  # a directory, a device, a FIFO or a huge file would raise or stall the hook: each asks
+        # a FIFO swapped in cannot block here, and a tty cannot become the controlling terminal
+        fd = os.open(full, os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_NOCTTY", 0))
+        with os.fdopen(fd, "rb") as fh:
+            info = os.fstat(fh.fileno())  # judged on what was opened, not on the name
+            if not stat.S_ISREG(info.st_mode):
+                return None, f"the Workflow script {path} is not a regular file"
+            if info.st_size > WORKFLOW_SCRIPT_MAX:
+                return None, f"the Workflow script {path} is larger than {WORKFLOW_SCRIPT_MAX} bytes"
+            data = fh.read(WORKFLOW_SCRIPT_MAX + 1)
+            if len(data) > WORKFLOW_SCRIPT_MAX:  # it grew after fstat: refuse, never judge a prefix
+                return None, f"the Workflow script {path} is larger than {WORKFLOW_SCRIPT_MAX} bytes"
+            return data.decode("utf-8", errors="replace"), None
+    except OSError as exc:
+        return None, f"the Workflow script {path} could not be read ({type(exc).__name__})"
+
+
+def _named_workflow(ev: Event, name: str) -> tuple:
+    """A saved workflow's files, wherever the harness may take one from: `.claude/workflows/<name>.js` in the call's
+    folder and in every folder above it (the project's, wherever the session stands in it), and in the user's Claude
+    folder (CLAUDE_CONFIG_DIR, else ~/.claude). Every file found is read as a scriptPath is and judged together;
+    none found answers as 0.11.0 did (a built-in workflow, or none at all)."""
+    if not WORKFLOW_NAME_RE.match(name):
+        return None, f"a Workflow name that is no plain file name ({name[:80]!r})"
+    candidates, d = [], os.path.abspath(ev.cwd or ".")
+    while True:
+        candidates.append(os.path.join(d, ".claude", "workflows", name + ".js"))
+        parent = os.path.dirname(d)
+        if parent == d:
+            break
+        d = parent
+    user = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.join(os.path.expanduser("~"), ".claude")
+    candidates.append(os.path.join(user, "workflows", name + ".js"))
+    texts, seen = [], set()
+    for full in candidates:
+        if not os.path.lexists(full) or os.path.realpath(full) in seen:
+            continue
+        seen.add(os.path.realpath(full))
+        text, unread = _read_script_file(full, full)
+        if unread:
+            return None, unread
+        texts.append(text)
+    return ("\n".join(texts) if texts else None), None
+
+
 def _workflow_script(ev: Event) -> tuple:
-    """(script text or None, what could not be read or None) of a Workflow call; a `name` is not resolved."""
+    """(script text or None, what could not be read or None) of a Workflow call; a `name` is resolved to its files."""
     if "script" in ev.args:
         script = ev.args["script"]
         return (script, None) if isinstance(script, str) else (None, "a Workflow script that is not text")
@@ -4487,24 +4537,9 @@ def _workflow_script(ev: Event) -> tuple:
         path = ev.args["scriptPath"]
         if not isinstance(path, str) or not path:
             return None, "a Workflow scriptPath that is not a path"
-        full = os.path.join(ev.cwd, os.path.expanduser(path))
-        try:  # a directory, a device, a FIFO or a huge file would raise or stall the hook: each asks
-            # a FIFO swapped in cannot block here, and a tty cannot become the controlling terminal
-            fd = os.open(full, os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_NOCTTY", 0))
-            with os.fdopen(fd, "rb") as fh:
-                info = os.fstat(fh.fileno())  # judged on what was opened, not on the name
-                if not stat.S_ISREG(info.st_mode):
-                    return None, f"the Workflow script {path} is not a regular file"
-                if info.st_size > WORKFLOW_SCRIPT_MAX:
-                    return None, f"the Workflow script {path} is larger than {WORKFLOW_SCRIPT_MAX} bytes"
-                data = fh.read(WORKFLOW_SCRIPT_MAX + 1)
-                if len(data) > WORKFLOW_SCRIPT_MAX:  # it grew after fstat: refuse, never judge a prefix
-                    return None, f"the Workflow script {path} is larger than {WORKFLOW_SCRIPT_MAX} bytes"
-                return data.decode("utf-8", errors="replace"), None
-        except OSError as exc:
-            return None, f"the Workflow script {path} could not be read ({type(exc).__name__})"
+        return _read_script_file(os.path.join(ev.cwd, os.path.expanduser(path)), path)
     if isinstance(ev.args.get("name"), str):
-        return None, None  # a named workflow: workflow-launch reads the name (0.12.0)
+        return _named_workflow(ev, ev.args["name"])
     return None, "a Workflow call with no script, scriptPath or name"
 
 

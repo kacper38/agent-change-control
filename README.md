@@ -393,11 +393,13 @@ or gap, 2 usage):
   --output-format json` run's output: success, no permission denial,
   structured output, no `null` stage, no outstanding background work.
 - `tools/orchestration/assert_run.py worker FILE [--repo DIR]`: a
-  `worker-result/1` object: its head is the branch tip and every check exited
-  0.
+  `worker-result/1` object: its head is the branch tip and every check it
+  reports exited 0 (the worker's own word; nothing is re-run).
 - `tools/orchestration/assert_run.py merge-ready N [--repo DIR]`: pull request
   N is open, its head is the tip at origin and locally, its checks are green,
-  a fresh-review receipt approves the head and it adds a `DECISIONS.md` line;
+  the newest fresh-review receipt for the head says APPROVE or COMMENT (open
+  findings of a COMMENT are not checked: answer each before the merge) and it
+  adds a `DECISIONS.md` line;
   prints `gh pr merge N --merge --match-head-commit <sha>`, never merges.
 - `tools/orchestration/brief_lint.py FILE...`: a brief has every field of
   `brief-template.md` once, none empty, a command as done evidence and a

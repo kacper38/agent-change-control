@@ -19,6 +19,7 @@
 - `src/app/cli.py`
 - `tests/test_cli.py`
 - `DECISIONS.md` (one line)
+- `result.json` at the worktree root (the worker result; not committed)
 
 ## Forbidden paths
 
@@ -48,4 +49,4 @@ The commits (short hash and subject), the open risks, and every departure from t
 
 ## Size limit
 
-At most 3 files and 150 changed lines; stop and report if more is needed.
+At most 3 committed files and 150 changed lines; stop and report if more is needed.

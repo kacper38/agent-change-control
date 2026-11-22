@@ -124,7 +124,8 @@ Work for more than one agent follows the skill `orchestrate`:
 - a worker's result is data, checked with `tools/orchestration/assert_run.py worker`;
   a headless run's output with `assert_run.py run`
 - a missing result is a gap, never a pass: read the branch state and re-brief
-- before any merge, `assert_run.py merge-ready N`; the merge is the command it prints
+- before any merge, `assert_run.py merge-ready N`; the merge is the command it prints,
+  run by an agent only where a standing rule allows it, else handed to Kacper
 
 ## Harness notes (what reads this file)
 

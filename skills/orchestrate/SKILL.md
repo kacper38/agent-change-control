@@ -30,15 +30,18 @@ user_invocable: true
 5. **Check each result** as data, never from prose:
    `python3 tools/orchestration/assert_run.py worker <result.json> --repo <worktree>`.
    It fails a head that is not the branch tip and a non-zero check; it prints what was not verified.
+   The exit codes are the worker's own report: re-run the brief's done evidence before you rely on it.
 6. **A missing result is a gap**, never a pass: read the branch state (`git log`, the worktree) and re-brief
    the packet. Never guess what the worker did.
 7. **Headless jobs** follow the D4 contract (`--permission-mode dontAsk` with narrow allow rules,
    `--max-budget-usd`, `--max-turns`, background tasks off, `--json-schema`). Check the output file:
    `python3 tools/orchestration/assert_run.py run <output.json>`. The exit code of `claude -p` is no evidence.
 8. **Before any merge**: `python3 tools/orchestration/assert_run.py merge-ready <N>`. It passes only when the
-   head is the branch tip, the checks are green, a fresh-review receipt approves that head and the pull
-   request adds a `DECISIONS.md` line. The merge is the command it prints, run only where the repository's
-   standing rules let an agent merge; otherwise hand the printed command to the owner.
+   head is the branch tip, the checks are green, the newest fresh-review receipt for that head says APPROVE
+   or COMMENT and the pull request adds a `DECISIONS.md` line. A COMMENT can carry open findings: answer
+   each (fix or rebut, on record) before the merge; the tool does not check that. The merge is the command
+   it prints, run only where the repository's standing rules let an agent merge; otherwise hand the printed
+   command to the owner.
 
 ## In Copilot
 
@@ -49,3 +52,7 @@ Only the flat fan-out applies: briefs, results and the `assert_run.py` checks as
 - It does not prove a headless job ran with the flags; `run` checks the contract on the output only.
 - `merge-ready` reads gh and git at one moment; a push after it is caught only by `--match-head-commit`.
 - A review receipt is a file a session could write itself: it stops a forgotten review, not a hostile session.
+- Receipts live in the git folder of the worktree where `bin/fresh-review` ran; run `merge-ready` there.
+- "Green" means the checks GitHub lists at that moment; a required check that has not reported yet is not
+  seen. Branch protection on the forge is the backstop.
+- `worker` trusts the exit codes the worker reports; it re-runs nothing.

@@ -2,7 +2,8 @@
 
 Every file here is built by the tests: a git repository of its own in tmp_path (with a reflog, so `@{-1}` means
 something), a host Claude home, a box home with a box run's record, the guard's logs and fresh-review receipts.
-Nothing comes from a real transcript. Each tool input carries SECRET, which must never reach the data or the page.
+Nothing comes from a real transcript. SECRET is in every tool input, prompt, reply and tool output, in an Agent call's
+description, a workflow's name and a box run's result; it must never reach the data or the page.
 The git tests run against the git on the machine and fail when it is missing.
 """
 import datetime as dt
@@ -55,11 +56,11 @@ def tool(tid, name):
 def asst(minute, branch, cwd, blocks, req):
     return {"type": "assistant", "timestamp": ts(minute), "gitBranch": branch, "cwd": cwd, "requestId": req,
             "message": {"model": "claude-opus-5-5", "stop_reason": "tool_use" if blocks else "end_turn",
-                        "content": blocks or [{"type": "text", "text": "reply"}],
+                        "content": [{"type": "text", "text": f"reply {SECRET}"}, *blocks],  # a reply in every row
                         "usage": {"input_tokens": 1000, "output_tokens": 100}}}
 
 
-def user(minute, branch, cwd, text="prompt"):
+def user(minute, branch, cwd, text=f"prompt {SECRET}"):
     return {"type": "user", "timestamp": ts(minute), "gitBranch": branch, "cwd": cwd,
             "message": {"role": "user", "content": text}}
 
@@ -74,6 +75,9 @@ def session(folder, sid, branch, cwd, calls=(), title=None, pr=None, minute=0):
     if title:
         rows.append({"type": "ai-title", "aiTitle": title, "sessionId": sid})
     rows.append(asst(minute + 1, branch, cwd, [tool(t, n) for t, n in calls], f"req-{sid}-1"))
+    if calls:  # each call's output
+        rows.append(user(minute + 1, branch, cwd, [{"type": "tool_result", "tool_use_id": t, "content": SECRET}
+                                                    for t, _ in calls]))
     if pr:
         rows.append({"type": "pr-link", "sessionId": sid, "prNumber": pr, "prUrl": "u", "timestamp": ts(minute + 2)})
     write_jsonl(folder / f"{sid}.jsonl", rows)
@@ -168,6 +172,10 @@ def world(tmp_path, git_bin):
     write_jsonl(host_tel / "sessions-2026-11.jsonl", [
         {"ts": "2026-11-20T10:10:00Z", "session": "s1", "cost_usd": 1.25, "cost_basis": "claude-code",
          "cost_check": "ok", "models": {}}])
+    write_jsonl(host_tel / "spawns.jsonl", [  # the guard's spawn log: a workflow's name, an agent with no transcript
+        {"ts": "2026-11-20T10:06:00Z", "event": "PreToolUse", "session": "s1", "tool": "Workflow", "workflow": SECRET},
+        {"ts": "2026-11-20T10:06:10Z", "event": "SubagentStart", "session": "s1", "agent": "Explore",
+         "agent_id": "a300"}])
 
     claude_home = box / "claude-home"
     session(claude_home / "projects" / "-work", "b1", "feat/page", "/work", [("toolu_box", "Bash")], minute=40)
@@ -238,7 +246,7 @@ def test_tool_calls_joined_with_the_guard_log_on_the_call_id(page, world):
                    ("code-reviewer", "Grep", "ask", False)]
     assert s["s1"]["calls"][1]["rules"] == [("egress-guard", "deny")]
     assert [(c["tool"], c["verdict"]) for c in s["b1"]["calls"]] == [("Bash", "logged")]
-    assert [a["kind"] for a in s["s1"]["agents"]] == ["session", "agent"]
+    assert [a["kind"] for a in s["s1"]["agents"]] == ["session", "agent", "missing"]
 
 
 def test_the_gate_holds_every_ask_and_deny_with_its_rule(page, world):
@@ -378,7 +386,7 @@ def test_no_tool_input_reaches_the_data(page, world):
 def test_an_agent_is_shown_by_its_type_and_a_workflow_without_its_name(page, world):
     s = sessions_of(collected(page, world))
     assert [(a["kind"], a["label"]) for a in s["s1"]["agents"] if a["kind"] != "session"] == [
-        ("agent", "code-reviewer")]  # the ledger's label adds the description
+        ("agent", "code-reviewer"), ("missing", "Explore  (no transcript)")]  # the ledger's label adds the description
     assert sorted((a["kind"], a["label"]) for a in s["s7"]["agents"] if a["kind"] != "session") == [
         ("agent", "agent"), ("workflow", "workflow")]  # the ledger's label adds the script's name
 
@@ -422,6 +430,17 @@ def test_an_unreadable_transcript_line_is_counted_once(page, world):
         with open(path, "a", encoding="utf-8") as fh:
             fh.write("{\n")
     assert collected(page, world)["lines_not_read"] == before + 2
+
+
+def test_a_box_record_tied_to_no_session_is_counted(page, world):
+    before = collected(page, world)["files_not_read"]
+    runs = pathlib.Path(world["homes"][1]["results"]) / "guard" / "results"
+    for stamp, text in (("20261120T110000Z", '{"schema": '), ("20261120T111000Z", json.dumps({"result": None})),
+                        ("20261120T112000Z", json.dumps({"result": {"session_id": "../b1"}}))):
+        (runs / stamp).mkdir()
+        (runs / stamp / "result.json").write_text(text)  # cut off; the CLI wrote no JSON; no session file's id
+    data = collected(page, world)
+    assert data["files_not_read"] == before + 3 and sessions_of(data)["b1"]["box"]["name"] == "guard"
 
 
 def test_a_branch_list_that_fails_is_named_on_the_page(page, world, monkeypatch):

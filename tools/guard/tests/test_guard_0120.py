@@ -28,6 +28,7 @@ Row ids in the tables below: W the rule workflow-launch (D3, D11), F the fan-out
 import argparse
 import contextlib
 import copy
+import hashlib
 import importlib.util
 import json
 import os
@@ -109,6 +110,16 @@ def test_the_baseline_covers_the_corpus_of_0110():
         "test_table_forms.ROWS_B", "test_guard_0100.TOOL_ROWS", "test_box_profile.DELETE_ROWS"}
     assert not [i for i in ids if i.startswith("fixture:workflow-launch/")]
     assert sorted(ids) == sorted(rid for rid, _inp in inputs()), "the corpus moved: write the baseline again"
+    corpus = {rid: json.loads(json.dumps(inp)) for rid, inp in inputs()}  # as the writer stored it
+    moved = [row["id"] for row in _baseline() if row["in"] != corpus[row["id"]]]
+    assert moved == [], f"a baseline input is not its corpus input: {moved[:5]}"
+
+
+def test_the_baseline_is_the_file_its_hash_names():
+    # the first review: the oracle of the never-weaker check is left out of the review diff (1.26 million
+    # characters), so its content is pinned by the sha256 the writer stores beside it
+    want = (HERE / "baseline-0.11.0.sha256").read_text(encoding="utf-8").split()[0]
+    assert hashlib.sha256(BASELINE.read_bytes()).hexdigest() == want
 
 
 def test_every_0110_answer_holds(guard):
@@ -627,7 +638,9 @@ def main(argv: list) -> int:
         finally:
             os.chdir(cwd)
     BASELINE.write_text("\n".join(lines) + "\n")
-    print(f"guard {guard.VERSION}: {len(lines)} inputs written to {BASELINE}")
+    digest = hashlib.sha256(BASELINE.read_bytes()).hexdigest()
+    (HERE / "baseline-0.11.0.sha256").write_text(f"{digest}  {BASELINE.name}\n", encoding="utf-8")
+    print(f"guard {guard.VERSION}: {len(lines)} inputs written to {BASELINE}, sha256 {digest}")
     return 0
 
 

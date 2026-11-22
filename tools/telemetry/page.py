@@ -214,8 +214,9 @@ def read_box_results(results: Optional[str], since: _dt.datetime) -> tuple:
     boxes/NAME/results/<UTC>/result.json; the session id is the CLI's own (the `result` key), the other fields are
     written by the wrapper on the host. A record tied to a session is kept at any age, so a session in the window
     keeps the box cell of a run that started before it. A record that does not parse counts at any age, since it may
-    be any session's; one that parses and names no session counts only when its run ended in the window (the
-    wrapper's `ended`), so a run stopped inside the window counts even when it started before."""
+    be any session's; one that parses and names no session counts when its run ended in the window (the wrapper's
+    `ended`), so a run stopped inside the window counts even when it started before, and at any age when it holds
+    no end time the ledger's parser reads."""
     found: dict = {}
     bad = 0
     if not results:
@@ -560,7 +561,8 @@ LEGEND = ("verdict `-`: the guard wrote no line for the call (no rule spoke, or 
           "change since the review before it, so a finding that went may only lie outside that change",
           "not read: a file that did not open or parse, a line that is no JSON, and the record of a box run ended "
           "in the window that names no session (the run wrote no output, or its session id can be no session "
-          "file's), so no session shows it; a box run's record that does not parse counts at any age",
+          "file's), so no session shows it; a box run's record that does not parse, or holds no end time, counts "
+          "at any age",
           "state: inferred from the end of each transcript, so a session cut off reads as running",
           "task: a session sits under the branch most of its lines carry, which is the branch of the folder it ran "
           "from; a review is tied to the branch whose reflog or commits hold the reviewed commit, so a branch worked "

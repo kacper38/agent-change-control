@@ -155,7 +155,8 @@ def test_every_changed_input_is_a_workflow_call():
 
 
 def test_the_version_is_0_12_0(guard):
-    assert guard.VERSION == "0.12.0"
+    # the guard is 0.12.1 since item #69 (test_guard_0121.py)
+    assert guard.VERSION == "0.12.1"
 
 
 # ----------------------------------------------------------------------------

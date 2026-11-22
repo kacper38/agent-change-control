@@ -4,6 +4,7 @@
 Run from anywhere: `python3 tools/guard/tests/make_fixtures.py`. test_fixtures.py checks that the
 files on disk equal this generator's output, so the case tables and the corpus cannot drift.
 """
+import hashlib
 import json
 import pathlib
 import re
@@ -13,7 +14,13 @@ HERE = pathlib.Path(__file__).resolve().parent
 FIX = HERE / "fixtures"
 
 CLIENT = {"boundary": "client"}
-LISTED = {"workflows": ["review-panel"]}  # guard 0.12.0: the committed list of workflows
+# guard 0.12.1 (item #69): an entry of the committed list binds a name to its reviewed file. A fixture's `files`
+# are written into the test's own Claude folder (CLAUDE_CONFIG_DIR), where the guard looks for a named workflow
+WF_TEXT = "export const meta = {name: 'review-panel', description: 'd'}\nawait agent('hi', {model: 'opus'})\n"
+LISTED = {"workflows": [{"name": "review-panel", "sha256": hashlib.sha256(WF_TEXT.encode()).hexdigest()}]}
+BARE = {"workflows": ["review-panel"]}  # the form of 0.12.0: a name with no sha256 asks since 0.12.1
+WF_FILE = {"workflows/review-panel.js": WF_TEXT}
+WF_EDITED = {"workflows/review-panel.js": WF_TEXT.replace("'hi'", "'hi, and push'")}
 
 
 def shell(decision, *commands):
@@ -578,10 +585,11 @@ CASES: dict = {
     ],
     # guard 0.12.0 (D3 of item #67): only a listed name starts a workflow unasked; Copilot has no Workflow tool
     "workflow-launch": [
-        ("allow", "call", {"claude": "Workflow", "input": {"name": "review-panel"}}, LISTED),
-        ("allow", "call", {"claude": "Workflow", "input": {"name": "review-panel", "args": {"pr": 3}}}, LISTED),
+        ("allow", "call", {"claude": "Workflow", "input": {"name": "review-panel"}}, LISTED, WF_FILE),
+        ("allow", "call", {"claude": "Workflow", "input": {"name": "review-panel", "args": {"pr": 3}}}, LISTED,
+         WF_FILE),
         ("allow", "call", {"claude": "Workflow", "input": {"name": "review-panel", "resumeFromRunId": "wf_1"}},
-         LISTED),
+         LISTED, WF_FILE),
         ("ask", "call", {"claude": "Workflow", "input": {"name": "other"}}, LISTED),
         ("ask", "call", {"claude": "Workflow", "input": {"name": "review-panel"}}),
         ("ask", "call", {"claude": "Workflow", "input": {"script": "await agent('go')"}}, LISTED),
@@ -591,6 +599,10 @@ CASES: dict = {
         ("ask", "call", {"claude": "Workflow", "input": {"name": 5}}, LISTED),  # the crash cases: a reader ask
         ("ask", "call", {"claude": "Workflow", "input": {}}, LISTED),
         ("ask", "call", {"claude": "Workflow", "input": {"name": ""}}, LISTED),
+        # guard 0.12.1 (item #69): a bare name, a listed name with no file, a file that is not the reviewed one
+        ("ask", "call", {"claude": "Workflow", "input": {"name": "review-panel"}}, BARE, WF_FILE),
+        ("ask", "call", {"claude": "Workflow", "input": {"name": "review-panel"}}, LISTED),
+        ("ask", "call", {"claude": "Workflow", "input": {"name": "review-panel"}}, LISTED, WF_EDITED),
     ],
     # guard 0.10.0 (D5): a GitHub tool of the harness gets the verdict of the same act in a shell or a file tool
     "github-tools": [
@@ -695,6 +707,7 @@ def generate(out: pathlib.Path) -> dict:
                 if kind == "call" and harness not in payload:  # a tool the other harness does not have
                     continue
                 config = case[3] if len(case) > 3 else None
+                wrote = case[4] if len(case) > 4 else None
                 env = json.loads(json.dumps(envelopes[harness][kind]))
                 env["tool_input"] = tool_input(harness, kind, payload)
                 if kind == "call":
@@ -705,6 +718,8 @@ def generate(out: pathlib.Path) -> dict:
                                              f"(the shape: {env.get('_fixture', {}).get('source', 'unknown')})"}
                 if config:
                     env["_fixture"]["config"] = config
+                if wrote:
+                    env["_fixture"]["files"] = wrote
                 counters[decision] = counters.get(decision, 0) + 1
                 rel = pathlib.Path(rule) / harness / decision / f"{counters[decision]:02d}-{slug(payload)}.json"
                 files[rel] = json.dumps(env, indent=2, sort_keys=True) + "\n"

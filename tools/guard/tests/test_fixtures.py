@@ -26,6 +26,12 @@ def test_fixture(guard, monkeypatch, rule, harness, decision, path):
         monkeypatch.setattr(guard, "git_root", lambda d: root if (d + os.sep).startswith(root + os.sep) else None)
     ev = guard.Event(raw)
     assert ev.harness == harness, path
+    if rule == "workflow-launch":  # 0.12.1: the files are looked up from the call's folder up; in a box the
+        ev.cwd = os.getcwd()  # recorded /work/repo is below the clone, whose own workflow files are no fixture's
+        for rel, text in raw["_fixture"].get("files", {}).items():
+            full = pathlib.Path(os.environ["CLAUDE_CONFIG_DIR"]) / rel
+            full.parent.mkdir(parents=True, exist_ok=True)
+            full.write_text(text, encoding="utf-8")
     cfg = {**guard.load_config(os.getcwd()), **raw.get("_fixture", {}).get("config", {})}  # env -> tmp telemetry
     got = guard.RULES[rule](ev, cfg)
     if decision == "allow":

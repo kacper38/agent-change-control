@@ -9,7 +9,10 @@
     },
     "config": {
       "workflows": [
-        "review-panel"
+        {
+          "name": "review-panel",
+          "sha256": "efa8246d7e88ccc1676a66337fc99b05b2cb9edde6d3ae269e0c1492cadb427e"
+        }
       ]
     },
     "harness": "claude",

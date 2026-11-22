@@ -326,8 +326,12 @@ def test_the_workflow_row(guard, monkeypatch, judge, work, rid, prof, setup, exp
         (line,) = [r for r in rows if r["verdict"] == expected]
         assert rule in line["rules"], line
         assert line["profile"] == prof, line
-    if prof == "box" and expected == "deny" and "isolation: 'remote'" not in setup + text:  # cloud-launch's own deny
-        assert final[1].startswith(BP.BOX_PREFIX), final
+    if prof == "box" and expected == "deny":  # the box's deny of an ask, but where cloud-launch itself denies first
+        head, tail = guard.CLOUD_LAUNCH_MSG.split("{what}")
+        if "isolation: 'remote'" in setup + text:
+            assert final[1].startswith(head) and tail.split(";")[0] in final[1], final
+        else:
+            assert final[1].startswith(BP.BOX_PREFIX), final
 
 
 def test_a_named_workflow_is_read_above_the_call_and_in_the_home_folder(guard, monkeypatch, tmp_path):

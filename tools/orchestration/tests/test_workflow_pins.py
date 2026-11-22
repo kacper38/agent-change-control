@@ -231,6 +231,7 @@ def binding_problems(cfg: dict, folder: pathlib.Path) -> list:
 def test_each_listed_workflow_is_bound_to_its_committed_file():
     cfg = json.loads((ROOT / ".claude" / "guard.json").read_text(encoding="utf-8"))
     assert binding_problems(cfg, WORKFLOWS) == []
+    assert "review-panel" in [e["name"] for e in cfg["workflows"]]  # criterion 6 of item #69
 
 
 def test_a_stale_or_missing_binding_fails(tmp_path):

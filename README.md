@@ -413,6 +413,21 @@ variables (`KZ_TRACKER_REPO`, `KZ_TRACKER_AREA`, `KZ_TRACKER_ADO_MODE`,
   `.git/fresh-review/<sha>.json`; `/pr-prep` pastes the verdict. At work the
   same prompt is `.github/instructions/review.instructions.md` for Copilot code
   review, on GitHub and on Azure Repos.
+- The saved workflow `review-panel` (`.claude/workflows/review-panel.js`,
+  Claude Code only, item #69) is a wider, advisory review beside it, not in
+  place of it: `git diff origin/main...HEAD > /tmp/x.diff`, then ask Claude to
+  run the workflow `review-panel` with args `{"diff": "/tmp/x.diff"}` and the
+  working tree at the head. Three lenses (`code-reviewer`, `infra-reviewer`,
+  `gxp-compliance-reviewer`) and one verifier, each `model: 'opus'`: four
+  agents a run, a cap of $15 a run that the run logs and the ledger
+  measures (`ledger.py agents`). Each finding names its evidence (a command,
+  a quoted line or an inference); the verifier re-runs commands and re-reads
+  quotes; a finding with no evidence kind is rejected and listed, an
+  unconfirmed one is listed and counted, a lens with no result is reported.
+  It runs in the session, so the diff stays where the session already is; no
+  egress screen and no receipt. `.claude/guard.json` lists it bound to its
+  sha256: after a reviewed edit write the new value
+  (`shasum -a 256 .claude/workflows/review-panel.js`), or the launch asks.
 
 ### Orchestration
 

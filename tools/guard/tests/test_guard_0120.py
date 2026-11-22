@@ -389,7 +389,9 @@ def test_the_rule_is_registered_after_cloud_launch(guard):
     assert guard.PRE_RULES == names
     assert guard.BOX_TABLE["workflow-launch"] == "deny"
     assert guard.DEFAULTS["workflows"] == []
-    assert json.loads((ROOT / ".claude" / "guard.json").read_text())["workflows"] == []
+    # step 1.4 (item #69) lists review-panel, bound to its file since 0.12.1 (test_workflow_pins.py checks the hash)
+    assert [e["name"] for e in json.loads((ROOT / ".claude" / "guard.json").read_text())["workflows"]] == [
+        "review-panel"]
     assert guard.KNOWN_CLAUDE_TOOLS["Workflow"] == "judged"
 
 

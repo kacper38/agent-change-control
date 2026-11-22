@@ -5,5 +5,7 @@
   "boundary": "own",
   "scratch_md_mode": "ask",
   "host_install": "auto",
-  "workflows": []
+  "workflows": [
+    {"name": "review-panel", "sha256": "d719af0d40fa9e5301333a2e6896e9d9a92c64401365b16b41d9aa85616f95a9"}
+  ]
 }

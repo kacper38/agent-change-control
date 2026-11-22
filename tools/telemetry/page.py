@@ -213,28 +213,29 @@ def read_box_results(results: Optional[str], since: _dt.datetime) -> tuple:
     """({session id: the host's record of that box run}, files not read since `since`) from
     boxes/NAME/results/<UTC>/result.json; the session id is the CLI's own (the `result` key), the other fields are
     written by the wrapper on the host. A record tied to a session is kept at any age, so a session in the window
-    keeps the box cell of a run that started before it; one tied to nothing is counted only when its run started in
-    the window, by the folder name the wrapper gives it (its start, as 20261120T104000Z)."""
+    keeps the box cell of a run that started before it. A record that does not parse counts at any age, since it may
+    be any session's; one that parses and names no session counts only when its run started in the window, by the
+    folder name the wrapper gives the run (its start, as 20261120T104000Z)."""
     found: dict = {}
     bad = 0
     if not results:
         return found, bad
     for path in sorted(glob.glob(os.path.join(glob.escape(results), "*", "results", "*", "result.json"))):
         try:
-            started = _dt.datetime.strptime(os.path.basename(os.path.dirname(path)), "%Y%m%dT%H%M%SZ")
-        except ValueError:  # a folder the wrapper did not name: no start to say it is old, so it counts
-            started = None
-        counted = started is None or started.replace(tzinfo=_dt.timezone.utc) >= since
-        try:
             with open(path, encoding="utf-8", errors="replace") as fh:
                 rec = json.load(fh)
-        except (OSError, ValueError, RecursionError):  # unreadable or cut off: no box cell for its session
-            bad += counted
+        except (OSError, ValueError, RecursionError):  # unreadable or cut off: it may be the record of a session in
+            bad += 1  # the window, whose box cell is then missing, so it counts at any age
             continue
         inner = rec.get("result") if isinstance(rec, dict) else None
         sid = inner.get("session_id") if isinstance(inner, dict) else None
         if not isinstance(sid, str) or not SESSION_FILE.fullmatch(sid + ".jsonl"):  # the CLI wrote no session id
-            bad += counted  # (a run that never got going) or one no session file can have: tied to nothing
+            try:  # (a run that never got going) or one no session file can have: tied to no session, so it counts
+                # only when its run started in the window
+                started = _dt.datetime.strptime(os.path.basename(os.path.dirname(path)), "%Y%m%dT%H%M%SZ")
+            except ValueError:  # a folder the wrapper did not name: nothing says it is old, so it counts
+                started = None
+            bad += started is None or started.replace(tzinfo=_dt.timezone.utc) >= since
             continue
         keys = ("name", "seat", "image", "judge", "started", "ended", "head_before", "head_after", "branch_after")
         box = {k: _text(rec.get(k), 120) for k in keys}
@@ -560,7 +561,7 @@ LEGEND = ("verdict `-`: the guard wrote no line for the call (no rule spoke, or 
           "change since the review before it, so a finding that went may only lie outside that change",
           "not read: a file that did not open or parse, a line that is no JSON, and the record of a box run started "
           "in the window that names no session (the run wrote no output, or its session id can be no session "
-          "file's), so no session shows it",
+          "file's), so no session shows it; a box run's record that does not parse counts at any age",
           "state: inferred from the end of each transcript, so a session cut off reads as running",
           "task: a session sits under the branch most of its lines carry, which is the branch of the folder it ran "
           "from; a review is tied to the branch whose reflog or commits hold the reviewed commit, so a branch worked "

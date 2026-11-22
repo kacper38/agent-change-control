@@ -166,9 +166,19 @@ def test_worker_branch_from_origin_when_no_local_branch(ar, repo):
     assert ar.branch_tip(str(repo), "feat/none") is None
 
 
-@pytest.mark.parametrize("name", ["feat/x~1", "feat/x^", "feat/x@{1}", "feat/x:y", "@{-1}", "feat/x..y"])
+@pytest.mark.parametrize("name", ["feat/x~1", "feat/x^", "feat/x@{1}"])
 def test_worker_branch_that_is_a_revision_expression_is_not_found(ar, repo, name):
-    assert ar.branch_tip(str(repo), "feat/x") is not None  # the plain name resolves, so None below is the guard
+    git(repo, "branch", "-f", "feat/x", "main~1")
+    git(repo, "branch", "-f", "feat/x", "main")  # one more reflog entry, so feat/x@{1} names the older commit
+    tip = ar.branch_tip(str(repo), "feat/x")
+    other = ar.branch_ref(str(repo), f"refs/heads/{name}")
+    assert tip is not None and other is not None and other != tip  # unguarded, git resolves it to another commit
+    assert ar.branch_tip(str(repo), name) is None
+
+
+@pytest.mark.parametrize("name", ["feat/x:y", "@{-1}", "feat/x..y"])
+def test_worker_branch_that_is_no_valid_ref_name_is_not_found(ar, repo, name):
+    assert ar.branch_tip(str(repo), "feat/x") is not None
     assert ar.branch_tip(str(repo), name) is None
 
 

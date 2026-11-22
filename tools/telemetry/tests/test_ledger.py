@@ -79,6 +79,19 @@ def test_build_entry_joins_subagents_spawns_and_prices(ledger, tmp_path, tdir):
     assert e["spawns"] == [{"agent": "python-engineer", "model": "opus"}]
 
 
+def test_spawns_leave_out_a_workflow_launch(ledger, tdir):
+    # guard 0.12.0 logs each Workflow call as a PreToolUse row; its agents arrive as SubagentStart rows, so the
+    # launch is no spawn and the list keeps the meaning it had with the rows of 0.11.0 (no `tool` key)
+    tdir.mkdir()
+    (tdir / "spawns.jsonl").write_text("\n".join(json.dumps(r) for r in [
+        {"session": "s1", "event": "PreToolUse", "tool": "Agent", "agent": "python-engineer", "model": "opus"},
+        {"session": "s1", "event": "PreToolUse", "tool": "Workflow", "agent": "review-panel", "model": None},
+        {"session": "s1", "event": "PreToolUse", "agent": "x", "model": None},
+    ]) + "\n")
+    assert ledger.spawns_for("s1", str(tdir)) == [{"agent": "python-engineer", "model": "opus"},
+                                                 {"agent": "x", "model": None}]
+
+
 def test_build_entry_reads_workflow_agents_and_skips_the_journal(ledger, tmp_path, tdir):
     main = write_transcript(tmp_path, subagents=1)
     wf = main.parent / "s1" / "subagents" / "workflows" / "wf_abc"

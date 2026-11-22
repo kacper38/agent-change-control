@@ -564,8 +564,8 @@ Anti-over-engineering (the lazy family):
   main checkout sits under the main checkout's branch. The page holds titles,
   folders, branch names and finding summaries, so it stays on this machine:
   never attach it to a ticket, a pull request, a chat or an evidence pack. A
-  page is kept 30 days: a run names the older pages in the default folder on
-  stderr, and you remove them (it deletes nothing).
+  page is kept 30 days: a run says on stderr how many pages in the default
+  folder are older, and you remove them (it deletes nothing).
 - Nothing from here is installed at work: no memory, telemetry, tokens or
   transcripts cross the boundary, and memory push stays off until
   `KZ_MEMORY_PUSH` names a project.

@@ -321,6 +321,13 @@ def test_a_reflog_read_that_fails_is_a_git_failure(page, monkeypatch):
     assert page.branch_lookup("feat/x", "/nowhere", True) == {"lookup": "error"}
 
 
+def test_a_branch_with_no_reflog_is_looked_up(page, world):
+    git(world["repo"], "-c", "core.logAllRefUpdates=false", "branch", "feat/nolog", world["sha1"])
+    assert not (world["repo"] / ".git" / "logs" / "refs" / "heads" / "feat" / "nolog").exists()  # no reflog at all
+    found = page.branch_lookup("feat/nolog", world["project"], True)
+    assert (found["lookup"], found["commits"], found["shas"]) == ("ok", 1, {world["sha1"]})
+
+
 def test_reviews_stay_tied_to_a_merged_branch(page, world):
     git(world["repo"], "update-ref", "refs/remotes/origin/main", world["sha2"])  # the branch is in main now
     feat = task(collected(page, world), "feat/page")
@@ -374,6 +381,14 @@ def test_an_agent_is_shown_by_its_type_and_a_workflow_without_its_name(page, wor
         ("agent", "code-reviewer")]  # the ledger's label adds the description
     assert sorted((a["kind"], a["label"]) for a in s["s7"]["agents"] if a["kind"] != "session") == [
         ("agent", "agent"), ("workflow", "workflow")]  # the ledger's label adds the script's name
+
+
+def test_an_agent_without_a_type_shows_no_description(page, world):
+    folder = pathlib.Path(world["homes"][0]["config"]) / "projects" / encoded(world["project"]) / "s6" / "subagents"
+    write_jsonl(folder / "agent-a200.jsonl", [asst(31, "main", world["project"], [], "req-a200")])
+    (folder / "agent-a200.meta.json").write_text(json.dumps({"description": f"no type {SECRET}"}))
+    agents = sessions_of(collected(page, world))["s6"]["agents"]
+    assert [a["label"] for a in agents if a["kind"] == "agent"] == ["agent"] and SECRET not in repr(agents)
 
 
 def test_a_session_sits_under_the_branch_most_of_its_lines_carry(page, tmp_path):
@@ -458,6 +473,7 @@ def test_no_tool_input_reaches_the_page(page, world):
 def test_the_hand_written_page_passes_and_escaped_text_never_counts(page):
     assert page.check_page(minimal()) == []
     assert page.check_page(minimal("<p>&lt;script src=http://x&gt; url( url= @import \\</p>")) == []
+    assert page.check_page(minimal(head="<title>t</title>\n " + CSP_TAG)) == []  # title text, whitespace: still head
 
 
 @pytest.mark.parametrize("name, html", [
@@ -487,8 +503,16 @@ def test_the_hand_written_page_passes_and_escaped_text_never_counts(page):
     ("meta name", minimal(head=CSP_TAG + '<meta name="referrer" content="unsafe-url">')),
     ("meta refresh without a url", minimal(head=CSP_TAG + '<meta http-equiv="refresh" content="5">')),
     ("URL( in capitals in style", minimal(style="p{background:URL(x)}")),  # CSS reads it as url(
-    ("CSP tag after body content, no </head>",  # body content ends the head: a browser ignores the tag there
-     '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>t</title><p>x</p>' + CSP_TAG + "</html>"),
+    ("CSP tag after body content, no </head>",  # body content ends the head: a browser ignores the tag there;
+     # an empty <p>, so the start tag alone ends it (text would end it too, by its own rule)
+     '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>t</title><p></p>' + CSP_TAG + "</html>"),
+    ("CSP tag in a second <head> after body content",  # a browser drops a <head> tag in the body
+     '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>t</title></head><body><p>x</p><head>'
+     + CSP_TAG + "</head></body></html>"),
+    ("text in the head before the CSP tag",
+     '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">x' + CSP_TAG + "<title>t</title></head></html>"),
+    ("a no-break space in the head before the CSP tag",  # str.strip() would take it for whitespace; HTML does not
+     '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">\u00a0' + CSP_TAG + "<title>t</title></head></html>"),
 ])
 def test_each_breach_is_found(page, name, html):
     assert page.check_page(html), name

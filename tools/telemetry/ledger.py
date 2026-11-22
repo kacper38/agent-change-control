@@ -922,6 +922,7 @@ def read_agents(transcript: str, tdir: str, prices: dict) -> dict:
         files_bad += bad
         atype = meta.get("agentType") if isinstance(meta.get("agentType"), str) else None
         atype = _clean(atype or types.get(row["agent_id"]) or "agent")
+        row["type"] = atype  # the label without the description, for the task page (page.py)
         desc = meta.get("description")
         row["label"] = f"{atype}  {_cut(_clean(desc), 30)}" if isinstance(desc, str) and desc else atype
         row["parent_id"] = meta.get("parentAgentId") if isinstance(meta.get("parentAgentId"), str) else None

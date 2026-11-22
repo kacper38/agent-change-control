@@ -420,6 +420,21 @@ def retests(reviews: list) -> list:
     return out
 
 
+def _task(branch: Optional[str], group: list, found: dict, receipts: list) -> dict:
+    """One task: a branch, its sessions (none for a branch seen only through its reviews), the receipts its commits
+    or its reflog hold, and the figures of the task list. `end` is its last activity: a session's last line or a
+    review."""
+    reviews = [r for r in receipts if r["sha"] in found.get("shas", ())]
+    costs = [s["cost"] for s in group]
+    ends = [s["end"] for s in group if s["end"] is not None] + [r["when"] for r in reviews]
+    return {"branch": branch, "sessions": group, "prs": sorted(set().union(*(s["prs"] for s in group))),
+            "cost": None if not group or None in costs else sum(costs, 0.0), "end": max(ends) if ends else None,
+            "asks": sum(g["verdict"] == "ask" for s in group for g in s["gate"]),
+            "denies": sum(g["verdict"] == "deny" for s in group for g in s["gate"]),
+            "lookup": found["lookup"], "commits": found.get("commits"), "evidence": found.get("evidence", []),
+            "reviews": reviews, "retests": retests(reviews)}
+
+
 def collect(project: str, days: int, homes: list, now: Optional[_dt.datetime] = None,
             prices: Optional[dict] = None, session: Optional[str] = None) -> dict:
     """Everything the page shows, read from local files and the project's git; writes nothing. `homes` is a list of
@@ -454,17 +469,20 @@ def collect(project: str, days: int, homes: list, now: Optional[_dt.datetime] = 
     for branch, group in by_branch.items():
         group.sort(key=lambda s: (s["start"] is None, s["start"] or _EPOCH, s["id"]))
         found = branch_lookup(branch or None, project, has_base) if common else {"lookup": "no-repo"}
-        reviews = [r for r in receipts if r["sha"] in found.get("shas", ())]
-        tied.update(id(r) for r in reviews)
-        costs = [s["cost"] for s in group]
-        ends = [s["end"] for s in group if s["end"] is not None]
-        tasks.append({
-            "branch": branch or None, "sessions": group, "prs": sorted(set().union(*(s["prs"] for s in group))),
-            "cost": None if None in costs else sum(costs, 0.0), "end": max(ends) if ends else None,
-            "asks": sum(g["verdict"] == "ask" for s in group for g in s["gate"]),
-            "denies": sum(g["verdict"] == "deny" for s in group for g in s["gate"]),
-            "lookup": found["lookup"], "commits": found.get("commits"), "evidence": found.get("evidence", []),
-            "reviews": reviews, "retests": retests(reviews)})
+        tasks.append(_task(branch or None, group, found, receipts))
+        tied.update(id(r) for r in tasks[-1]["reviews"])
+    untied = {id(r) for r in receipts} - tied
+    if untied and has_base and not session:  # a page of one session shows that session's task only
+        # A review whose branch has no session here (its sessions ran from a folder on another branch): the
+        # repository's other branches whose reflog holds it become tasks of their own, with no session.
+        code, out = run_git(["for-each-ref", "--format=%(refname)", "refs/heads/"], project)
+        names = {line[len("refs/heads/"):] for line in out.splitlines() if line.startswith("refs/heads/")} \
+            if code == 0 else set()
+        for name in sorted(names - set(by_branch)):
+            found = branch_lookup(name, project, has_base)  # the same checks as a name from a transcript
+            if any(id(r) in untied for r in receipts if r["sha"] in found.get("shas", ())):
+                tasks.append(_task(name, [], found, receipts))
+                tied.update(id(r) for r in tasks[-1]["reviews"])
     tasks.sort(key=lambda t: (t["end"] is None, -(t["end"] or _EPOCH).timestamp(), t["branch"] or ""))
     return {"project": project, "days": days, "since": since, "now": now, "homes": read_homes, "tasks": tasks,
             "reviews_untied": sum(id(r) not in tied for r in receipts), "reviews": len(receipts), **counts}
@@ -508,6 +526,9 @@ LEGEND = ("verdict `-`: the guard wrote no line for the call (no rule spoke, or 
           "re-test: each review against the one before it, by file, line and summary; a delta review saw only the "
           "change since the review before it, so a finding that went may only lie outside that change",
           "state: inferred from the end of each transcript, so a session cut off reads as running",
+          "task: a session sits under the branch most of its lines carry, which is the branch of the folder it ran "
+          "from; a review is tied to the branch whose reflog or commits hold the reviewed commit, so a branch worked "
+          "on from another folder can appear with its reviews and no session",
           "this page is a local, read-only record: it holds titles, folders, branch names and finding summaries "
           "and is never attached to a ticket, a pull request, a chat or an evidence pack, nor copied off this "
           "machine")
@@ -609,8 +630,12 @@ def _task_section(n: int, t: dict) -> str:
                      ", ".join(f for f in s["folders"] if f), s["model"] or "-", s["state"], _time(s["start"]),
                      ledger.fmt_duration(s["seconds"]), f"{ledger.fmt_cost(s['cost'])} ({s['cost_basis']})",
                      ", ".join("#" + str(p) for p in sorted(s["prs"])) or "-", box_text])
-    out.append(_table(["session", "home", "title", "branch", "folder", "model", "state", "start", "duration",
-                       "cost", "PR", "box run"], rows, nums=(8,)))
+    if rows:
+        out.append(_table(["session", "home", "title", "branch", "folder", "model", "state", "start", "duration",
+                           "cost", "PR", "box run"], rows, nums=(8,)))
+    else:
+        out.append('<p class="muted">no session on this branch in the window: it is here for its reviews, and its '
+                   "sessions sit under the branch of the folder they ran from</p>")
     out += [_session_section(s) for s in t["sessions"]]
     out.append("<h3>Findings</h3>")
     if not t["reviews"]:
@@ -666,10 +691,10 @@ def render(data: dict) -> str:
     if data["tasks"]:
         out.append('<div class="wide"><table><thead><tr><th>task</th><th>PR</th><th class="num">sessions</th>'
                    '<th class="num">cost</th><th class="num">asks</th><th class="num">denies</th>'
-                   '<th class="num">reviews</th><th>last line</th></tr></thead><tbody>')
+                   '<th class="num">reviews</th><th>last activity</th></tr></thead><tbody>')
         for n, t in enumerate(data["tasks"], 1):
             homes_of = [s["home"] for s in t["sessions"]]
-            count = ", ".join(f"{homes_of.count(h)} {h}" for h in ("host", "box") if h in homes_of)
+            count = ", ".join(f"{homes_of.count(h)} {h}" for h in ("host", "box") if h in homes_of) or "none"
             out.append(f'<tr><td><a href="#task-{n}">{_e(t["branch"] or "(no branch)")}</a></td>'
                        f'<td>{_e(", ".join("#" + str(p) for p in t["prs"]) or "-")}</td>'
                        f'<td class="num">{_e(count)}</td><td class="num">{_e(ledger.fmt_cost(t["cost"]))}</td>'

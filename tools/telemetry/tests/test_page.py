@@ -114,7 +114,14 @@ def world(tmp_path, git_bin):
     (repo / "tools" / "x.py").write_text("x = 2\n")
     git(repo, "commit", "-q", "-am", "three")
     sha2 = git(repo, "rev-parse", "HEAD")
-    git(repo, "switch", "-q", "main")  # the reflog now holds a branch switch, so @{-1} names feat/page
+    git(repo, "switch", "-q", "main")
+    git(repo, "switch", "-q", "-c", "feat/solo")  # a branch with a review and no session
+    (repo / "solo.txt").write_text("solo\n")
+    git(repo, "add", "solo.txt")
+    git(repo, "commit", "-q", "-m", "solo")
+    solo = git(repo, "rev-parse", "HEAD")
+    git(repo, "switch", "-q", "main")  # the reflog now holds branch switches, so @{-1} names a branch
+    git(repo, "branch", "feat/quiet")  # a branch with neither a session nor a review: no task
     project = os.path.realpath(repo)
     wt = os.path.join(project, ".claude", "worktrees", "wt")
     git(repo, "worktree", "add", "-q", wt, "feat/page")
@@ -123,6 +130,7 @@ def world(tmp_path, git_bin):
     receipt(gdir / "worktrees" / "wt" / "fresh-review" / f"{sha2}.json", sha2, "2026-11-20T11:00:00Z", [F_B, F_C],
             base_sha=sha1)
     receipt(gdir / "fresh-review" / ("e" * 40 + ".json"), "e" * 40, "2026-11-20T11:30:00Z", [])  # on no branch
+    receipt(gdir / "fresh-review" / f"{solo}.json", solo, "2026-11-20T09:00:00Z", [F_C])
     receipt(gdir / "fresh-review" / ("d" * 40 + ".json"), sha1, "2026-10-01T10:00:00Z", [F_A])  # before the window
 
     host, box = tmp_path / "host", tmp_path / "box"
@@ -171,7 +179,7 @@ def world(tmp_path, git_bin):
     homes = [{"label": "host", "config": str(host), "telemetry": str(host_tel), "root": project, "results": None},
              {"label": "box", "config": str(claude_home), "telemetry": str(claude_home / "telemetry"),
               "root": "/work", "results": str(box / "boxes")}]
-    return {"repo": repo, "project": project, "homes": homes, "sha1": sha1, "sha2": sha2}
+    return {"repo": repo, "project": project, "homes": homes, "sha1": sha1, "sha2": sha2, "solo": solo}
 
 
 @pytest.fixture
@@ -210,6 +218,8 @@ def test_sessions_of_both_homes_grouped_by_branch(page, world):
     feat = task(data, "feat/page")
     assert [s["id"] for s in feat["sessions"]] == ["s1", "s2", "b1"]  # in order of start
     assert [s["home"] for s in feat["sessions"]] == ["host", "host", "box"]
+    assert sorted(t["branch"] for t in data["tasks"]) == sorted(
+        ["feat/page", "feat/solo", "--output=x", "a b", "@{-1}", "main", "feat/gone"])
     assert feat["prs"] == [7]
     b1 = sessions_of(data)["b1"]
     assert b1["box"]["name"] == "guard" and b1["box"]["exit"] == 0 and b1["box"]["branch_after"] == "feat/page"
@@ -255,7 +265,7 @@ def test_reviews_are_tied_to_the_branch_by_its_reflog_and_retested(page, world):
     key = lambda f: (f["file"], f["line"], f["summary"])  # noqa: E731
     assert ([key(f) for f in rt["went"]], [key(f) for f in rt["stayed"]], [key(f) for f in rt["new"]]) == (
         [F_A], [F_B], [F_C])
-    assert (data["reviews"], data["reviews_untied"]) == (3, 1)  # the old receipt is outside the window
+    assert (data["reviews"], data["reviews_untied"]) == (4, 1)  # the old receipt is outside the window
 
 
 def test_evidence_paths_are_those_the_branch_changed(page, world):
@@ -558,3 +568,19 @@ def test_a_page_that_breaks_its_own_check_is_never_written(page, cli, tmp_path, 
     target = tmp_path / "bad.html"
     code, out, err = cli("--out", str(target))
     assert (code, out) == (1, "") and "breaks its own check" in err and not target.exists()
+
+
+def test_a_branch_seen_only_through_its_reviews_is_a_task(page, world, git_calls):
+    data = collected(page, world)
+    solo = task(data, "feat/solo")
+    assert (solo["sessions"], solo["cost"], solo["lookup"]) == ([], None, "ok")
+    assert [r["sha"] for r in solo["reviews"]] == [world["solo"]] and solo["end"] is not None
+    assert ["for-each-ref", "--format=%(refname)", "refs/heads/"] in [args for args, _ in git_calls]
+    assert ["check-ref-format", "--branch", "feat/solo"] in [args for args, _ in git_calls]
+    html = page.render(data)
+    assert page.check_page(html) == [] and "no session on this branch in the window" in html
+
+
+def test_a_page_of_one_session_holds_no_branch_seen_only_through_its_reviews(page, world):
+    data = page.collect(world["project"], 7, world["homes"], now=NOW, prices=PRICES, session="s1")
+    assert [t["branch"] for t in data["tasks"]] == ["feat/page"]

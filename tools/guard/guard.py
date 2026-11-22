@@ -3208,6 +3208,8 @@ def _guard_config_as_written(path: str, home_claude: str) -> Optional[str]:
             return "the repo's Copilot hook configuration"
         if part == ".github" and nxt == "workflows" and not last:
             return "a CI workflow"
+        if part == ".claude" and nxt == "workflows" and not last:  # 0.12.0: what a listed name starts
+            return "a workflow script"
         if part == "tools" and nxt in _GUARDED_TOOLS and (nxt != "commit_msg.py" or last):
             return _GUARDED_TOOLS[nxt]
     return None

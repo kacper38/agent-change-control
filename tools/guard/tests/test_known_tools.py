@@ -33,3 +33,17 @@ def test_every_judged_tool_has_a_kind(guard):
 def test_the_fan_out_tool_is_matched_by_both_its_names():
     # the init message lists the fan-out tool as Task, while the hook rows of the probe name it Agent
     assert {"Agent", "Task"} <= set(_pre_matcher())
+
+
+def test_the_settings_pin_the_depth_and_block_on_a_failed_guard():
+    # 0.12.0 (D1 of item #67): the depth pin, and a guard that times out or crashes blocks the call; only the
+    # PreToolUse guard hook blocks (a post, start or session hook blocks no call, a blocked post hook hides a result)
+    settings = json.loads((ROOT / ".claude" / "settings.json").read_text())
+    assert settings["env"]["CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH"] == "2"
+    blocking = [(event, h["command"]) for event, entries in settings["hooks"].items() for m in entries
+                for h in m["hooks"] if "onFailure" in h]
+    assert blocking == [("PreToolUse", 'python3 "${CLAUDE_PROJECT_DIR:-.}"/tools/guard/guard.py hook pre '
+                                       "--wrapper claude")], blocking
+    (pre,) = [h for m in settings["hooks"]["PreToolUse"] for h in m["hooks"] if "guard.py hook pre" in h["command"]]
+    assert pre["onFailure"] == "block"
+    assert "Workflow" in _pre_matcher()

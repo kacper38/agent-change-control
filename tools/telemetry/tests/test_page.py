@@ -436,11 +436,13 @@ def test_a_box_record_tied_to_no_session_is_counted(page, world):
     before = collected(page, world)["files_not_read"]
     runs = pathlib.Path(world["homes"][1]["results"]) / "guard" / "results"
     for stamp, text in (("20261120T110000Z", '{"schema": '), ("20261120T111000Z", json.dumps({"result": None})),
-                        ("20261120T112000Z", json.dumps({"result": {"session_id": "../b1"}}))):
+                        ("20261120T112000Z", json.dumps({"result": {"session_id": "../b1"}})),
+                        ("manual", json.dumps({"result": None})),  # a folder the wrapper did not name: counted
+                        ("20261101T000000Z", '{"schema": ')):  # a run that started before the window: not counted
         (runs / stamp).mkdir()
         (runs / stamp / "result.json").write_text(text)  # cut off; the CLI wrote no JSON; no session file's id
     data = collected(page, world)
-    assert data["files_not_read"] == before + 3 and sessions_of(data)["b1"]["box"]["name"] == "guard"
+    assert data["files_not_read"] == before + 4 and sessions_of(data)["b1"]["box"]["name"] == "guard"
 
 
 def test_a_branch_list_that_fails_is_named_on_the_page(page, world, monkeypatch):

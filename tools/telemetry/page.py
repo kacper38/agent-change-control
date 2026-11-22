@@ -209,24 +209,32 @@ def read_guard_log(tdir: str) -> dict:
     return out
 
 
-def read_box_results(results: Optional[str]) -> tuple:
-    """({session id: the host's record of that box run}, files not read) from boxes/NAME/results/<UTC>/result.json;
-    the session id is the CLI's own (the `result` key), the other fields are written by the wrapper on the host."""
+def read_box_results(results: Optional[str], since: _dt.datetime) -> tuple:
+    """({session id: the host's record of that box run}, files not read since `since`) from
+    boxes/NAME/results/<UTC>/result.json; the session id is the CLI's own (the `result` key), the other fields are
+    written by the wrapper on the host. A record tied to a session is kept at any age, so a session in the window
+    keeps the box cell of a run that started before it; one tied to nothing is counted only when its run started in
+    the window, by the folder name the wrapper gives it (its start, as 20261120T104000Z)."""
     found: dict = {}
     bad = 0
     if not results:
         return found, bad
     for path in sorted(glob.glob(os.path.join(glob.escape(results), "*", "results", "*", "result.json"))):
         try:
+            started = _dt.datetime.strptime(os.path.basename(os.path.dirname(path)), "%Y%m%dT%H%M%SZ")
+        except ValueError:  # a folder the wrapper did not name: no start to say it is old, so it counts
+            started = None
+        counted = started is None or started.replace(tzinfo=_dt.timezone.utc) >= since
+        try:
             with open(path, encoding="utf-8", errors="replace") as fh:
                 rec = json.load(fh)
-        except (OSError, ValueError, RecursionError):  # unreadable or cut off: no box cell for its session, counted
-            bad += 1
+        except (OSError, ValueError, RecursionError):  # unreadable or cut off: no box cell for its session
+            bad += counted
             continue
         inner = rec.get("result") if isinstance(rec, dict) else None
         sid = inner.get("session_id") if isinstance(inner, dict) else None
         if not isinstance(sid, str) or not SESSION_FILE.fullmatch(sid + ".jsonl"):  # the CLI wrote no session id
-            bad += 1  # (a run that never got going) or one no session file can have: tied to nothing, counted
+            bad += counted  # (a run that never got going) or one no session file can have: tied to nothing
             continue
         keys = ("name", "seat", "image", "judge", "started", "ended", "head_before", "head_after", "branch_after")
         box = {k: _text(rec.get(k), 120) for k in keys}
@@ -305,7 +313,7 @@ def read_home(home: dict, since: _dt.datetime, prices: dict, session: Optional[s
     counts["lines_not_read"] += guard["lines_not_read"]
     rows, bad = _ledger_rows(home["telemetry"], since)
     counts["files_not_read"] += bad
-    boxes, bad = read_box_results(home.get("results"))
+    boxes, bad = read_box_results(home.get("results"), since)
     counts["files_not_read"] += bad
     sessions = []
     for sid, (_, path) in sorted(newest.items()):
@@ -550,8 +558,9 @@ LEGEND = ("verdict `-`: the guard wrote no line for the call (no rule spoke, or 
           "sessions has none",
           "re-test: each review against the one before it, by file, line and summary; a delta review saw only the "
           "change since the review before it, so a finding that went may only lie outside that change",
-          "not read: a file that did not open or parse, a line that is no JSON, and a box run's record with no "
-          "session id in it (the run wrote no output, so no session shows it)",
+          "not read: a file that did not open or parse, a line that is no JSON, and the record of a box run started "
+          "in the window that names no session (the run wrote no output, or its session id can be no session "
+          "file's), so no session shows it",
           "state: inferred from the end of each transcript, so a session cut off reads as running",
           "task: a session sits under the branch most of its lines carry, which is the branch of the folder it ran "
           "from; a review is tied to the branch whose reflog or commits hold the reviewed commit, so a branch worked "

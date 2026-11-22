@@ -326,13 +326,14 @@ def test_the_workflow_row(guard, monkeypatch, judge, work, rid, prof, setup, exp
         (line,) = [r for r in rows if r["verdict"] == expected]
         assert rule in line["rules"], line
         assert line["profile"] == prof, line
-    if prof == "box" and expected == "deny" and rule != "cloud-launch" and rid != "W6":  # cloud-launch's own deny
+    if prof == "box" and expected == "deny" and "isolation: 'remote'" not in setup + text:  # cloud-launch's own deny
         assert final[1].startswith(BP.BOX_PREFIX), final
 
 
 def test_a_named_workflow_is_read_above_the_call_and_in_the_home_folder(guard, monkeypatch, tmp_path):
-    """W9's two cases a row cannot hold: a call from a subfolder reads the project's file, and with no
-    CLAUDE_CONFIG_DIR the user's folder is ~/.claude."""
+    """W9's cases a row cannot hold: a call from a subfolder reads the project's file, so does a call from outside
+    the project once the harness names it (CLAUDE_PROJECT_DIR), and with no CLAUDE_CONFIG_DIR the user's folder is
+    ~/.claude."""
     remote = "await agent('go', { isolation: 'remote' })\n"
     proj, home = tmp_path / "proj", tmp_path / "home"
     (proj / "sub" / "dir").mkdir(parents=True)
@@ -345,10 +346,16 @@ def test_a_named_workflow_is_read_above_the_call_and_in_the_home_folder(guard, m
             "cwd": str(cwd), "session_id": "s1", "transcript_path": "/t"}), {})
 
     assert launch(proj / "sub" / "dir") is None  # no file anywhere: as at 0.11.0
-    (proj / ".claude" / "workflows").mkdir(parents=True)
-    (proj / ".claude" / "workflows" / "rp.js").write_text(remote)
+    script = proj / ".claude" / "workflows" / "rp.js"
+    script.parent.mkdir(parents=True)
+    script.write_text(remote)
     assert launch(proj / "sub" / "dir")[0] == "deny"
-    (proj / ".claude" / "workflows" / "rp.js").write_text("await agent('go')\n")
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    assert launch(elsewhere) is None  # outside the project, and no project folder named
+    monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(proj))
+    assert launch(elsewhere)[0] == "deny"
+    script.write_text("await agent('go')\n")
     assert launch(proj / "sub" / "dir") is None
     (home / ".claude" / "workflows").mkdir(parents=True)
     (home / ".claude" / "workflows" / "rp.js").write_text(remote)
@@ -531,15 +538,16 @@ def test_a_threshold_asks_once(guard, monkeypatch, tmp_path):
     assert "#9 " in asked[0][1]
 
 
-def test_a_spawn_log_line_that_is_no_utf8_is_skipped(guard, monkeypatch, tmp_path):
+def test_a_spawn_log_line_that_is_no_utf8_does_not_crash(guard, monkeypatch, tmp_path):
     # the first review: a crash of the hook now blocks the call (onFailure block), so one bad byte in the shared
-    # log must not stop every spawn of every session; the line is skipped like any line that is no JSON
+    # log must not stop every spawn of every session. The byte is replaced: a line that is then no JSON is skipped,
+    # one that still parses is read as any row (here one with no event, which counts nothing)
     monkeypatch.setattr(guard, "llama_server_up", lambda port=0: False)
     cfg = dict(guard.DEFAULTS, telemetry_dir=str(tmp_path / "t"))
     path = pathlib.Path(guard.spawn_log_path(cfg))
     path.parent.mkdir(parents=True)
     rows = "".join(json.dumps(r) + "\n" for r in _seed("P=1 P=2 P=3 P=4 P=5"))
-    path.write_bytes(rows.encode("utf-8") + b'{"session": "s1", "x": "\xff\xfe"}\n')
+    path.write_bytes(rows.encode("utf-8") + b'{"session": "s1", "x": "\xff\xfe"}\n\xff{"session": "s1"}\n')
     got = guard.rule_fan_out(_fan_event(guard, "Agent"), cfg)
     assert got and got[0] == "ask" and "#6 " in got[1], got
 

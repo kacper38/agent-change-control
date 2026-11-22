@@ -3093,7 +3093,7 @@ def log_spawn(ev: Event, cfg: dict) -> tuple:
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
         if os.path.exists(path):
-            with open(path, encoding="utf-8", errors="replace") as fh:  # a bad byte makes a line no JSON, not a crash
+            with open(path, encoding="utf-8", errors="replace") as fh:  # a bad byte is replaced, never a crash
                 for line in fh:
                     try:
                         row = json.loads(line)
@@ -4502,9 +4502,10 @@ def _read_script_file(full: str, path: str) -> tuple:
 
 def _named_workflow(ev: Event, name: str) -> tuple:
     """A saved workflow's files, wherever the harness may take one from: `.claude/workflows/<name>.js` in the call's
-    folder and in every folder above it (the project's, wherever the session stands in it), and in the user's Claude
-    folder (CLAUDE_CONFIG_DIR, else ~/.claude). Every file found is read as a scriptPath is and judged together;
-    none found answers as 0.11.0 did (a built-in workflow, or none at all)."""
+    folder and in every folder above it (the project's, wherever the session stands in it), in the project folder
+    the harness names (CLAUDE_PROJECT_DIR), and in the user's Claude folder (CLAUDE_CONFIG_DIR, else ~/.claude).
+    Every file found is read as a scriptPath is and judged together; none found answers as 0.11.0 did (a built-in
+    workflow, or none at all)."""
     if not WORKFLOW_NAME_RE.match(name):
         return None, f"a Workflow name that is no plain file name ({name[:80]!r})"
     candidates, d = [], os.path.abspath(ev.cwd or ".")
@@ -4514,6 +4515,8 @@ def _named_workflow(ev: Event, name: str) -> tuple:
         if parent == d:
             break
         d = parent
+    if os.environ.get("CLAUDE_PROJECT_DIR"):
+        candidates.append(os.path.join(os.environ["CLAUDE_PROJECT_DIR"], ".claude", "workflows", name + ".js"))
     user = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.join(os.path.expanduser("~"), ".claude")
     candidates.append(os.path.join(user, "workflows", name + ".js"))
     texts, seen = [], set()

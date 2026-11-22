@@ -522,13 +522,15 @@ Anti-over-engineering (the lazy family):
   It prints the path of the file, `~/.claude/telemetry/pages/<UTC>.html`
   (mode 0600; `--out PATH` puts it elsewhere, never inside a git work tree and
   never over an existing file). The page has no script and loads nothing
-  (CSP `default-src 'none'`), and shows no tool input or output. What it is
+  (CSP `default-src 'none'`), and shows no tool input or output but each
+  agent's short description (the description its Agent call was given, as
+  `ledger.py agents` prints it). What it is
   not: a live console (it is read after the fact; live state is a terminal
   multiplexer's), or evidence (the files it reads are). A session is grouped
   under the branch most of its lines carry, so a session that works in a
   worktree by absolute paths from the main checkout sits under the main
-  checkout's branch. The page holds titles, folders, branch names and finding
-  summaries, so it stays on this machine: never attach it to a ticket, a pull
+  checkout's branch. The page holds titles, agent descriptions, folders,
+  branch names and finding summaries, so it stays on this machine: never attach it to a ticket, a pull
   request, a chat or an evidence pack.
 - Nothing from here is installed at work: no memory, telemetry, tokens or
   transcripts cross the boundary, and memory push stays off until

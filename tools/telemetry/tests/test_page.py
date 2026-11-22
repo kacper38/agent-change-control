@@ -275,16 +275,17 @@ def test_evidence_paths_are_those_the_branch_changed(page, world):
 
 def test_branch_names_from_transcripts_that_never_reach_git_log(page, world, git_calls):
     data = collected(page, world)
-    logs = [args for args, _ in git_calls if args[0] == "log"]
+    logs = [args for args, _ in git_calls if args[0] in ("log", "rev-list")]
     for name in ("--output=x", "a b", "@{-1}"):
         assert task(data, name)["lookup"] == "refused"
         assert ["check-ref-format", "--branch", name] in [args for args, _ in git_calls]
         assert not any(name in arg for args in logs for arg in args), name
-    main = [args for args in logs if "origin/main..refs/heads/main" in args]
-    assert len(main) == 1
-    assert main[0].index("--end-of-options") < main[0].index("origin/main..refs/heads/main")
-    assert main[0][-1] == "--"
-    for args in logs:  # every name reaches git log after --end-of-options, as refs/heads/NAME, with a closing --
+    ahead = "refs/remotes/origin/main..refs/heads/main"  # the full ref, as has_base checked it
+    main = [args for args in logs if ahead in args]
+    assert [args[0] for args in main] == ["rev-list", "log"]
+    for args in main:
+        assert args.index("--end-of-options") < args.index(ahead) and args[-1] == "--"
+    for args in logs:  # every name reaches git after --end-of-options, as refs/heads/NAME, with a closing --
         named = [a for a in args if "refs/heads/" in a]
         assert named and args.index("--end-of-options") < args.index(named[0]) and args[-1] == "--"
     assert {cwd for _, cwd in git_calls} == {world["project"]}  # git runs in the project only, never in /work
@@ -330,7 +331,23 @@ def test_without_origin_main_no_branch_gets_a_lookup(page, world, git_calls):
     git(world["repo"], "update-ref", "-d", "refs/remotes/origin/main")
     data = collected(page, world)
     assert task(data, "feat/page")["lookup"] == "no-base" and task(data, "main")["lookup"] == "no-base"
-    assert not [args for args, _ in git_calls if args[0] == "log"]
+    assert not [args for args, _ in git_calls if args[0] in ("log", "rev-list")]
+
+
+def test_a_local_branch_named_origin_main_is_no_base(page, world):
+    git(world["repo"], "branch", "origin/main", world["sha2"])  # git takes refs/heads/ before refs/remotes/
+    feat = task(collected(page, world), "feat/page")
+    assert (feat["commits"], feat["evidence"]) == (2, ["evidence/run-1/out.txt"])
+
+
+def test_an_evidence_path_git_would_quote_is_listed(page, world):
+    wt = pathlib.Path(world["project"]) / ".claude" / "worktrees" / "wt"  # feat/page is checked out there
+    name = 'evidence/résumé "x".txt'  # without -z, git writes it C-quoted
+    (wt / name).write_text("e\n")
+    git(wt, "add", name)
+    git(wt, "commit", "-q", "-m", "four")
+    feat = task(collected(page, world), "feat/page")
+    assert feat["commits"] == 3 and feat["evidence"] == sorted(["evidence/run-1/out.txt", name])
 
 
 def test_no_tool_input_reaches_the_data(page, world):
@@ -531,7 +548,8 @@ def test_one_session(tmp_path, cli):
     assert cli("--session", "../x")[0] == 2
 
 
-@pytest.mark.parametrize("argv", [["--days", "0"], ["--days", "x"], ["--nope"]])
+@pytest.mark.parametrize("argv", [["--days", "0"], ["--days", "x"], ["--nope"], ["--days", "3651"],
+                                  ["--days", "1000000000"]])  # past datetime's range: no traceback
 def test_usage_errors(cli, argv):
     assert cli(*argv)[0] == 2
 

@@ -21,7 +21,9 @@ of one repository over the last N days, read from files already on the machine.
                                  consecutive receipts and the evidence/ paths of origin/main..refs/heads/NAME.
 
 Nothing is printed or written here, and no tool input, tool output, prompt or reply is read into the data: of a
-tool_use block only its name, id and time. Every text comes from a file and is untrusted. A branch name reaches
+tool_use block only its name, id and time. The one exception is each agent's label: its type and the short description
+its .meta.json holds, the description argument of the Agent call that started it, as `ledger.py agents` prints it.
+Every text comes from a file and is untrusted. A branch name reaches
 git only as checked by `git check-ref-format --branch` (unchanged, no `@{`), after `--end-of-options`, as
 `refs/heads/NAME`, with a closing `--`. Git runs only in the project folder (never in a box's clone: the box
 session controls its .git/config). Standard library only, Python >= 3.9.
@@ -58,6 +60,7 @@ SESSION_FILE = re.compile(r"[A-Za-z0-9_-]+\.jsonl")
 SHA = re.compile(r"[0-9a-f]{40}")
 STRENGTH = {"deny": 4, "ask": 3, "logged": 2, "skipped": 1}  # one call with two guard lines keeps the stronger
 GIT_TIMEOUT = 30
+MAX_DAYS = 3650  # a window of ten years; far larger values overflow datetime
 LOOKUP_TEXT = {
     "none": "no branch: the session's folder is no git work tree on a branch",
     "refused": "no evidence lookup: not a plain branch name",
@@ -385,18 +388,18 @@ def branch_lookup(branch: Optional[str], project: str, has_base: bool) -> dict:
         return {"lookup": "refused"}
     if not has_base:
         return {"lookup": "no-base"}
-    code, out = run_git(["log", "--name-only", "--format=%x00%H", "--end-of-options",
-                         f"origin/main..refs/heads/{branch}", "--"], project)
+    ahead = f"refs/remotes/origin/main..refs/heads/{branch}"  # the ref has_base checked: a short origin/main would
+    # take a local branch or tag of that name first
+    code, out = run_git(["rev-list", "--end-of-options", ahead, "--"], project)
     if code == 128:  # git's answer for a revision it does not know; origin/main was checked to exist
         return {"lookup": "absent"}
     if code != 0:
         return {"lookup": "error"}
-    commits, paths = [], set()
-    for line in out.splitlines():
-        if line.startswith("\x00"):
-            commits.append(line[1:])
-        elif line:
-            paths.add(line)
+    commits = out.split()
+    code, out = run_git(["log", "-z", "--name-only", "--format=", "--end-of-options", ahead, "--"], project)
+    if code != 0:  # -z: each path as it is, NUL-terminated, never C-quoted
+        return {"lookup": "error"}
+    paths = set(out.split("\x00"))  # the empty rest after the last NUL is no evidence/ path
     code, out = run_git(["log", "-g", "--format=%H", "--end-of-options", f"refs/heads/{branch}", "--"], project)
     tips = set(out.split()) if code == 0 else set()
     return {"lookup": "ok", "commits": len(commits), "shas": set(commits) | tips,
@@ -529,7 +532,8 @@ LEGEND = ("verdict `-`: the guard wrote no line for the call (no rule spoke, or 
           "task: a session sits under the branch most of its lines carry, which is the branch of the folder it ran "
           "from; a review is tied to the branch whose reflog or commits hold the reviewed commit, so a branch worked "
           "on from another folder can appear with its reviews and no session",
-          "this page is a local, read-only record: it holds titles, folders, branch names and finding summaries "
+          "this page is a local, read-only record: it holds titles, agent descriptions, folders, branch names and "
+          "finding summaries "
           "and is never attached to a ticket, a pull request, a chat or an evidence pack, nor copied off this "
           "machine")
 
@@ -855,8 +859,8 @@ def main(argv: list, out=None, err=None, cwd: Optional[str] = None, now: Optiona
         ns = ap.parse_args(argv)
     except SystemExit:  # argparse printed the usage line
         return 2
-    if ns.days < 1:
-        err.write("page: --days is a whole number of days, 1 or more\n")
+    if not 1 <= ns.days <= MAX_DAYS:
+        err.write(f"page: --days is a whole number of days from 1 to {MAX_DAYS}\n")
         return 2
     if ns.session is not None and not re.fullmatch(r"[A-Za-z0-9_-]+", ns.session):
         err.write("page: a session id holds only letters, digits, - and _\n")

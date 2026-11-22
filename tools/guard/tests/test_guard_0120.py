@@ -520,6 +520,27 @@ def test_a_threshold_asks_once(guard, monkeypatch, tmp_path):
     assert "#9 " in asked[0][1]
 
 
+def test_a_spawn_log_line_that_is_no_utf8_is_skipped(guard, monkeypatch, tmp_path):
+    # the first review: a crash of the hook now blocks the call (onFailure block), so one bad byte in the shared
+    # log must not stop every spawn of every session; the line is skipped like any line that is no JSON
+    monkeypatch.setattr(guard, "llama_server_up", lambda port=0: False)
+    cfg = dict(guard.DEFAULTS, telemetry_dir=str(tmp_path / "t"))
+    path = pathlib.Path(guard.spawn_log_path(cfg))
+    path.parent.mkdir(parents=True)
+    rows = "".join(json.dumps(r) + "\n" for r in _seed("P=1 P=2 P=3 P=4 P=5"))
+    path.write_bytes(rows.encode("utf-8") + b'{"session": "s1", "x": "\xff\xfe"}\n')
+    got = guard.rule_fan_out(_fan_event(guard, "Agent"), cfg)
+    assert got and got[0] == "ask" and "#6 " in got[1], got
+
+
+def test_every_tool_of_kind_spawn_is_counted(guard):
+    # the first review: the count filters on SPAWN_TOOLS while the row is written for kind spawn; a spawn tool
+    # missing from the tuple would be logged and never counted
+    kinds = {name for table in (guard.CLAUDE_TOOLS, guard.COPILOT_TOOLS) for name, kind in table.items()
+             if kind == "spawn"}
+    assert kinds == set(guard.SPAWN_TOOLS), kinds
+
+
 def test_a_plain_int_from_log_spawn_is_the_total(guard, monkeypatch):
     # A2: the stubs of the older modules return an int: read as total n, previous n - 1
     monkeypatch.setattr(guard, "llama_server_up", lambda port=0: False)

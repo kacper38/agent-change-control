@@ -3093,7 +3093,7 @@ def log_spawn(ev: Event, cfg: dict) -> tuple:
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
         if os.path.exists(path):
-            with open(path, encoding="utf-8") as fh:
+            with open(path, encoding="utf-8", errors="replace") as fh:  # a bad byte makes a line no JSON, not a crash
                 for line in fh:
                     try:
                         row = json.loads(line)

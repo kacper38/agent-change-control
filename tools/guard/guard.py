@@ -3065,36 +3065,31 @@ def _update_ref_on_protected(seg: list[str], rest: list[str], cwd: str, protecte
 
 
 # ----------------------------------------------------------------------------
-# fan-out: log every spawn; ask at the 6th and every 10 after (plan step 2.3)
+# fan-out: log every spawn; ask at the 6th and every 10 after (plan step 2.3); since 0.12.0 the total counts a
+# workflow's agents too (SubagentStart rows), and an ask comes when the total crosses a threshold (item #67, D4)
 # ----------------------------------------------------------------------------
 
 FANOUT_FIRST, FANOUT_EVERY = 6, 10
 LLAMA_PORT = 8012
 FANOUT_MSG = (
-    "Fan-out guard: spawn #{n} in this session (a prompt at #{first}, then every {every}). "
+    "Fan-out guard: spawn #{n} in this session, workflow agents included (a prompt at #{first}, then every {every}). "
     "Cost guardrails: one shared brief, <=5 agents, no two agents with the same job. Continue?{llama}"
 )
 LLAMA_NOTE = " llama-server is up on :{port} (39 GB of RAM in use): parallel agents will swap."
+SPAWN_TOOLS = ("Agent", "Task", "task")  # the PreToolUse rows that count; a row of 0.11.0 or older has no tool
 
 
 def spawn_log_path(cfg: dict) -> str:
     return os.path.join(telemetry_dir(cfg), "spawns.jsonl")
 
 
-def log_spawn(ev: Event, cfg: dict) -> int:
-    """Append one line to the spawn log; return how many PreToolUse spawns this session has, this one included."""
-    entry = {
-        "ts": _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "event": ev.event,
-        "harness": ev.harness,
-        "session": ev.session,
-        "agent": _first_str(ev.args, "subagent_type", "agent_type", "agent", "name") or ev.raw.get("agent_type"),
-        "model": _first_str(ev.args, "model"),
-        "agent_id": ev.raw.get("agent_id"),
-        "cwd": ev.cwd,
-    }
+def log_spawn(ev: Event, cfg: dict) -> tuple:
+    """Append one row to the spawn log; return (total, prev): the session's spawn total with this event, and the
+    total of the last counted PreToolUse row (0 when there is none). A PreToolUse spawn counts itself on top of the
+    larger of the PreToolUse spawn rows and the SubagentStart rows (an Agent call has both, a workflow agent only
+    the second); a SubagentStart counts itself among the starts; a Workflow call logs the current total."""
     path = spawn_log_path(cfg)
-    count = 0
+    pre = start = prev = 0
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
         if os.path.exists(path):
@@ -3104,13 +3099,44 @@ def log_spawn(ev: Event, cfg: dict) -> int:
                         row = json.loads(line)
                     except ValueError:
                         continue
-                    if row.get("session") == ev.session and row.get("event") == "PreToolUse":
-                        count += 1
+                    if not isinstance(row, dict) or row.get("session") != ev.session:
+                        continue
+                    if row.get("event") == "SubagentStart":
+                        start += 1
+                    elif row.get("event") == "PreToolUse" and ("tool" not in row or row["tool"] in SPAWN_TOOLS):
+                        pre += 1
+                        total = row.get("total")
+                        prev = total if isinstance(total, int) and not isinstance(total, bool) else pre
+    except OSError as exc:
+        print(f"guard: spawn log failed: {exc}", file=sys.stderr)
+    if ev.event == "SubagentStart":
+        total = max(pre, start + 1)
+    elif ev.kind == "spawn":
+        total = max(pre, start) + 1
+    else:
+        total = max(pre, start)
+    entry = {
+        "ts": _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "event": ev.event,
+        "harness": ev.harness,
+        "session": ev.session,
+        "agent": _first_str(ev.args, "subagent_type", "agent_type", "agent", "name") or ev.raw.get("agent_type"),
+        "model": _first_str(ev.args, "model"),
+        "agent_id": ev.raw.get("agent_id"),
+        "cwd": ev.cwd,
+        "tool": ev.tool or None,
+        "total": total,
+    }
+    if ev.kind == "workflow":
+        name = ev.args.get("name")
+        entry["workflow"] = name if isinstance(name, str) else None
+        entry["script"] = "script" in ev.args or "scriptPath" in ev.args
+    try:
         with open(path, "a", encoding="utf-8") as fh:
             fh.write(json.dumps(entry, sort_keys=True) + "\n")
     except OSError as exc:
         print(f"guard: spawn log failed: {exc}", file=sys.stderr)
-    return count + 1 if ev.event == "PreToolUse" else count
+    return total, prev
 
 
 def llama_server_up(port: int = LLAMA_PORT) -> bool:
@@ -3122,16 +3148,23 @@ def llama_server_up(port: int = LLAMA_PORT) -> bool:
 
 
 def rule_fan_out(ev: Event, cfg: dict) -> Optional[Decision]:
+    """Log every spawn, SubagentStart and Workflow call; ask once when a spawn's total crosses 6, 16, 26, ...
+    A SubagentStart cannot block and a Workflow call is no spawn: both are logged and answer nothing."""
     if ev.event == "SubagentStart":
         log_spawn(ev, cfg)
         return None
-    if ev.event != "PreToolUse" or ev.kind != "spawn":
+    if ev.event != "PreToolUse" or ev.kind not in ("spawn", "workflow"):
         return None
-    n = log_spawn(ev, cfg)
-    if n < FANOUT_FIRST or (n - FANOUT_FIRST) % FANOUT_EVERY:
+    got = log_spawn(ev, cfg)
+    if ev.kind == "workflow":
+        return None
+    total, prev = (got, got - 1) if isinstance(got, int) else got  # a plain int: the stubs of older tests
+    if total < FANOUT_FIRST:
+        return None
+    if prev >= FANOUT_FIRST + (total - FANOUT_FIRST) // FANOUT_EVERY * FANOUT_EVERY:  # the last threshold <= total
         return None
     llama = LLAMA_NOTE.format(port=LLAMA_PORT) if llama_server_up() else ""
-    return "ask", FANOUT_MSG.format(n=n, first=FANOUT_FIRST, every=FANOUT_EVERY, llama=llama)
+    return "ask", FANOUT_MSG.format(n=total, first=FANOUT_FIRST, every=FANOUT_EVERY, llama=llama)
 
 
 # ----------------------------------------------------------------------------

@@ -107,6 +107,14 @@ The forge comes from the target's origin: `dev.azure.com` or
 issue forms; an Azure DevOps target gets `azure-pipelines.yml`,
 `azure-pipelines-label-lint.yml` and `docs/ADO-ADMIN.md` instead.
 
+`--boundary own|client` sets the `boundary` line of a new target's
+`.claude/guard.json`: new targets get `client` (the strict mode for client
+work) unless you pass `--boundary own` for a repository of your own. An
+existing `.claude/guard.json` is never touched, not even with `--force`; the
+installer prints a note and the summary says `boundary: left as is`. Upgrade
+note: a target installed before this change copied this repository's `own`
+and keeps it; its owner should check that line.
+
 Into the home account, Claude Code only (agents and skills under `~/.claude`):
 
 ```bash
@@ -395,6 +403,27 @@ variables (`KZ_TRACKER_REPO`, `KZ_TRACKER_AREA`, `KZ_TRACKER_ADO_MODE`,
   same prompt is `.github/instructions/review.instructions.md` for Copilot code
   review, on GitHub and on Azure Repos.
 
+### Orchestration
+
+The checks of the skill `orchestrate` (standard library; exit 0 pass, 1 fail
+or gap, 2 usage):
+
+- `tools/orchestration/assert_run.py run FILE`: a headless `claude -p
+  --output-format json` run's output: success, no permission denial,
+  structured output, no `null` stage, no outstanding background work.
+- `tools/orchestration/assert_run.py worker FILE [--repo DIR]`: a
+  `worker-result/1` object: its head is the branch tip and every check it
+  reports exited 0 (the worker's own word; nothing is re-run).
+- `tools/orchestration/assert_run.py merge-ready N [--repo DIR]`: pull request
+  N is open, its head is the tip at origin and locally, its checks are green,
+  the newest fresh-review receipt for the head says APPROVE or COMMENT (open
+  findings of a COMMENT are not checked: answer each before the merge) and it
+  adds a `DECISIONS.md` line;
+  prints `gh pr merge N --merge --match-head-commit <sha>`, never merges.
+- `tools/orchestration/brief_lint.py FILE...`: a brief has every field of
+  `brief-template.md` once, none empty, a command as done evidence and a
+  number as size limit.
+
 ### Box (this repository only; Phase 1 step 1.0a, a skeleton)
 
 - `bin/box run NAME` opens a terminal session in box NAME; `bin/box run NAME
@@ -489,6 +518,10 @@ Task lifecycle:
 
 General support: `verify`, `code-review`, `pr-prep`, `systematic-debugging`,
 `verification-before-completion`.
+
+Work for more than one agent: `/orchestrate` splits a task into packets, one
+linted brief each (`brief-template.md`), runs the first packet end to end and
+checks every result with `assert_run.py` before a merge.
 
 Anti-over-engineering (the lazy family):
 

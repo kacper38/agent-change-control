@@ -563,6 +563,12 @@ G1 | host | ask | Write | {"file_path": "{w}/.CLAUDE/Workflows/X.js", "content":
 G1 | host | ask | Bash | {"command": "sed -i s/a/b/ .claude/workflows/review-panel.js"}
 G1 | host | ask | Bash | {"command": "echo x > .claude/workflows/x.js"}
 G1 | host | ask | Bash | {"command": "cp /tmp/x.js .claude/workflows/"}
+# a shell write that names the folder itself writes inside it (the first review): copy, move, link, sync
+G1 | host | ask | Bash | {"command": "cp evil.js .claude/workflows"}
+G1 | host | ask | Bash | {"command": "mv d .claude/workflows"}
+G1 | host | ask | Bash | {"command": "ln -s /tmp/d .claude/workflows"}
+G1 | host | ask | Bash | {"command": "rsync -a d/ .claude/workflows"}
+G1 | box | logged | Bash | {"command": "ln -s /tmp/d .claude/workflows"}
 G1 | host | ask | mcp__github__create_or_update_file | {"owner": "o", "repo": "r", "path": ".claude/workflows/x.js", "content": "x", "message": "m", "branch": "feat/x"}
 G1 | box | logged | Write | {"file_path": "{w}/.claude/workflows/review-panel.js", "content": "x"}
 G1 | box | logged | Bash | {"command": "sed -i s/a/b/ .claude/workflows/review-panel.js"}

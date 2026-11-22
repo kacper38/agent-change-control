@@ -140,10 +140,14 @@ def world(tmp_path, git_bin):
     write_jsonl(folder / "s1" / "subagents" / "agent-a100.jsonl",
                 [asst(5, "feat/page", project, [tool("toolu_agent", "Grep")], "req-a100")])
     (folder / "s1" / "subagents" / "agent-a100.meta.json").write_text(
-        json.dumps({"agentType": "code-reviewer", "description": "review the diff"}))
+        json.dumps({"agentType": "code-reviewer", "description": f"review the diff {SECRET}"}))  # Agent call input
     session(host / "projects" / encoded(wt), "s2", "feat/page", wt, [("toolu_wt", "Edit")], minute=20)
     for sid, branch in (("s3", "--output=x"), ("s4", "a b"), ("s5", "@{-1}"), ("s6", "main"), ("s7", "feat/gone")):
         session(folder, sid, branch, project, [(f"toolu_{sid}", "Read")], minute=30)
+    write_jsonl(folder / "s7" / "subagents" / "workflows" / "wf1" / "agent-w100.jsonl",  # a workflow's agent
+                [asst(31, "feat/gone", project, [], "req-w100")])
+    (folder / "s7" / "workflows" / "scripts").mkdir(parents=True)
+    (folder / "s7" / "workflows" / "scripts" / f"{SECRET}-wf1.js").write_text("")  # the name from the Workflow call
     session(host / "projects" / (encoded(project) + "-2"), "s8", "feat/page", project + "-2")  # same prefix, other
     old = session(folder, "s9", "feat/page", project)
     stale = (NOW - dt.timedelta(days=30)).timestamp()
@@ -231,7 +235,7 @@ def test_tool_calls_joined_with_the_guard_log_on_the_call_id(page, world):
     s = sessions_of(collected(page, world))
     got = [(c["agent"], c["tool"], c["verdict"], c["ran"]) for c in s["s1"]["calls"]]
     assert got == [("session", "Bash", "ask", True), ("session", "Bash", "deny", None), ("session", "Read", "-", None),
-                   ("code-reviewer  review the diff", "Grep", "ask", False)]
+                   ("code-reviewer", "Grep", "ask", False)]
     assert s["s1"]["calls"][1]["rules"] == [("egress-guard", "deny")]
     assert [(c["tool"], c["verdict"]) for c in s["b1"]["calls"]] == [("Bash", "logged")]
     assert [a["kind"] for a in s["s1"]["agents"]] == ["session", "agent"]
@@ -307,6 +311,16 @@ def test_each_of_the_two_name_checks_holds_by_itself(page, monkeypatch, name, an
     assert calls == [["check-ref-format", "--branch", name]]
 
 
+def test_a_reflog_read_that_fails_is_a_git_failure(page, monkeypatch):
+    def stub(args, cwd):  # every other call answers as for a branch with no commits ahead
+        if args[0] == "check-ref-format":
+            return 0, "feat/x\n"
+        return (None, "") if args[:2] == ["log", "-g"] else (0, "")
+
+    monkeypatch.setattr(page, "run_git", stub)
+    assert page.branch_lookup("feat/x", "/nowhere", True) == {"lookup": "error"}
+
+
 def test_reviews_stay_tied_to_a_merged_branch(page, world):
     git(world["repo"], "update-ref", "refs/remotes/origin/main", world["sha2"])  # the branch is in main now
     feat = task(collected(page, world), "feat/page")
@@ -354,6 +368,14 @@ def test_no_tool_input_reaches_the_data(page, world):
     assert SECRET not in repr(collected(page, world))
 
 
+def test_an_agent_is_shown_by_its_type_and_a_workflow_without_its_name(page, world):
+    s = sessions_of(collected(page, world))
+    assert [(a["kind"], a["label"]) for a in s["s1"]["agents"] if a["kind"] != "session"] == [
+        ("agent", "code-reviewer")]  # the ledger's label adds the description
+    assert sorted((a["kind"], a["label"]) for a in s["s7"]["agents"] if a["kind"] != "session") == [
+        ("agent", "agent"), ("workflow", "workflow")]  # the ledger's label adds the script's name
+
+
 def test_a_session_sits_under_the_branch_most_of_its_lines_carry(page, tmp_path):
     rows = [user(0, "feat/a", "/r"), user(1, "feat/a", "/r"), user(2, "main", "/r")]
     write_jsonl(tmp_path / "most.jsonl", rows)
@@ -376,6 +398,25 @@ def test_a_full_session_id_wins_over_the_ids_it_is_a_prefix_of(page, world):
     one = lambda sid: set(sessions_of(page.collect(world["project"], 7, world["homes"], now=NOW,  # noqa: E731
                                                    prices=PRICES, session=sid)))
     assert (one("s1"), one("s10")) == ({"s1"}, {"s10"})
+
+
+def test_an_unreadable_transcript_line_is_counted_once(page, world):
+    before = collected(page, world)["lines_not_read"]
+    folder = pathlib.Path(world["homes"][0]["config"]) / "projects" / encoded(world["project"])
+    for path in (folder / "s6.jsonl", folder / "s1" / "subagents" / "agent-a100.jsonl"):  # a session, an agent
+        with open(path, "a", encoding="utf-8") as fh:
+            fh.write("{\n")
+    assert collected(page, world)["lines_not_read"] == before + 2
+
+
+def test_a_branch_list_that_fails_is_named_on_the_page(page, world, monkeypatch):
+    assert collected(page, world)["branch_list"] == "ok"
+    real = page.run_git
+    monkeypatch.setattr(page, "run_git", lambda args, cwd: (1, "") if args[0] == "for-each-ref" else real(args, cwd))
+    data = collected(page, world)
+    assert data["branch_list"] == "error" and "feat/solo" not in [t["branch"] for t in data["tasks"]]
+    html = page.render(data)
+    assert "git for-each-ref failed" in html and page.check_page(html) == []
 
 
 # ---- step 2: render and check_page --------------------------------------------------------------------------------
@@ -446,6 +487,8 @@ def test_the_hand_written_page_passes_and_escaped_text_never_counts(page):
     ("meta name", minimal(head=CSP_TAG + '<meta name="referrer" content="unsafe-url">')),
     ("meta refresh without a url", minimal(head=CSP_TAG + '<meta http-equiv="refresh" content="5">')),
     ("URL( in capitals in style", minimal(style="p{background:URL(x)}")),  # CSS reads it as url(
+    ("CSP tag after body content, no </head>",  # body content ends the head: a browser ignores the tag there
+     '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>t</title><p>x</p>' + CSP_TAG + "</html>"),
 ])
 def test_each_breach_is_found(page, name, html):
     assert page.check_page(html), name
@@ -586,6 +629,23 @@ def test_a_page_that_breaks_its_own_check_is_never_written(page, cli, tmp_path, 
     target = tmp_path / "bad.html"
     code, out, err = cli("--out", str(target))
     assert (code, out) == (1, "") and "breaks its own check" in err and not target.exists()
+
+
+def test_pages_past_the_retention_are_named_and_kept(world, cli, tmp_path):
+    pages = pathlib.Path(world["homes"][0]["telemetry"]) / "pages"
+    pages.mkdir(parents=True)
+    old, recent = pages / "20261001T000000Z.html", pages / "20261101T000000Z.html"  # 51 and 20 days before NOW
+    for path in (old, recent, pages / "20261399T000000Z.html", pages / "20261001T000000Z.json",
+                 pages / "notes.html"):  # no date, then two names this script never writes
+        path.write_text("x")
+    code, _, err = cli()
+    assert (code, err) == (0, f"page: 1 of the pages in {pages} are older than 30 days, the retention of a page; "
+                              "remove them\n")
+    assert old.exists() and recent.exists()  # named, never removed
+    mine = tmp_path / "mine"
+    mine.mkdir()
+    (mine / "20261001T000000Z.html").write_text("x")
+    assert cli("--out", str(mine / "p.html"))[2] == ""  # a folder given with --out is the owner's own
 
 
 def test_a_branch_seen_only_through_its_reviews_is_a_task(page, world, git_calls):

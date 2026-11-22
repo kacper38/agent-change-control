@@ -11,6 +11,8 @@ of one repository over the last N days, read from files already on the machine.
                                  <CLAUDE_CONFIG_DIR or ~/.claude>/projects and, in a repository that has bin/box,
                                  from the box's ~/.agent-box/claude-home. --session ID: one session, a full id or a
                                  prefix that fits one. No server, no port, no network call, no JavaScript.
+                                 A page is kept 30 days: a run to the default place names on stderr how many pages
+                                 there are older, and removes none (the owner does).
                                  Exit codes: 0 written, 1 refused or failed (one line on stderr says why), 2 usage.
 
   collect(project, days, homes)  the sessions of every home given (the owner's Claude home, the box's) whose
@@ -21,9 +23,8 @@ of one repository over the last N days, read from files already on the machine.
                                  consecutive receipts and the evidence/ paths of origin/main..refs/heads/NAME.
 
 Nothing is printed or written here, and no tool input, tool output, prompt or reply is read into the data: of a
-tool_use block only its name, id and time. The one exception is each agent's label: its type and the short description
-its .meta.json holds, the description argument of the Agent call that started it, as `ledger.py agents` prints it.
-Every text comes from a file and is untrusted. A branch name reaches
+tool_use block only its name, id and time; of an agent its type, without the description its Agent call gave; of a
+workflow neither its script nor the script's name. Every text comes from a file and is untrusted. A branch name reaches
 git only as checked by `git check-ref-format --branch` (unchanged, no `@{`), after `--end-of-options`, as
 `refs/heads/NAME`, with a closing `--`. Git runs only in the project folder (never in a box's clone: the box
 session controls its .git/config). Standard library only, Python >= 3.9.
@@ -61,6 +62,8 @@ SHA = re.compile(r"[0-9a-f]{40}")
 STRENGTH = {"deny": 4, "ask": 3, "logged": 2, "skipped": 1}  # one call with two guard lines keeps the stronger
 GIT_TIMEOUT = 30
 MAX_DAYS = 3650  # a window of ten years; far larger values overflow datetime
+RETENTION_DAYS = 30  # a page's retention, the default cleanupPeriodDays of the transcripts it is read from
+PAGE_NAME = re.compile(r"[0-9]{8}T[0-9]{6}Z\.html")  # the name of a page written to the default place
 LOOKUP_TEXT = {
     "none": "no branch: the session's folder is no git work tree on a branch",
     "refused": "no evidence lookup: not a plain branch name",
@@ -248,6 +251,16 @@ def _session_cost(row: Optional[dict], own: Optional[float]) -> tuple:
     return own, "own count, no ledger line"
 
 
+def agent_label(row: dict) -> str:
+    """The ledger's label of a tree row without what a tool call wrote into it: an agent's type without the
+    description its Agent call gave, a workflow without its script's name (the plan's answer 1: no tool-call content
+    in this version). The ledger writes an agent's label as `TYPE  DESCRIPTION`, two spaces between."""
+    label = row.get("label") or ""
+    if row.get("kind") == "workflow":
+        return "workflow"
+    return label.partition("  ")[0] if row.get("kind") == "agent" else label
+
+
 def read_home(home: dict, since: _dt.datetime, prices: dict, session: Optional[str] = None) -> tuple:
     """(sessions, counters) of one home: every transcript of a project folder of home["root"] written since `since`
     whose folder lies in the root (with `session`, only ids that start with it). A session id in two project
@@ -298,7 +311,7 @@ def read_home(home: dict, since: _dt.datetime, prices: dict, session: Optional[s
             continue
         tree = ledger.read_agents(path, home["telemetry"], prices)
         counts["files_not_read"] += tree["files_not_read"]
-        counts["lines_not_read"] += tree["lines_not_read"] + info["lines_not_read"]
+        counts["lines_not_read"] += tree["lines_not_read"]  # the ledger read the same transcripts: counted once
         calls = [dict(c, agent="session") for c in info["calls"]]
         for row in tree["rows"]:
             if row["kind"] != "agent" or not row["read"]:
@@ -307,8 +320,7 @@ def read_home(home: dict, since: _dt.datetime, prices: dict, session: Optional[s
             if agent is None:
                 counts["files_not_read"] += 1
                 continue
-            counts["lines_not_read"] += agent["lines_not_read"]
-            calls += [dict(c, agent=row["label"]) for c in agent["calls"]]
+            calls += [dict(c, agent=agent_label(row)) for c in agent["calls"]]
         for c in calls:
             seen = guard["by_call"].get(c["call"]) if c["call"] else None
             c["verdict"] = seen["verdict"] if seen else "-"
@@ -326,8 +338,8 @@ def read_home(home: dict, since: _dt.datetime, prices: dict, session: Optional[s
             "branches": info["branches"], "folders": [_text(c, 300) for c in info["cwds"]], "prs": info["prs"],
             "model": top["model"], "state": top["state"], "start": top["start"], "end": top["end"],
             "seconds": top["seconds"], "cost": cost, "cost_basis": basis, "box": boxes.get(sid),
-            "agents": [{k: r.get(k) for k in ("depth", "kind", "label", "state", "seconds", "cost", "tools", "model",
-                                              "read")} for r in tree["rows"]],
+            "agents": [dict({k: r.get(k) for k in ("depth", "kind", "state", "seconds", "cost", "tools", "model",
+                                                   "read")}, label=agent_label(r)) for r in tree["rows"]],
             "calls": calls, "gate": gate})
     return sessions, counts
 
@@ -401,8 +413,9 @@ def branch_lookup(branch: Optional[str], project: str, has_base: bool) -> dict:
         return {"lookup": "error"}
     paths = set(out.split("\x00"))  # the empty rest after the last NUL is no evidence/ path
     code, out = run_git(["log", "-g", "--format=%H", "--end-of-options", f"refs/heads/{branch}", "--"], project)
-    tips = set(out.split()) if code == 0 else set()
-    return {"lookup": "ok", "commits": len(commits), "shas": set(commits) | tips,
+    if code != 0:  # a branch with no reflog exits 0 with nothing; a failure here would untie its reviews unseen
+        return {"lookup": "error"}
+    return {"lookup": "ok", "commits": len(commits), "shas": set(commits) | set(out.split()),
             "evidence": sorted(_text(p, 300) for p in paths if p.startswith("evidence/"))}
 
 
@@ -475,10 +488,12 @@ def collect(project: str, days: int, homes: list, now: Optional[_dt.datetime] = 
         tasks.append(_task(branch or None, group, found, receipts))
         tied.update(id(r) for r in tasks[-1]["reviews"])
     untied = {id(r) for r in receipts} - tied
+    branch_list = None  # not read: no review untied, no origin/main, or a page of one session
     if untied and has_base and not session:  # a page of one session shows that session's task only
         # A review whose branch has no session here (its sessions ran from a folder on another branch): the
         # repository's other branches whose reflog holds it become tasks of their own, with no session.
         code, out = run_git(["for-each-ref", "--format=%(refname)", "refs/heads/"], project)
+        branch_list = "ok" if code == 0 else "error"
         names = {line[len("refs/heads/"):] for line in out.splitlines() if line.startswith("refs/heads/")} \
             if code == 0 else set()
         for name in sorted(names - set(by_branch)):
@@ -488,7 +503,8 @@ def collect(project: str, days: int, homes: list, now: Optional[_dt.datetime] = 
                 tied.update(id(r) for r in tasks[-1]["reviews"])
     tasks.sort(key=lambda t: (t["end"] is None, -(t["end"] or _EPOCH).timestamp(), t["branch"] or ""))
     return {"project": project, "days": days, "since": since, "now": now, "homes": read_homes, "tasks": tasks,
-            "reviews_untied": sum(id(r) not in tied for r in receipts), "reviews": len(receipts), **counts}
+            "reviews_untied": sum(id(r) not in tied for r in receipts), "reviews": len(receipts),
+            "branch_list": branch_list, **counts}
 
 
 # ---- the page ---------------------------------------------------------------------------------------------------
@@ -532,8 +548,7 @@ LEGEND = ("verdict `-`: the guard wrote no line for the call (no rule spoke, or 
           "task: a session sits under the branch most of its lines carry, which is the branch of the folder it ran "
           "from; a review is tied to the branch whose reflog or commits hold the reviewed commit, so a branch worked "
           "on from another folder can appear with its reviews and no session",
-          "this page is a local, read-only record: it holds titles, agent descriptions, folders, branch names and "
-          "finding summaries "
+          "this page is a local, read-only record: it holds titles, folders, branch names and finding summaries "
           "and is never attached to a ticket, a pull request, a chat or an evidence pack, nor copied off this "
           "machine")
 
@@ -688,6 +703,9 @@ def render(data: dict) -> str:
            "<body><main><header>", f"<h1>Task page &middot; {_e(data['project'])}</h1>",
            f'<p class="muted">{_e(head)}</p>']
     out += [f'<p class="muted">{_e(note)}</p>' for note in data.get("notes", [])]
+    if data.get("branch_list") == "error":
+        out.append('<p class="deny">git for-each-ref failed: the reviews tied to no branch here were not looked for '
+                   "among branches with no session</p>")
     if data["files_not_read"] or data["lines_not_read"]:
         out.append(f'<p class="deny">not read: files {_e(data["files_not_read"])}, lines '
                    f'{_e(data["lines_not_read"])} (what they held is missing below)</p>')
@@ -759,6 +777,8 @@ def check_page(page: str) -> list:
                     breaches.append(f"<meta> that is neither charset nor the CSP tag: {names}")
             if tag == "head":
                 state["in_head"] = True
+            elif tag not in ("html", "meta", "title", "style"):  # body content ends the head, </head> or not
+                state["in_head"] = False
             if tag == "style":
                 state["in_style"] = True
 
@@ -846,6 +866,24 @@ def write_page(text: str, path: str) -> None:
         fh.write(text)
 
 
+def old_pages(folder: str, now: _dt.datetime) -> int:
+    """How many pages of the default place are past RETENTION_DAYS, by the UTC time in their name; reads names only."""
+    try:
+        names = os.listdir(folder)
+    except OSError:
+        return 0
+    old = 0
+    for name in names:
+        if not PAGE_NAME.fullmatch(name):
+            continue
+        try:
+            when = _dt.datetime.strptime(name[:-len(".html")], "%Y%m%dT%H%M%SZ").replace(tzinfo=_dt.timezone.utc)
+        except ValueError:  # digits that are no date: not a name this script wrote
+            continue
+        old += when < now - _dt.timedelta(days=RETENTION_DAYS)
+    return old
+
+
 def main(argv: list, out=None, err=None, cwd: Optional[str] = None, now: Optional[_dt.datetime] = None) -> int:
     out, err = out or sys.stdout, err or sys.stderr
     if argv and argv[0] in ("help", "-h", "--help"):
@@ -915,6 +953,10 @@ def main(argv: list, out=None, err=None, cwd: Optional[str] = None, now: Optiona
         err.write(f"page: cannot write {path}: {exc}\n")
         return 1
     out.write(path + "\n")
+    old = 0 if ns.out else old_pages(folder, now)
+    if old:  # the owner deletes them: this script never removes a file
+        err.write(f"page: {old} of the pages in {folder} are older than {RETENTION_DAYS} days, the retention of "
+                  "a page; remove them\n")
     return 0
 
 

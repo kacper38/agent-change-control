@@ -238,6 +238,14 @@ variables (`KZ_TRACKER_REPO`, `KZ_TRACKER_AREA`, `KZ_TRACKER_ADO_MODE`,
   that is the agreed route for installs. The guard reads text and prompts; it
   is no sandbox, and `DECISIONS.md` (2026-11-16, 2026-11-17, 2026-11-18 and
   2026-11-19) lists the forms it does not see.
+- Since guard 0.12.1 (item #69) an entry of `workflows` binds a name to
+  its reviewed file: `{"name": "review-panel", "sha256": "<64 hex>"}`
+  (`shasum -a 256 .claude/workflows/review-panel.js`). At launch every file
+  the guard finds for the name (the lookup of `cloud-launch` below) must
+  hash to one of the name's sha256 values; a file that differs, no file, a
+  file it cannot read, a bare name (the form of 0.12.0) or an entry with no
+  valid sha256 asks, and in a box or in cloud that is a deny. So an edited
+  workflow file starts unasked only after its new sha256 is committed.
 - Since guard 0.12.0 (item #67) `.claude/settings.json` pins
   `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=2` under `env`, and the PreToolUse
   guard hook carries `onFailure: block`: a guard that runs past its 5 s

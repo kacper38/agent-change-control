@@ -327,6 +327,30 @@ def test_no_tool_input_reaches_the_data(page, world):
     assert SECRET not in repr(collected(page, world))
 
 
+def test_a_session_sits_under_the_branch_most_of_its_lines_carry(page, tmp_path):
+    rows = [user(0, "feat/a", "/r"), user(1, "feat/a", "/r"), user(2, "main", "/r")]
+    write_jsonl(tmp_path / "most.jsonl", rows)
+    assert page.read_transcript(str(tmp_path / "most.jsonl"))["branch"] == "feat/a"  # though main is seen last
+    write_jsonl(tmp_path / "tie.jsonl", rows[1:])  # one line each: the tie goes to the branch seen last
+    assert page.read_transcript(str(tmp_path / "tie.jsonl"))["branch"] == "main"
+
+
+def test_one_call_with_two_guard_lines_keeps_the_stronger(page, tmp_path):
+    line = {"ts": "2026-11-20T10:00:00Z", "tool": "Bash", "session": "s", "call": "c"}
+    write_jsonl(tmp_path / "decisions.jsonl", [dict(line, verdict="deny", rules={"egress-guard": "deny"}),
+                                               dict(line, verdict="ask", rules={"delete-guard": "ask"})])
+    assert page.read_guard_log(str(tmp_path))["by_call"]["c"] == {"verdict": "deny",
+                                                                  "rules": [("egress-guard", "deny")]}
+
+
+def test_a_full_session_id_wins_over_the_ids_it_is_a_prefix_of(page, world):
+    session(pathlib.Path(world["homes"][0]["config"]) / "projects" / encoded(world["project"]), "s10", "feat/page",
+            world["project"])
+    one = lambda sid: set(sessions_of(page.collect(world["project"], 7, world["homes"], now=NOW,  # noqa: E731
+                                                   prices=PRICES, session=sid)))
+    assert (one("s1"), one("s10")) == ({"s1"}, {"s10"})
+
+
 # ---- step 2: render and check_page --------------------------------------------------------------------------------
 
 CSP_TAG = "<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; style-src 'unsafe-inline'\">"
@@ -394,6 +418,7 @@ def test_the_hand_written_page_passes_and_escaped_text_never_counts(page):
     ("a scheme in style", minimal(style="p{font-family:'http://x'}")),
     ("meta name", minimal(head=CSP_TAG + '<meta name="referrer" content="unsafe-url">')),
     ("meta refresh without a url", minimal(head=CSP_TAG + '<meta http-equiv="refresh" content="5">')),
+    ("URL( in capitals in style", minimal(style="p{background:URL(x)}")),  # CSS reads it as url(
 ])
 def test_each_breach_is_found(page, name, html):
     assert page.check_page(html), name
@@ -519,3 +544,17 @@ def test_git_variables_in_the_environment_do_not_move_the_repository(world, cli,
     monkeypatch.setenv("GIT_DIR", str(other / ".git"))  # as inside a git hook
     code, out, _ = cli()
     assert code == 0 and 'id="s-s1"' in pathlib.Path(out.strip()).read_text(encoding="utf-8")
+
+
+def test_out_in_a_worktree_outside_the_repository_is_refused(world, cli, tmp_path):
+    ext = tmp_path / "ext"  # its .git is a file, and no folder above it holds a .git
+    git(world["repo"], "worktree", "add", "-q", "--detach", str(ext))
+    code, out, err = cli("--out", str(ext / "page.html"))
+    assert (code, out) == (1, "") and "lies in the git work tree" in err and not (ext / "page.html").exists()
+
+
+def test_a_page_that_breaks_its_own_check_is_never_written(page, cli, tmp_path, monkeypatch):
+    monkeypatch.setattr(page, "render", lambda data: "<script></script>")
+    target = tmp_path / "bad.html"
+    code, out, err = cli("--out", str(target))
+    assert (code, out) == (1, "") and "breaks its own check" in err and not target.exists()

@@ -178,6 +178,7 @@ def test_worker_branch_that_is_a_revision_expression_is_not_found(ar, repo, name
 
 @pytest.mark.parametrize("name", ["feat/x:y", "@{-1}", "feat/x..y"])
 def test_worker_branch_that_is_no_valid_ref_name_is_not_found(ar, repo, name):
+    """git resolves none of these to a commit even unguarded, so this pins the outcome, not the guard (above)."""
     assert ar.branch_tip(str(repo), "feat/x") is not None
     assert ar.branch_tip(str(repo), name) is None
 

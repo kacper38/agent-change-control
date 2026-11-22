@@ -54,13 +54,16 @@ def test_log_lines_carry_agent_and_model(guard, tmp_path):
 
 
 def test_subagent_start_does_not_count(guard, tmp_path, monkeypatch):
+    # 0.12.0 (D4, A5 of item #67): SubagentStart rows count toward the total, a workflow's agents too; the hook
+    # itself never answers (it cannot block), so the next Agent call asks
     monkeypatch.setattr(guard, "llama_server_up", lambda port=0: False)
     cfg = _cfg(guard, tmp_path)
     start = guard.Event({"hook_event_name": "SubagentStart", "cwd": "/work/repo", "session_id": "s1",
                          "agent_id": "a1", "agent_type": "x", "transcript_path": "~/x.jsonl"})
     for _ in range(10):
-        guard.rule_fan_out(start, cfg)
-    assert guard.rule_fan_out(_spawn(guard), cfg) is None
+        assert guard.rule_fan_out(start, cfg) is None
+    got = guard.rule_fan_out(_spawn(guard), cfg)
+    assert got is not None and got[0] == "ask" and "#11 " in got[1], got
 
 
 def test_llama_note_when_port_answers(guard, tmp_path, monkeypatch):

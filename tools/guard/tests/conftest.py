@@ -35,6 +35,8 @@ def fixtures():
 def _isolated_telemetry(tmp_path, monkeypatch):
     monkeypatch.setenv("KZ_TELEMETRY_DIR", str(tmp_path / "telemetry"))
     monkeypatch.delenv("CLAUDE_PROJECT_DIR", raising=False)
+    # 0.12.0: a named workflow is looked up in the user's Claude folder; never the real one of the machine
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "claude-config"))
     # 0.10.0: CI's answer in a box (KZ_RULES_OFF) and in a cloud session alike; a test that needs one sets it
     for name in ("KZ_RULES_OFF", "KZ_BOUNDARY", "CLAUDE_CODE_REMOTE"):
         monkeypatch.delenv(name, raising=False)

@@ -87,7 +87,14 @@ def _inputs_0100() -> list:
 
 
 def inputs() -> list:
-    return NW.inputs() + _inputs_0100()
+    # 0.12.0 (A1 of item #67): the fixtures of workflow-launch are no input of 0.10.0 (no such rule then)
+    return [(rid, inp) for rid, inp in NW.inputs() + _inputs_0100() if not rid.startswith("fixture:workflow-launch/")]
+
+
+def _workflow_call(inp: dict) -> bool:
+    """0.12.0 (A1 of item #67): a Workflow call answers by the rule workflow-launch now; the equality with 0.10.0
+    covers every input that is no Workflow call (criterion 7), and test_guard_0120.py lists the four that change."""
+    return (inp.get("call") or inp.get("fixture", {}).get("tool_name")) == "Workflow"
 
 
 def _event(inp: dict) -> tuple:
@@ -157,6 +164,8 @@ def test_the_baseline_covers_the_corpus_of_090_and_the_tables_of_0100():
 def _differences(guard, facts) -> list:
     out = []
     for row in _baseline():
+        if _workflow_call(row["in"]):
+            continue
         pre, rule = answers(guard, row["in"], facts)
         if (pre, rule) != (row["pre"], row["rule"]):
             out.append(f"{row['id']}: 0.10.0 {row['pre']}/{row['rule']}, now {pre}/{rule} {json.dumps(row['in'])}")
@@ -187,6 +196,8 @@ def test_in_a_box_no_deny_changes_and_no_ask_remains(guard):
     profile (criterion 2): it answers as 0.10.0, its asks stay asks."""
     bad = []
     for row in _baseline():
+        if _workflow_call(row["in"]):
+            continue
         pre, _rule = answers(guard, row["in"], VALID)
         allowed = {"deny": ("deny",), "ask": ("deny", "logged"), "silent": ("silent",)}[row["pre"]]
         if _event(row["in"])[2] != "own":
@@ -218,7 +229,8 @@ def test_the_box_profile_entry(guard):
 
 
 def test_the_version_is_0_11_0(guard):
-    assert guard.VERSION == "0.11.0"
+    # 0.11.0 brought the box profile; the guard is 0.12.0 since item #67 (test_guard_0120.py)
+    assert guard.VERSION == "0.12.0"
 
 
 # ----------------------------------------------------------------------------

@@ -36,7 +36,7 @@ import time
 from collections.abc import Mapping
 from typing import Callable, Optional
 
-VERSION = "0.11.0"
+VERSION = "0.12.0"
 
 # ----------------------------------------------------------------------------
 # Harness normalization
@@ -92,7 +92,7 @@ KNOWN_CLAUDE_TOOLS = {
     "ToolSearch": "harmless",
     "WebFetch": "harmless",
     "WebSearch": "harmless",
-    "Workflow": "cloud-launch",  # a script whose agent() asks for isolation remote
+    "Workflow": "judged",  # cloud-launch reads the script (isolation remote), workflow-launch the name (0.12.0)
     "Write": "judged",
 }
 COPILOT_TOOLS = {
@@ -191,6 +191,7 @@ DEFAULTS = {
     "scratch_md_mode": "ask",  # ask | deny | off
     "host_install": "auto",  # auto (silent only in a container or CI) | ask | off
     "rules_off": [],  # rules whose asks are silenced (own repos only): guard.json, guard.local.json, KZ_RULES_OFF
+    "workflows": [],  # the saved workflows a session starts unasked (0.12.0): only the committed guard.json lists them
     "scratch_md_allow": [
         "docs/", ".claude/", ".github/", "skills/", "agents/", ".agents/", "evidence/",
         "README.md", "DECISIONS.md", "AGENTS.md", "CLAUDE.md", "CHANGELOG.md", "CONTRIBUTING.md",
@@ -3064,24 +3065,56 @@ def _update_ref_on_protected(seg: list[str], rest: list[str], cwd: str, protecte
 
 
 # ----------------------------------------------------------------------------
-# fan-out: log every spawn; ask at the 6th and every 10 after (plan step 2.3)
+# fan-out: log every spawn; ask at the 6th and every 10 after (plan step 2.3); since 0.12.0 the total counts a
+# workflow's agents too (SubagentStart rows), and an ask comes when the total crosses a threshold (item #67, D4)
 # ----------------------------------------------------------------------------
 
 FANOUT_FIRST, FANOUT_EVERY = 6, 10
 LLAMA_PORT = 8012
 FANOUT_MSG = (
-    "Fan-out guard: spawn #{n} in this session (a prompt at #{first}, then every {every}). "
+    "Fan-out guard: spawn #{n} in this session, workflow agents included (a prompt at #{first}, then every {every}). "
     "Cost guardrails: one shared brief, <=5 agents, no two agents with the same job. Continue?{llama}"
 )
 LLAMA_NOTE = " llama-server is up on :{port} (39 GB of RAM in use): parallel agents will swap."
+SPAWN_TOOLS = ("Agent", "Task", "task")  # the PreToolUse rows that count; a row of 0.11.0 or older has no tool
 
 
 def spawn_log_path(cfg: dict) -> str:
     return os.path.join(telemetry_dir(cfg), "spawns.jsonl")
 
 
-def log_spawn(ev: Event, cfg: dict) -> int:
-    """Append one line to the spawn log; return how many PreToolUse spawns this session has, this one included."""
+def log_spawn(ev: Event, cfg: dict) -> tuple:
+    """Append one row to the spawn log; return (total, prev): the session's spawn total with this event, and the
+    total of the last counted PreToolUse row (0 when there is none). A PreToolUse spawn counts itself on top of the
+    larger of the PreToolUse spawn rows and the SubagentStart rows (an Agent call has both, a workflow agent only
+    the second); a SubagentStart counts itself among the starts; a Workflow call logs the current total."""
+    path = spawn_log_path(cfg)
+    pre = start = prev = 0
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        if os.path.exists(path):
+            with open(path, encoding="utf-8", errors="replace") as fh:  # a bad byte is replaced, never a crash
+                for line in fh:
+                    try:
+                        row = json.loads(line)
+                    except ValueError:
+                        continue
+                    if not isinstance(row, dict) or row.get("session") != ev.session:
+                        continue
+                    if row.get("event") == "SubagentStart":
+                        start += 1
+                    elif row.get("event") == "PreToolUse" and ("tool" not in row or row["tool"] in SPAWN_TOOLS):
+                        pre += 1
+                        total = row.get("total")
+                        prev = total if isinstance(total, int) and not isinstance(total, bool) else pre
+    except OSError as exc:
+        print(f"guard: spawn log failed: {exc}", file=sys.stderr)
+    if ev.event == "SubagentStart":
+        total = max(pre, start + 1)
+    elif ev.kind == "spawn":
+        total = max(pre, start) + 1
+    else:
+        total = max(pre, start)
     entry = {
         "ts": _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "event": ev.event,
@@ -3091,25 +3124,19 @@ def log_spawn(ev: Event, cfg: dict) -> int:
         "model": _first_str(ev.args, "model"),
         "agent_id": ev.raw.get("agent_id"),
         "cwd": ev.cwd,
+        "tool": ev.tool or None,
+        "total": total,
     }
-    path = spawn_log_path(cfg)
-    count = 0
+    if ev.kind == "workflow":
+        name = ev.args.get("name")
+        entry["workflow"] = name if isinstance(name, str) else None
+        entry["script"] = "script" in ev.args or "scriptPath" in ev.args
     try:
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        if os.path.exists(path):
-            with open(path, encoding="utf-8") as fh:
-                for line in fh:
-                    try:
-                        row = json.loads(line)
-                    except ValueError:
-                        continue
-                    if row.get("session") == ev.session and row.get("event") == "PreToolUse":
-                        count += 1
         with open(path, "a", encoding="utf-8") as fh:
             fh.write(json.dumps(entry, sort_keys=True) + "\n")
     except OSError as exc:
         print(f"guard: spawn log failed: {exc}", file=sys.stderr)
-    return count + 1 if ev.event == "PreToolUse" else count
+    return total, prev
 
 
 def llama_server_up(port: int = LLAMA_PORT) -> bool:
@@ -3121,16 +3148,23 @@ def llama_server_up(port: int = LLAMA_PORT) -> bool:
 
 
 def rule_fan_out(ev: Event, cfg: dict) -> Optional[Decision]:
+    """Log every spawn, SubagentStart and Workflow call; ask once when a spawn's total crosses 6, 16, 26, ...
+    A SubagentStart cannot block and a Workflow call is no spawn: both are logged and answer nothing."""
     if ev.event == "SubagentStart":
         log_spawn(ev, cfg)
         return None
-    if ev.event != "PreToolUse" or ev.kind != "spawn":
+    if ev.event != "PreToolUse" or ev.kind not in ("spawn", "workflow"):
         return None
-    n = log_spawn(ev, cfg)
-    if n < FANOUT_FIRST or (n - FANOUT_FIRST) % FANOUT_EVERY:
+    got = log_spawn(ev, cfg)
+    if ev.kind == "workflow":
+        return None
+    total, prev = (got, got - 1) if isinstance(got, int) else got  # a plain int: the stubs of older tests
+    if total < FANOUT_FIRST:
+        return None
+    if prev >= FANOUT_FIRST + (total - FANOUT_FIRST) // FANOUT_EVERY * FANOUT_EVERY:  # the last threshold <= total
         return None
     llama = LLAMA_NOTE.format(port=LLAMA_PORT) if llama_server_up() else ""
-    return "ask", FANOUT_MSG.format(n=n, first=FANOUT_FIRST, every=FANOUT_EVERY, llama=llama)
+    return "ask", FANOUT_MSG.format(n=total, first=FANOUT_FIRST, every=FANOUT_EVERY, llama=llama)
 
 
 # ----------------------------------------------------------------------------
@@ -3174,6 +3208,8 @@ def _guard_config_as_written(path: str, home_claude: str) -> Optional[str]:
             return "the repo's Copilot hook configuration"
         if part == ".github" and nxt == "workflows" and not last:
             return "a CI workflow"
+        if part == ".claude" and nxt == "workflows" and not last:  # 0.12.0: what a listed name starts
+            return "a workflow script"
         if part == "tools" and nxt in _GUARDED_TOOLS and (nxt != "commit_msg.py" or last):
             return _GUARDED_TOOLS[nxt]
     return None
@@ -4442,8 +4478,61 @@ def _cloud_seg(seg: list[str]) -> Optional[Decision]:
 WORKFLOW_SCRIPT_MAX = 1_000_000
 
 
+WORKFLOW_NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*\Z")  # a name that is one plain file name
+
+
+def _read_script_file(full: str, path: str) -> tuple:
+    """(text, None) of one Workflow script file, or (None, why); `path` is how the message names it."""
+    try:  # a directory, a device, a FIFO or a huge file would raise or stall the hook: each asks
+        # a FIFO swapped in cannot block here, and a tty cannot become the controlling terminal
+        fd = os.open(full, os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_NOCTTY", 0))
+        with os.fdopen(fd, "rb") as fh:
+            info = os.fstat(fh.fileno())  # judged on what was opened, not on the name
+            if not stat.S_ISREG(info.st_mode):
+                return None, f"the Workflow script {path} is not a regular file"
+            if info.st_size > WORKFLOW_SCRIPT_MAX:
+                return None, f"the Workflow script {path} is larger than {WORKFLOW_SCRIPT_MAX} bytes"
+            data = fh.read(WORKFLOW_SCRIPT_MAX + 1)
+            if len(data) > WORKFLOW_SCRIPT_MAX:  # it grew after fstat: refuse, never judge a prefix
+                return None, f"the Workflow script {path} is larger than {WORKFLOW_SCRIPT_MAX} bytes"
+            return data.decode("utf-8", errors="replace"), None
+    except OSError as exc:
+        return None, f"the Workflow script {path} could not be read ({type(exc).__name__})"
+
+
+def _named_workflow(ev: Event, name: str) -> tuple:
+    """A saved workflow's files, wherever the harness may take one from: `.claude/workflows/<name>.js` in the call's
+    folder and in every folder above it (the project's, wherever the session stands in it), in the project folder
+    the harness names (CLAUDE_PROJECT_DIR), and in the user's Claude folder (CLAUDE_CONFIG_DIR, else ~/.claude).
+    Every file found is read as a scriptPath is and judged together; none found answers as 0.11.0 did (a built-in
+    workflow, or none at all)."""
+    if not WORKFLOW_NAME_RE.match(name):
+        return None, f"a Workflow name that is no plain file name ({name[:80]!r})"
+    candidates, d = [], os.path.abspath(ev.cwd or ".")
+    while True:
+        candidates.append(os.path.join(d, ".claude", "workflows", name + ".js"))
+        parent = os.path.dirname(d)
+        if parent == d:
+            break
+        d = parent
+    if os.environ.get("CLAUDE_PROJECT_DIR"):
+        candidates.append(os.path.join(os.environ["CLAUDE_PROJECT_DIR"], ".claude", "workflows", name + ".js"))
+    user = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.join(os.path.expanduser("~"), ".claude")
+    candidates.append(os.path.join(user, "workflows", name + ".js"))
+    texts, seen = [], set()
+    for full in candidates:
+        if not os.path.lexists(full) or os.path.realpath(full) in seen:
+            continue
+        seen.add(os.path.realpath(full))
+        text, unread = _read_script_file(full, full)
+        if unread:
+            return None, unread
+        texts.append(text)
+    return ("\n".join(texts) if texts else None), None
+
+
 def _workflow_script(ev: Event) -> tuple:
-    """(script text or None, what could not be read or None) of a Workflow call; a `name` is not resolved."""
+    """(script text or None, what could not be read or None) of a Workflow call; a `name` is resolved to its files."""
     if "script" in ev.args:
         script = ev.args["script"]
         return (script, None) if isinstance(script, str) else (None, "a Workflow script that is not text")
@@ -4451,24 +4540,9 @@ def _workflow_script(ev: Event) -> tuple:
         path = ev.args["scriptPath"]
         if not isinstance(path, str) or not path:
             return None, "a Workflow scriptPath that is not a path"
-        full = os.path.join(ev.cwd, os.path.expanduser(path))
-        try:  # a directory, a device, a FIFO or a huge file would raise or stall the hook: each asks
-            # a FIFO swapped in cannot block here, and a tty cannot become the controlling terminal
-            fd = os.open(full, os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_NOCTTY", 0))
-            with os.fdopen(fd, "rb") as fh:
-                info = os.fstat(fh.fileno())  # judged on what was opened, not on the name
-                if not stat.S_ISREG(info.st_mode):
-                    return None, f"the Workflow script {path} is not a regular file"
-                if info.st_size > WORKFLOW_SCRIPT_MAX:
-                    return None, f"the Workflow script {path} is larger than {WORKFLOW_SCRIPT_MAX} bytes"
-                data = fh.read(WORKFLOW_SCRIPT_MAX + 1)
-                if len(data) > WORKFLOW_SCRIPT_MAX:  # it grew after fstat: refuse, never judge a prefix
-                    return None, f"the Workflow script {path} is larger than {WORKFLOW_SCRIPT_MAX} bytes"
-                return data.decode("utf-8", errors="replace"), None
-        except OSError as exc:
-            return None, f"the Workflow script {path} could not be read ({type(exc).__name__})"
+        return _read_script_file(os.path.join(ev.cwd, os.path.expanduser(path)), path)
     if isinstance(ev.args.get("name"), str):
-        return None, None  # a named workflow: step 1.2 reads it (named limit)
+        return _named_workflow(ev, ev.args["name"])
     return None, "a Workflow call with no script, scriptPath or name"
 
 
@@ -4507,6 +4581,42 @@ def rule_cloud_launch(ev: Event, cfg: dict) -> Optional[Decision]:
         if script and _REMOTE_ISOLATION_RE.search(script):
             return "deny", CLOUD_LAUNCH_MSG.format(what="a Workflow whose agent asks for isolation remote")
     return None
+
+
+# ----------------------------------------------------------------------------
+# workflow-launch: only a reviewed, listed workflow starts unasked (item #67, plan step 1.2)
+# ----------------------------------------------------------------------------
+
+WORKFLOW_SCRIPT_MSG = ("workflow-launch: an inline or file script (`script`, `scriptPath`) is not a reviewed, listed "
+                       "workflow; confirm the call.")
+WORKFLOW_UNKNOWN_MSG = ("workflow-launch: the workflow `{name}` is not listed; the list is `workflows` in the "
+                        "committed .claude/guard.json. Confirm the call.")
+
+
+def listed_workflows(cfg: dict) -> set:
+    """The names in `workflows`: its string entries; missing is empty, anything but a list is empty with a note."""
+    names = cfg.get("workflows", [])
+    if not isinstance(names, list):
+        print("guard: ignoring workflows: expected a list of workflow names", file=sys.stderr)
+        return set()
+    if not all(isinstance(n, str) for n in names):
+        print("guard: workflows: entries that are not text are ignored", file=sys.stderr)
+    return {n for n in names if isinstance(n, str)}
+
+
+def rule_workflow_launch(ev: Event, cfg: dict) -> Optional[Decision]:
+    """A Workflow call: a script or scriptPath asks; a name asks unless `workflows` lists it exactly. Listed: no
+    answer (the harness's permission rules decide). `args` and `resumeFromRunId` change nothing."""
+    if ev.event != "PreToolUse" or ev.kind != "workflow":
+        return None
+    if "script" in ev.args or "scriptPath" in ev.args:
+        return "ask", WORKFLOW_SCRIPT_MSG
+    name = ev.args.get("name")
+    if not isinstance(name, str) or not name:
+        return "ask", READER_MSG.format(rule="workflow-launch", what="a Workflow call without a name as text")
+    if name in listed_workflows(cfg):
+        return None
+    return "ask", WORKFLOW_UNKNOWN_MSG.format(name=name)
 
 
 # ----------------------------------------------------------------------------
@@ -5721,6 +5831,7 @@ RULES: dict[str, Rule] = {
     "tracker-guard": judged_twice("tracker-guard", rule_tracker_guard),
     "host-install": judged_twice("host-install", rule_host_install),
     "cloud-launch": judged_twice("cloud-launch", rule_cloud_launch),
+    "workflow-launch": rule_workflow_launch,
     "github-tools": rule_github_tools,
 }
 PRE_RULES = list(RULES)
@@ -6063,6 +6174,7 @@ BOX_TABLE = {
     "tracker-guard": "merge",
     "host-install": "deny",
     "cloud-launch": "deny",
+    "workflow-launch": "deny",
     "github-tools": "deny",  # the harness's merge tool too: it carries no head hash this check reads
     "unreadable-args": "deny",
     "budget": "deny",

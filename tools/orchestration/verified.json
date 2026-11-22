@@ -1,12 +1,12 @@
 {
   "schema": "orchestration-probe/1",
   "cli_version": "2.1.323",
-  "date": "2026-11-20",
+  "date": "2026-11-22",
   "model": "haiku",
   "models": [
     "claude-haiku-5-5"
   ],
-  "cost_usd": 0.0407,
+  "cost_usd": 0.0557,
   "canaries": {
     "workflow-by-name": {
       "status": "holds",
@@ -21,7 +21,7 @@
         "marker": true,
         "result_messages": 2
       },
-      "cost_usd": 0.0048
+      "cost_usd": 0.0047
     },
     "denial-exits-zero": {
       "status": "holds",
@@ -37,7 +37,7 @@
         ],
         "workflow_agents_started": 0
       },
-      "cost_usd": 0.0025
+      "cost_usd": 0.0028
     },
     "hook-blocks-workflow-agent": {
       "status": "holds",
@@ -53,7 +53,7 @@
         "spawned_from_parent": null,
         "denied_tools": []
       },
-      "cost_usd": 0.0059
+      "cost_usd": 0.0052
     },
     "hook-blocks-nested-subagent": {
       "status": "holds",
@@ -84,7 +84,7 @@
         "control_env": "3",
         "pinned_env": "2"
       },
-      "cost_usd": 0.0086
+      "cost_usd": 0.0089
     },
     "spawn-log-workflow-agents": {
       "status": "holds",
@@ -99,7 +99,7 @@
         "same_session": true,
         "marker": true
       },
-      "cost_usd": 0.0048
+      "cost_usd": 0.0047
     },
     "workflow-background-off": {
       "status": "holds",
@@ -114,7 +114,7 @@
         "marker": true,
         "result_messages": 2
       },
-      "cost_usd": 0.0053
+      "cost_usd": 0.0078
     },
     "ledger-own-cost": {
       "status": "holds",
@@ -126,8 +126,8 @@
         "agent_transcripts": 1,
         "workflow_transcripts": 1,
         "parse_errors": 0,
-        "own_micro_usd": 4815,
-        "run_micro_usd": 4815,
+        "own_micro_usd": 4652,
+        "run_micro_usd": 4652,
         "diff_bp": 0
       },
       "cost_usd": 0.0
@@ -187,6 +187,44 @@
         "removed": []
       },
       "cost_usd": 0.0014
+    },
+    "hook-failure-blocks": {
+      "status": "holds",
+      "reason": "",
+      "expect": "a PreToolUse hook that runs past its timeout lets the call run; with onFailure block on the hook entry, a timeout or an exit 1 blocks the call",
+      "backs": "step 1.1, fact 6",
+      "observed": {
+        "open-timeout_marker": true,
+        "open-timeout_hook_row": true,
+        "open-timeout_exit_code": 0,
+        "block-timeout_marker": false,
+        "block-timeout_hook_row": true,
+        "block-timeout_exit_code": 0,
+        "block-exit1_marker": false,
+        "block-exit1_hook_row": true,
+        "block-exit1_exit_code": 0
+      },
+      "cost_usd": 0.0081
+    },
+    "workflow-agents-total": {
+      "status": "holds",
+      "reason": "",
+      "expect": "a saved workflow that starts six agents in sequence leaves six SubagentStart rows in spawns.jsonl for the session, the sixth with total 6 (the guard's fan-out hook)",
+      "backs": "step 1.2",
+      "observed": {
+        "spawn_rows": 6,
+        "session_rows": 6,
+        "totals": [
+          "1",
+          "2",
+          "3",
+          "4",
+          "5",
+          "6"
+        ],
+        "sixth_total": 6
+      },
+      "cost_usd": 0.0047
     }
   },
   "box": {

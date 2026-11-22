@@ -90,7 +90,11 @@ def branch_ref(repo: str, ref: str) -> str | None:
 
 
 def branch_tip(repo: str, branch: str) -> str | None:
-    """The local branch's commit, else origin's remote-tracking branch's, else None."""
+    """The local branch's commit, else origin's remote-tracking branch's, else None. The name comes from the
+    worker's own report, so a name that is no valid branch name (`feat/x~1`, `feat/x@{1}`, which git would read as
+    a revision expression and resolve to another commit) is never looked up (fresh review of #68)."""
+    if _run(["git", "check-ref-format", f"refs/heads/{branch}"], repo, GIT_TIMEOUT_S) is None:
+        return None
     return branch_ref(repo, f"refs/heads/{branch}") or branch_ref(repo, f"refs/remotes/origin/{branch}")
 
 

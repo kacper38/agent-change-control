@@ -166,6 +166,21 @@ def test_worker_branch_from_origin_when_no_local_branch(ar, repo):
     assert ar.branch_tip(str(repo), "feat/none") is None
 
 
+@pytest.mark.parametrize("name", ["feat/x~1", "feat/x^", "feat/x@{1}", "feat/x:y", "@{-1}", "feat/x..y"])
+def test_worker_branch_that_is_a_revision_expression_is_not_found(ar, repo, name):
+    assert ar.branch_tip(str(repo), "feat/x") is not None  # the plain name resolves, so None below is the guard
+    assert ar.branch_tip(str(repo), name) is None
+
+
+def test_receipt_folder_in_a_linked_worktree_is_that_worktree_s_git_dir(ar, repo, tmp_path):
+    wt = tmp_path / "wt"
+    git(repo, "worktree", "add", "-q", "--detach", str(wt))
+    folder = ar.receipt_folder(str(wt))
+    own = pathlib.Path(git(wt, "rev-parse", "--absolute-git-dir"))
+    assert folder is not None and pathlib.Path(folder).parent == own
+    assert pathlib.Path(folder).parent.parent.name == "worktrees"  # one folder per worktree: run where you reviewed
+
+
 def test_worker_non_zero_check_fails_naming_it(ar):
     checks = [{"command": "ruff check tools", "exit_code": 0}, {"command": "pytest -q", "exit_code": 1},
               {"command": "true", "exit_code": False}]

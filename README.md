@@ -148,7 +148,8 @@ On the laptop, before a tool call runs:
   a workflow's agents included; starts only a listed workflow unasked. A
   guard that times out or crashes blocks the call (`onFailure: block`, Claude
   Code only), and `env` pins the subagent spawn depth at 2. Every rule ships with allow, ask, deny and crash fixtures
-  from both harnesses.
+  from both harnesses, except `workflow-launch`: Copilot has no Workflow tool, it never denies on its own (its deny
+  is a row beside `cloud-launch`) and its crash cases ask.
 - `.githooks/commit-msg`: `type(scope): imperative subject`, no closing keywords.
 - `tools/egress/egress_screen.py --target <name> [--pass] [files]`: the last
   check before anything leaves the machine (secrets, gitleaks, client markers,
@@ -246,8 +247,10 @@ variables (`KZ_TRACKER_REPO`, `KZ_TRACKER_AREA`, `KZ_TRACKER_ADO_MODE`,
   `scriptPath`, and before one whose `name` is not in `workflows` of the
   committed `.claude/guard.json` (exact match; on the host the nearest one,
   in a box the judge's; `guard.local.json` cannot add names); a listed name
-  gets no answer, so the harness's permission rules decide. In a box and in
-  cloud its ask is a deny. `fan-out` counts a workflow's agents: every row of
+  gets no answer, so the harness's permission rules decide; `cloud-launch`
+  still reads that workflow's file (every `.claude/workflows/<name>.js` above
+  the call and in the user's Claude folder) and denies one whose agent asks
+  for isolation remote. In a box and in cloud an ask is a deny. `fan-out` counts a workflow's agents: every row of
   `spawns.jsonl` carries `tool` and the session's `total` (the larger of the
   Agent/Task calls and the SubagentStart rows), a `Workflow` call leaves one
   row with its name, and the ask comes once whenever the total crosses 6,

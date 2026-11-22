@@ -1,0 +1,50 @@
+{
+  "is_error": false,
+  "num_turns": 3,
+  "permission_denials": [],
+  "queued_turn_count": 0,
+  "result": "done",
+  "result_index": 0,
+  "safety_stops": 0,
+  "session_id": "00000000-0000-4000-8000-000000000001",
+  "stop_reason": "end_turn",
+  "structured_output": {
+    "review": null,
+    "stages": [
+      {
+        "name": "lint",
+        "ok": true
+      },
+      null
+    ],
+    "verdict": "ok"
+  },
+  "subagent_stats": {
+    "by_type": {},
+    "completed": 0,
+    "failed": 0,
+    "killed": {
+      "parent": 0,
+      "system": 0,
+      "user": 0
+    },
+    "max_depth": 0,
+    "refused": {
+      "budget": 0,
+      "concurrency_limit": 0,
+      "depth_limit": 0
+    },
+    "requested": {
+      "background": 0,
+      "foreground": 0,
+      "unset": 0
+    },
+    "spawned": 0,
+    "spawned_by_subagents": 0,
+    "started_in_background": 0
+  },
+  "subtype": "success",
+  "terminal_reason": "completed",
+  "total_cost_usd": 0.01,
+  "type": "result"
+}

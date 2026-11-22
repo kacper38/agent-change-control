@@ -3,19 +3,21 @@
 # Usage:
 #   ./install.sh                      user scope: agents + skills into ~/.claude (backs up overwrites)
 #   ./install.sh --uninstall          remove everything listed in the user-scope manifest
-#   ./install.sh --into <repo> [--force] [--forge github|ado]
+#   ./install.sh --into <repo> [--force] [--forge github|ado] [--boundary own|client]
 #                                     repo scope: copy the kit listed in kit.manifest into a task
 #                                     repo (AGENTS.md, hooks, guard, skills, agents); idempotent;
 #                                     locally modified managed files are kept unless --force;
 #                                     --forge picks the @github / @ado manifest entries (default:
 #                                     ado when the target's origin is on dev.azure.com or
-#                                     *.visualstudio.com, else github); kit-version records it
+#                                     *.visualstudio.com, else github); kit-version records it;
+#                                     --boundary is written into a new .claude/guard.json (default
+#                                     client); an existing one is never touched
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 
 # ---------------------------------------------------------------------------
-# Repo scope: install.sh --into <repo> [--force] [--forge github|ado]
+# Repo scope: install.sh --into <repo> [--force] [--forge github|ado] [--boundary own|client]
 # ---------------------------------------------------------------------------
 sha256() { shasum -a 256 "$1" | cut -d' ' -f1; }
 
@@ -33,9 +35,16 @@ origin_forge() {
 }
 
 install_into() {
-  local target="$1" force="${2:-}" forge="${3:-}" why="--forge"
+  local target="$1" force="${2:-}" forge="${3:-}" boundary="${4:-client}" why="--forge"
   [[ -d "$target" ]] || { echo "install.sh: target directory not found: $target" >&2; exit 1; }
   target="$(cd "$target" && pwd)"
+  # A new target's guard config gets the chosen boundary in place of the kit's own line; checked before any copy.
+  local own_line='^[[:space:]]*"boundary": "own",?[[:space:]]*$' boundary_note="left as is (existing file)"
+  if [[ ! -e "$target/.claude/guard.json" ]]; then
+    [[ "$(grep -cE "$own_line" "$HERE/.claude/guard.json" || true)" == 1 ]] || {
+      echo "install.sh: expected exactly one \"boundary\": \"own\" line in $HERE/.claude/guard.json" >&2; exit 1; }
+    boundary_note="$boundary (new file)"
+  fi
   if [[ -z "$forge" ]]; then
     forge="$(origin_forge "$target")"
     why="detected: no Azure DevOps origin"
@@ -85,9 +94,16 @@ install_into() {
     dst="${dst:-$src}"
     case "$mode" in
       init)
-        if [[ -e "$target/$dst" ]]; then skipped=$((skipped + 1)); else
+        if [[ -e "$target/$dst" ]]; then
+          skipped=$((skipped + 1))
+          [[ "$src" == ".claude/guard.json" ]] && \
+            echo "  note: .claude/guard.json exists; boundary left as it is (check it: client is the default for new targets)"
+        else
           mkdir -p "$target/$(dirname "$dst")"
-          if [[ "$src" == "CLAUDE.md" ]]; then printf '@AGENTS.md\n' > "$target/CLAUDE.md"; else cp "$HERE/$src" "$target/$dst"; fi
+          if [[ "$src" == "CLAUDE.md" ]]; then printf '@AGENTS.md\n' > "$target/CLAUDE.md"
+          elif [[ "$src" == ".claude/guard.json" ]]; then
+            sed -E "s/^([[:space:]]*\"boundary\": )\"own\"(,?[[:space:]]*)\$/\\1\"$boundary\"\\2/" "$HERE/$src" > "$target/$dst"
+          else cp "$HERE/$src" "$target/$dst"; fi
           inited=$((inited + 1))
         fi ;;
       managed) copy_managed "$HERE/$src" "$dst" ;;
@@ -125,15 +141,16 @@ install_into() {
   local changes=$((copied + inited))
   echo "Kit installed into $target — changes: $changes (copied $copied, initialized $inited), unchanged $unchanged, kept $kept, init-only skipped $skipped"
   echo "  forge: $forge ($why); entries for the other forge skipped: $other"
+  echo "  boundary: $boundary_note"
   [[ -f "$target/CLAUDE.md" ]] && ! grep -q '@AGENTS.md' "$target/CLAUDE.md" && \
     echo "  note: $target/CLAUDE.md exists without @AGENTS.md — add the import by hand if you want Claude Code to read AGENTS.md"
   return 0
 }
 
 if [[ "${1:-}" == "--into" ]]; then
-  usage="usage: ./install.sh --into <repo> [--force] [--forge github|ado]"
+  usage="usage: ./install.sh --into <repo> [--force] [--forge github|ado] [--boundary own|client]"
   [[ -n "${2:-}" ]] || { echo "$usage" >&2; exit 1; }
-  into="$2" force="" forge=""
+  into="$2" force="" forge="" boundary="client"
   shift 2
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -141,10 +158,13 @@ if [[ "${1:-}" == "--into" ]]; then
       --forge)
         [[ "${2:-}" == "github" || "${2:-}" == "ado" ]] || { echo "install.sh: --forge takes github or ado" >&2; exit 1; }
         forge="$2"; shift 2 ;;
+      --boundary)
+        [[ "${2:-}" == "own" || "${2:-}" == "client" ]] || { echo "install.sh: --boundary takes own or client" >&2; exit 1; }
+        boundary="$2"; shift 2 ;;
       *) echo "install.sh: unknown argument: $1" >&2; echo "$usage" >&2; exit 1 ;;
     esac
   done
-  install_into "$into" "$force" "$forge"
+  install_into "$into" "$force" "$forge" "$boundary"
   exit 0
 fi
 DEST="${CLAUDE_DIR:-$HOME/.claude}"

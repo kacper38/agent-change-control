@@ -23,6 +23,8 @@ managed .githooks/commit-msg
 managed tools/egress/egress_screen.py
 managed tools/review/fresh_review.py
 managed tools/review/prompt.md
+managed tools/orchestration/assert_run.py
+managed tools/orchestration/brief_lint.py
 managed bin/fresh-review
 managed .github/instructions/review.instructions.md
 managed tools/memory/memstore.py

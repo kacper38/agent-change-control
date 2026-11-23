@@ -41,6 +41,13 @@ VALID = {"dockerenv": True, "marker_exists": True,
          "guard_writable": False, "euid": 1000}
 NO_MARKER = dict(VALID, marker_exists=False, marker=None, marker_uid=None, dockerenv=False)
 WF = "export const meta = {name: '%s', description: 'd'}\nawait agent('hi')\n"
+# Rows whose answer guard 0.12.1 (item #69, the limit #67 carried to it) changed after the rows were hashed: a bare
+# name on `workflows` binds no file, so it no longer starts unasked (test_guard_0121.py). The file keeps the answer
+# written before 0.12.0 was built; here each change is named with the words its new answer must hold. What these
+# rows held out, a listed workflow that starts unasked, is B01, B19, B13, B27 and B23 of test_guard_0121.py.
+CHANGED_BY_0_12_1 = {"W01": ("ask", "without a sha256"), "W12": ("ask", "without a sha256"),
+                     "W15": ("ask", "without a sha256"), "W16": ("deny", "without a sha256"),
+                     "F10": ("ask", "without a sha256")}
 ITEM = re.compile(r",(?=box|cloud|cfg=|localcfg=|rules_off=|file=|wf=|spawns=)")  # a comma in a JSON value stays
 
 
@@ -137,4 +144,7 @@ def test_heldout_row(rid, env, expect, tool, text, guard_path, tmp_path):
         logged = log.read_text(encoding="utf-8") if log.exists() else ""
         lines = [json.loads(x) for x in logged.splitlines() if x.strip()]
         got = "logged" if any(x.get("verdict") == "logged" for x in lines) else "silent"
+    if rid in CHANGED_BY_0_12_1:
+        expect, words = CHANGED_BY_0_12_1[rid]
+        assert words in r.stdout, f"{rid}: {r.stdout or r.stderr}"
     assert got == expect, f"{rid}: {r.stdout or r.stderr}"

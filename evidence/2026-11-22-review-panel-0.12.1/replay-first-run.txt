@@ -1,0 +1,20 @@
+head 0adfd4f82f43a87adf5160452fbb2f942fceaf6a, tree clean, panel <WT>/.claude/workflows/review-panel.js
+infra-1         command  not re-checked  a command the verifier does not run: python3 is not on the read-only list
+infra-2         command  not re-checked  a command the verifier does not run: KZ_TELEMETRY_DIR=<TMP>/-Users-<USER>
+gxp-1           quote    unconfirmed     the verifier gave no verdict for this finding
+gxp-2           command  not re-checked  a command the verifier does not run: shell syntax beyond plain words
+correctness-1   command  not re-checked  a command the verifier does not run: shell syntax beyond plain words
+correctness-2   command  not re-checked  a command the verifier does not run: shell syntax beyond plain words
+correctness-3   quote    unconfirmed     the verifier gave no verdict for this finding
+correctness-4   command  not re-checked  a command the verifier does not run: shell syntax beyond plain words
+correctness-5   quote    unconfirmed     the verifier gave no verdict for this finding
+infra-3         command  not re-checked  a command the verifier does not run: shell syntax beyond plain words
+infra-4         command  not re-checked  a command the verifier does not run: shell syntax beyond plain words
+infra-5         quote    unconfirmed     the verifier gave no verdict for this finding
+infra-6         command  unconfirmed     the verifier gave no verdict for this finding
+infra-7         quote    unconfirmed     the verifier gave no verdict for this finding
+gxp-3           command  not re-checked  a command the verifier does not run: shell syntax beyond plain words
+gxp-4           command  not re-checked  a command the verifier does not run: shell syntax beyond plain words
+gxp-5           command  not re-checked  a command the verifier does not run: shell syntax beyond plain words
+gxp-6           command  not re-checked  a command the verifier does not run: shell syntax beyond plain words
+kinds: {'command': 13, 'quote': 5}; would reach the verifier: 6 of 18

@@ -155,7 +155,8 @@ def test_every_changed_input_is_a_workflow_call():
 
 
 def test_the_version_is_0_12_0(guard):
-    assert guard.VERSION == "0.12.0"
+    """The rows of this module hold from 0.12.0 on; test_guard_0121.py pins the version of today."""
+    assert tuple(int(p) for p in guard.VERSION.split(".")) >= (0, 12, 0)
 
 
 # ----------------------------------------------------------------------------
@@ -313,14 +314,25 @@ W8 | host | work.workflows=["review-panel"] | silent | - | Skill | {"skill": "re
 W8 | box | - | silent | - | Skill | {"skill": "review-panel"}
 """  # noqa: E501 (a row holds its input as written)
 WORKFLOW_TABLE = _rows(WORKFLOW_ROWS)
+# guard 0.12.1 (item #69): a bare name on `workflows` binds no file and no longer starts unasked. The table keeps the
+# answers of 0.12.0; these rows answer as named, with the words the new answer holds. A bound name that starts
+# unasked in every profile is B01, B19, B27 and B23 of test_guard_0121.py.
+CHANGED_BY_0_12_1 = {
+    "W1-host-0": "ask", "W1-cloud-1": "deny", "W1-box-2": "deny", "W1-host-3": "ask", "W1-host-4": "ask",
+    "W1-host-5": "ask", "W9-host-50": "ask", "W9-host-60": "ask",
+}
 
 
 @pytest.mark.parametrize("rid, prof, setup, expected, rule, tool, text", WORKFLOW_TABLE,
                          ids=[f"{r[0]}-{r[1]}-{n}" for n, r in enumerate(WORKFLOW_TABLE)])
-def test_the_workflow_row(guard, monkeypatch, judge, work, rid, prof, setup, expected, rule, tool, text):
+def test_the_workflow_row(guard, monkeypatch, judge, work, request, rid, prof, setup, expected, rule, tool, text):
     _setup(setup, judge, work)
     _profile(guard, monkeypatch, judge, prof)
     final, rows = BP._hook(guard, monkeypatch, BP._tool(work, tool, json.loads(text)))
+    row_id = request.node.callspec.id
+    if row_id in CHANGED_BY_0_12_1:
+        expected, rule = CHANGED_BY_0_12_1[row_id], "workflow-launch"
+        assert "without a sha256" in final[1], final
     assert _word(final, rows) == expected, (final, rows)
     if rule != "-":
         (line,) = [r for r in rows if r["verdict"] == expected]
@@ -377,7 +389,9 @@ def test_the_rule_is_registered_after_cloud_launch(guard):
     assert guard.PRE_RULES == names
     assert guard.BOX_TABLE["workflow-launch"] == "deny"
     assert guard.DEFAULTS["workflows"] == []
-    assert json.loads((ROOT / ".claude" / "guard.json").read_text())["workflows"] == []
+    # step 1.4 (item #69) lists review-panel, bound to its file since 0.12.1 (test_workflow_pins.py checks the hash)
+    assert [e["name"] for e in json.loads((ROOT / ".claude" / "guard.json").read_text())["workflows"]] == [
+        "review-panel"]
     assert guard.KNOWN_CLAUDE_TOOLS["Workflow"] == "judged"
 
 
@@ -407,7 +421,9 @@ def test_every_other_event_and_kind_is_none(guard, event, tool, tool_input):
 
 def test_a_list_that_is_not_one_of_names_is_read_with_a_note(guard, capsys):
     rule = guard.RULES["workflow-launch"]
-    assert rule(_wf(guard, {"name": "a"}), dict(guard.DEFAULTS, workflows=[5, "a"])) is None
+    # 0.12.1 (item #69): the bare name "a" binds no file, so it asks as well (it was None at 0.12.0)
+    assert rule(_wf(guard, {"name": "a"}), dict(guard.DEFAULTS, workflows=[5, "a"])) == (
+        "ask", guard.WORKFLOW_UNBOUND_MSG.format(name="a"))
     assert "workflows" in capsys.readouterr().err
     assert rule(_wf(guard, {"name": "a"}), dict(guard.DEFAULTS, workflows="a"))[0] == "ask"
     assert "workflows" in capsys.readouterr().err

@@ -1,0 +1,62 @@
+[
+  {
+    "bytes": 45,
+    "captured_at": "2026-11-23T16:06:52Z",
+    "command": "python3 tools/commit_msg.py --range 1cacf7e..HEAD",
+    "exit_code": 0,
+    "file": "commit-msg.txt",
+    "name": "commit-msg",
+    "sha256": "ec8f80b9d1c5e5d50c585da346c0391d9b89a3468fe68a3632886dfbd783b8ae",
+    "tool_version": "Python 3.13.13"
+  },
+  {
+    "bytes": 41,
+    "captured_at": "2026-11-23T16:00:36Z",
+    "command": "git rev-parse HEAD",
+    "exit_code": 0,
+    "file": "git-head.txt",
+    "name": "git-head",
+    "sha256": "b750bae95d96cc22b4b435df0b47a235248a29dfa8c5569e44adeb25ef2880a4",
+    "tool_version": "git version 2.55.0"
+  },
+  {
+    "bytes": 44,
+    "captured_at": "2026-11-23T16:06:53Z",
+    "command": "git status --short",
+    "exit_code": 0,
+    "file": "git-status.txt",
+    "name": "git-status",
+    "sha256": "9db7a953070392d5e3a7ad65844d6ee45bf0d356410a5c153dd9a0cf0f0460fb",
+    "tool_version": "git version 2.55.0"
+  },
+  {
+    "bytes": 10604,
+    "captured_at": "2026-11-23T16:03:12Z",
+    "command": "uv run --offline --no-project --with pytest --python 3.13 python -m pytest -q -p no:cacheprovider -o addopts= tools",
+    "exit_code": 0,
+    "file": "pytest-py313.txt",
+    "name": "pytest-py313",
+    "sha256": "7349c9b60536bce7a252c7be88d0dc2d04cd8b70f5b828cb80477cdd8056ed90",
+    "tool_version": "uv 0.11.26 (Homebrew 2026-06-30 aarch64-apple-darwin)"
+  },
+  {
+    "bytes": 10604,
+    "captured_at": "2026-11-23T16:06:52Z",
+    "command": "uv run --offline --no-project --with pytest --python 3.9 python -m pytest -q -p no:cacheprovider -o addopts= tools",
+    "exit_code": 0,
+    "file": "pytest-py39.txt",
+    "name": "pytest-py39",
+    "sha256": "548b04c454e13abd70931512851023e311608a356a88705260efd5d08a3d444e",
+    "tool_version": "uv 0.11.26 (Homebrew 2026-06-30 aarch64-apple-darwin)"
+  },
+  {
+    "bytes": 19,
+    "captured_at": "2026-11-23T16:00:36Z",
+    "command": "uv run --offline --no-project --python 3.13 --with ruff ruff check tools",
+    "exit_code": 0,
+    "file": "ruff.txt",
+    "name": "ruff",
+    "sha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18",
+    "tool_version": "uv 0.11.26 (Homebrew 2026-06-30 aarch64-apple-darwin)"
+  }
+]

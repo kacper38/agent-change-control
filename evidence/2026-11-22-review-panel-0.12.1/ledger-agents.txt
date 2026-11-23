@@ -1,0 +1,12 @@
+running   23h44m     $26.43     378  opus-5-5        session 02c6f4b0-b69a-472d-82e4-3ba217fcf75b
+finished   2h47m      $7.01     136  opus-5-5        `- workflow  wf_f3c4aca4-f34
+finished   1h10m      $2.42      33  opus-5-5           |- code-reviewer  lens:correctness
+finished   4m33s      $1.29      27  opus-5-5           |- gxp-compliance-reviewer  lens:gxp
+finished   7m32s      $1.90      38  opus-5-5           |- infra-reviewer  lens:infra
+finished   1h36m      $1.40      38  opus-5-5           `- code-reviewer  verify
+total                $33.44     514                  agents 4, running 0
+
+columns: state, duration, cost in USD, tool calls, model
+duration: first to last line of the transcript; cost: the ledger's own count
+state: inferred from the transcript's end, so a cut-off run reads as running
+a workflow line sums the agents under it; the total counts each agent once

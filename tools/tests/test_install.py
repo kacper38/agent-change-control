@@ -257,11 +257,38 @@ def test_a_new_target_gets_boundary_client_and_a_second_run_changes_nothing(tmp_
     assert "  boundary: client (new file)" in r.stdout
     kit = (ROOT / ".claude/guard.json").read_text().splitlines()
     got = (t / ".claude/guard.json").read_text().splitlines()
-    assert [a for a, b in zip(kit, got) if a != b] == ['  "boundary": "own",'] and len(kit) == len(got)
+    changed = [(a, b) for a, b in zip(kit, got) if a != b]
+    assert [a for a, _ in changed][0] == '  "boundary": "own",' and len(kit) == len(got)
+    # item #69: the kit's workflows bind the kit's reviewed files; a new target lists none of its own yet
+    assert [b for _, b in changed] == ['  "boundary": "client",', '  "workflows": []']
+    assert json.loads((ROOT / ".claude/guard.json").read_text())["workflows"]
+    assert json.loads((t / ".claude/guard.json").read_text())["workflows"] == []
     r = into(t)
     assert "changes: 0 " in r.stdout and "  boundary: left as is (existing file)" in r.stdout
     assert "note: .claude/guard.json exists; boundary left as it is (check it: client is the default for new " \
            "targets)" in r.stdout
+
+
+@pytest.mark.parametrize("workflows", [
+    '  "workflows": [\n    {"name": "a", "sha256": "' + "0" * 64 + '"}\n  ],\n',
+    "",
+    '  "workflows": [],\n  "workflows": [],\n',
+    # one key on one line and another over two: the one-line count is 1, the count of keys is not
+    '  "workflows": [],\n  "workflows": [\n  ],\n',
+], ids=["three-lines", "missing", "twice", "one-line-and-another"])
+def test_init_stops_before_any_copy_unless_workflows_is_on_one_line(tmp_path, workflows):
+    # review round 2 of item #69: the check before any copy, on a kit whose guard.json holds the list otherwise
+    kit = tmp_path / "kit"
+    (kit / ".claude").mkdir(parents=True)
+    (kit / "install.sh").write_bytes(INSTALL.read_bytes())
+    (kit / ".claude/guard.json").write_text('{\n  "boundary": "own",\n' + workflows + '  "telemetry_dir": "x"\n}\n')
+    t = target_repo(tmp_path, None)
+    env = {"PATH": os.environ["PATH"], "HOME": str(tmp_path)}
+    r = subprocess.run(["bash", str(kit / "install.sh"), "--into", str(t)], cwd=kit, env=env, text=True,
+                       capture_output=True)
+    assert r.returncode == 1, r.stdout + r.stderr
+    assert 'expected "workflows": [...] on exactly one line' in r.stderr
+    assert sorted(p.name for p in t.iterdir()) == [".git"]
 
 
 def test_boundary_own_is_written_when_asked(tmp_path):

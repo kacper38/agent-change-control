@@ -1,0 +1,22 @@
+[
+  {
+    "bytes": 41,
+    "captured_at": "2026-11-23T16:13:59Z",
+    "command": "git rev-parse HEAD",
+    "exit_code": 0,
+    "file": "git-head.txt",
+    "name": "git-head",
+    "sha256": "7dbe80a5357c0c50f97dfa1517e0319f8656f0d4c6e18bd61a864e97702fc39e",
+    "tool_version": "git version 2.55.0"
+  },
+  {
+    "bytes": 19,
+    "captured_at": "2026-11-23T16:13:59Z",
+    "command": "uv run --offline --no-project --python 3.13 --with ruff ruff check tools",
+    "exit_code": 0,
+    "file": "ruff.txt",
+    "name": "ruff",
+    "sha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18",
+    "tool_version": "uv 0.11.26 (Homebrew 2026-06-30 aarch64-apple-darwin)"
+  }
+]

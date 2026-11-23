@@ -1,0 +1,13 @@
+$ mkdir <PAD>/repro-e2
+$ bash evidence/2026-11-22-review-panel-0.12.1/planted-breaks/first_lists.sh <PAD>/repro-e2 <WT>
+  (2026-11-23, head 0adfd4f, this folder's third commit in the working tree, before it was committed)
+exit 0
+==> <PAD>/repro-e2/mut/panel_r0_1eae9bd_result.txt <==
+total 32: caught 31, survived 1, not applied 0
+
+==> <PAD>/repro-e2/mut/pin_r0_330f0f7_result.txt <==
+total 15: caught 15, survived 0, not applied 0
+$ diff <PAD>/repro-e2/mut/panel_r0_1eae9bd_result.txt planted-breaks/panel_mutants-1eae9bd.txt
+(no difference)
+$ diff <PAD>/repro-e2/mut/pin_r0_330f0f7_result.txt planted-breaks/pin_mutants-330f0f7.txt
+(no difference)

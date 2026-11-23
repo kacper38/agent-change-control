@@ -1,0 +1,197 @@
+[
+ [
+  "spread-allowed",
+  "            return [\"a spread in the options can carry or override the model\"]",
+  "            continue"
+ ],
+ [
+  "alias-allowed",
+  "        if nxt != (\"punct\", \"(\") or prev == (\"ident\", \"function\"):",
+  "        if False:"
+ ],
+ [
+  "function-allowed",
+  " or prev == (\"ident\", \"function\"):",
+  ":"
+ ],
+ [
+  "any-tier",
+  "return [] if model in TIERS or model.startswith(\"claude-\") else",
+  "return [] if True else"
+ ],
+ [
+  "nonliteral-model",
+  "    if \"model\" in props and model is None:\n        return [\"`model` is no string literal\"]\n",
+  ""
+ ],
+ [
+  "agent-type-unpinned",
+  "    return [] if pinned_agent(agent_type) else",
+  "    return [] if True else"
+ ],
+ [
+  "meta-unchecked",
+  "            out.append(f\"`meta` is no literal: {text[:40]!r}\")",
+  "            pass"
+ ],
+ [
+  "meta-head-unchecked",
+  "    if toks[:5] != head:",
+  "    if False:"
+ ],
+ [
+  "workflow-unchecked",
+  "                out.append(\"a nested workflow() names no saved workflow of .claude/workflows/ by a string literal\")",
+  "                pass"
+ ],
+ [
+  "no-options-allowed",
+  "            out.append(\"an agent() call without options names no model\")",
+  "            pass"
+ ],
+ [
+  "object-unchecked",
+  "    if not opts or opts[0] != (\"punct\", \"{\") or _close(opts, 0) != len(opts) - 1:",
+  "    if not opts:"
+ ],
+ [
+  "comments-are-code",
+  "        if kind not in (\"ws\", \"comment\"):",
+  "        if kind != \"ws\":"
+ ],
+ [
+  "hash-unchecked",
+  "        elif hashlib.sha256(path.read_bytes()).hexdigest() != entry[\"sha256\"]:",
+  "        elif False:"
+ ],
+ [
+  "missing-file-ok",
+  "        if not path.is_file():\n            out.append(f\"{entry['name']}: no file {path.name}\")\n        elif",
+  "        if"
+ ],
+ [
+  "bare-entry-ok",
+  "        if not isinstance(entry, dict) or set(entry) != {\"name\", \"sha256\"}:",
+  "        if not isinstance(entry, (dict, str)):"
+ ],
+ [
+  "regex-check-off",
+  "if (kind, text) == (\"punct\", \"/\") and not (out and _division(out[-1], keyword_close)):",
+  "if False:"
+ ],
+ [
+  "regex-at-start-ok",
+  "and not (out and _division(out[-1], keyword_close))",
+  "and out and not _division(out[-1], keyword_close)"
+ ],
+ [
+  "division-no-tpl",
+  "if kind in (\"num\", \"str\", \"tpl\"):",
+  "if kind in (\"num\", \"str\"):"
+ ],
+ [
+  "division-no-str",
+  "if kind in (\"num\", \"str\", \"tpl\"):",
+  "if kind in (\"num\", \"tpl\"):"
+ ],
+ [
+  "division-keyword-ident",
+  "return text not in _BEFORE_EXPRESSION",
+  "return True"
+ ],
+ [
+  "no-return-keyword",
+  "_BEFORE_EXPRESSION = {\"return\", ",
+  "_BEFORE_EXPRESSION = {"
+ ],
+ [
+  "no-close-paren-division",
+  "return text == \"]\" or (text == \")\" and not closes_keyword_paren)",
+  "return text == \"]\""
+ ],
+ [
+  "no-bracket-division",
+  "return text == \"]\" or (text == \")\" and not closes_keyword_paren)",
+  "return text == \")\" and not closes_keyword_paren"
+ ],
+ [
+  "any-close-paren-divides",
+  "(text == \")\" and not closes_keyword_paren)",
+  "(text == \")\")"
+ ],
+ [
+  "no-if-paren",
+  "_PAREN_KEYWORDS = {\"if\", ",
+  "_PAREN_KEYWORDS = {"
+ ],
+ [
+  "no-while-paren",
+  "\"while\", \"for\", \"with\", \"await\"}",
+  "\"for\", \"with\", \"await\"}"
+ ],
+ [
+  "close-not-tracked",
+  "                closes = parens.pop()",
+  "                parens.pop()"
+ ],
+ [
+  "template-code-skipped",
+  "out += [(\"punct\", \"(\"), *tokens(src[start:stop]), (\"punct\", \")\")]",
+  "pass"
+ ],
+ [
+  "template-code-unwrapped",
+  "out += [(\"punct\", \"(\"), *tokens(src[start:stop]), (\"punct\", \")\")]",
+  "out += tokens(src[start:stop])"
+ ],
+ [
+  "slash-in-template-ok",
+  "                if c == \"/\":\n                    raise",
+  "                if False:\n                    raise"
+ ],
+ [
+  "flagged-off",
+  "if kind == \"ident\" and text in FLAGGED:",
+  "if False:"
+ ],
+ [
+  "no-eval",
+  "FLAGGED = {\"eval\", ",
+  "FLAGGED = {"
+ ],
+ [
+  "no-Function",
+  "\"Function\", \"arguments\",",
+  "\"arguments\","
+ ],
+ [
+  "no-arguments",
+  "\"Function\", \"arguments\",",
+  "\"Function\","
+ ],
+ [
+  "no-constructor",
+  "\"constructor\", \"this\",",
+  "\"this\","
+ ],
+ [
+  "no-this",
+  "\"constructor\", \"this\",",
+  "\"constructor\","
+ ],
+ [
+  "no-globalThis",
+  "\"globalThis\", \"global\",",
+  "\"global\","
+ ],
+ [
+  "ternary-is-key",
+  "if nxt == (\"punct\", \":\") and prev in ((\"punct\", \"{\"), (\"punct\", \",\")):",
+  "if nxt == (\"punct\", \":\"):"
+ ],
+ [
+  "computed-key-ok",
+  "            return [\"an option that is no `key: value` or plain name, which the reader cannot read\"]",
+  "            continue"
+ ]
+]

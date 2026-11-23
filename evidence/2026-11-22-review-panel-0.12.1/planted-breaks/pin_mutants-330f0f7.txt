@@ -1,0 +1,16 @@
+caught spread-allowed
+caught alias-allowed
+caught function-allowed
+caught any-tier
+caught nonliteral-model
+caught agent-type-unpinned
+caught meta-unchecked
+caught meta-head-unchecked
+caught workflow-unchecked
+caught no-options-allowed
+caught object-unchecked
+caught comments-are-code
+caught hash-unchecked
+caught missing-file-ok
+caught bare-entry-ok
+total 15: caught 15, survived 0, not applied 0

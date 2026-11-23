@@ -1,0 +1,22 @@
+[
+ [
+  "no-workflows-check",
+  "    [[ \"$(grep -cE \"$wf_line\" \"$HERE/.claude/guard.json\" || true)\" == 1 &&\n       \"$(grep -c '\"workflows\"' \"$HERE/.claude/guard.json\" || true)\" == 1 ]] || {",
+  "    true || {"
+ ],
+ [
+  "one-line-check-only",
+  " == 1 &&\n       \"$(grep -c '\"workflows\"' \"$HERE/.claude/guard.json\" || true)\" == 1 ]] || {",
+  " == 1 ]] || {"
+ ],
+ [
+  "any-line-check-only",
+  "    [[ \"$(grep -cE \"$wf_line\" \"$HERE/.claude/guard.json\" || true)\" == 1 &&\n       \"$(grep",
+  "    [[ \"$(grep"
+ ],
+ [
+  "workflows-kept",
+  " \\\n              -e \"s/^([[:space:]]*\\\"workflows\\\": )\\\\[.*\\\\](,?[[:space:]]*)\\$/\\\\1[]\\\\2/\" \"$HERE/$src\"",
+  " \"$HERE/$src\""
+ ]
+]

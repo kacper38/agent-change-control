@@ -1,0 +1,44 @@
+{
+  "base": "origin/main",
+  "base_sha": "af2b92bc1388e0ccd133bdf4860bf01d204afe95",
+  "cost_usd": 2.228268,
+  "diff_sha256": "7ba652ab97751a74365ed67f0f8c9fdb2a145e9972c9a16191ab83fc87ffeca0",
+  "duration_ms": 346928,
+  "findings": [
+    {
+      "file": "DECISIONS.md",
+      "line": 591,
+      "severity": "MAJOR",
+      "summary": "The record says the folder `evidence/2026-11-22-review-panel-0.12.1/` holds what it cites: lint and suite output, the planted-break lists and results, the live hook check, the panel's first result, the fresh-review receipts and `review-findings.md`. Line 589 also points there for how the 22 findings of round 1 closed, and line 585 for the planted-break reruns. This diff adds no file under `evidence/`. Merged as it is, these lines cite records that do not exist in the repository (ALCOA+: attributable, original, enduring). Commit the folder with its SHA256SUMS before merge, or reword the lines."
+    },
+    {
+      "file": "DECISIONS.md",
+      "line": 584,
+      "severity": "MAJOR",
+      "summary": "Overstated control. The record says 'the script, not the prompt, decides which command reaches the verifier \u2026 nothing it runs can write, run the change's code or reach the network'. README.md:432 says 'so it runs no test, script or network call a lens wrote', and DECISIONS.md:581 calls the verifier 'a read-only agent type (Read, Grep, Glob, Bash)'. In fact the verifier is `agentType: 'code-reviewer'` with Bash (review-panel.js:255), and the script filters only `evidence.command`. `title`, `detail` and the whole `evidence` object, extra keys included, are passed word for word (review-panel.js:189-190). That text comes from lenses that read an untrusted diff. So the verifier's only stop on other commands is its prompt, the same limit this bullet names for the lenses. Fix the wording in DECISIONS.md and README.md to name that limit, or send the verifier only the fields it needs."
+    },
+    {
+      "file": ".claude/workflows/review-panel.js",
+      "line": 31,
+      "severity": "MINOR",
+      "summary": "`GIT_REFUSED` is documented as the git long options that 'write a file or start a program', but it does not list `--show-signature`. So `git log --show-signature` and `git show --show-signature HEAD` pass `notRerunnable`, and the verifier would run them. That option starts `gpg.program`, or `ssh-keygen` when signing uses SSH, chosen by the command line rather than only by config. Add it, or name it with the other limits."
+    },
+    {
+      "file": "install.sh",
+      "line": 48,
+      "severity": "MINOR",
+      "summary": "New behaviour without a test. When the kit's `.claude/guard.json` does not hold `\"workflows\": [...]` on exactly one line, init now exits with 'expected \"workflows\": [...] on exactly one line' before any copy. test_install.py covers only the case where the list is emptied. No case checks that a multi-line or missing `workflows` list makes the install stop and copy nothing."
+    }
+  ],
+  "model_requested": "opus",
+  "models": [
+    "claude-opus-5-5"
+  ],
+  "prompt_file": "tools/review/prompt.md",
+  "prompt_sha256": "4d4a0a34c59368efce2f3495d32bb5d4e00a51ed8e5905acb832726b2e89021a",
+  "sha": "66edd2f72f04b1865ebaf4f9f36d23a7b3a41339",
+  "summary": "Guard 0.12.1 binds each listed workflow to the sha256 of its file and fails closed: a bare name, a missing file, an unreadable file or a file that differs all ask, and in a box or in cloud that is a deny. The rows in test_guard_0121.py cover these cases. The review panel's script and its offline and static tests are thorough. The weaker version assertions and the changed held-out and 0.12.0 expectations are each answered by a stricter check, and the diff says why. So none of them is a blocker. There are two MAJOR findings. First, the record cites an evidence folder that this diff does not add. Second, DECISIONS.md and README.md say the verifier cannot run anything other than a plain read. In fact it is a code-reviewer agent with Bash, and only its prompt stops it. The script filters only the `command` field, while lens-written `title`, `detail` and `evidence` reach the verifier word for word. There are also two MINOR findings: the git option blocklist has a gap, and the new install.sh failure path has no test.",
+  "ts": "2026-11-23T16:00:57Z",
+  "verdict": "COMMENT",
+  "verdict_as_answered": "COMMENT"
+}

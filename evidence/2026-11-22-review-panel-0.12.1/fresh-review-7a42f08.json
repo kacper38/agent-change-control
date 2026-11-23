@@ -1,0 +1,32 @@
+{
+  "base": "e559273",
+  "base_sha": "e55927330f9463ad86932b8d420a275af0dab398",
+  "cost_usd": 0.2594184,
+  "diff_sha256": "095ca30126ebb0bce3ea9433098cef549f0b47b4e1934b386055f1bce565eb5e",
+  "duration_ms": 38001,
+  "findings": [
+    {
+      "file": "DECISIONS.md",
+      "line": 584,
+      "severity": "MINOR",
+      "summary": "The compliance clause is absolute: \"compliance: no command the panel asks its verifier to run can write, run the change's code or reach the network (data stays in the boundary)\". The same bullet's limits, widened by this diff, say that programs started by local git config still run: diff drivers, textconv, and gpg or ssh-keygen through `log.showSignature`, `pretty.<name>` or `format.pretty`. Such programs can write, for example gpg's trustdb. They can also reach the network, for example gpg with `auto-key-retrieve`, or any diff driver. A reader of the compliance angle alone gets an overstated claim. Limit the clause to the command line the script checks, for example \"no command line the script lets through \u2026\"."
+    },
+    {
+      "file": "DECISIONS.md",
+      "line": 591,
+      "severity": "MINOR",
+      "summary": "Round 4 is recorded only as a sentence appended to the round 3 bullet. Unlike round 2 (\"Each is in `review-findings.md`\") and round 3 (\"the evidence folder names each run with its commit\"), nothing says where round 4's fresh-review receipt for `e559273` and its closure are kept. The diff does not add them to `evidence/2026-11-22-review-panel-0.12.1/` (`review-findings.md`, receipts, `SHA256SUMS`). Yet the evidence bullet at line 593 says that folder keeps \"the fresh-review receipts; and `review-findings.md`\". Add round 4 to the evidence folder, or say which commit carries it."
+    }
+  ],
+  "model_requested": "opus",
+  "models": [
+    "claude-opus-5-5"
+  ],
+  "prompt_file": "tools/review/prompt.md",
+  "prompt_sha256": "13a647c7474ec04db9fd9e09c3b9232aa3c805ff1aa8b4e311c5e59122ee531a",
+  "sha": "7a42f0898c2cdec35ad2306c87d29bbaca961cb4",
+  "summary": "This change only edits the text of DECISIONS.md. It adds round 4's finding to the limits of the verifier bullet: a `pretty.<name>` alias or `format.pretty` can make git check a signature. It also records round 4 itself. No test, check or CI step is touched, and the diff holds no secrets. Two minor traceability points remain. First, the bullet's compliance sentence is still absolute even though its own limits now list programs started by git config. Second, round 4's closure is not added to the evidence folder in this diff, which rounds 1 to 3 were.",
+  "ts": "2026-11-23T16:48:13Z",
+  "verdict": "COMMENT",
+  "verdict_as_answered": "COMMENT"
+}

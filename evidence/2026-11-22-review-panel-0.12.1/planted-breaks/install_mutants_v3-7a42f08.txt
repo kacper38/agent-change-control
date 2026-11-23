@@ -1,0 +1,6 @@
+baseline: exit 0, 5 passed on the unbroken file
+caught no-workflows-check by tools/tests/test_install.py::test_init_stops_before_any_copy_unless_workflows_is_on_one_line
+caught one-line-check-only by tools/tests/test_install.py::test_init_stops_before_any_copy_unless_workflows_is_on_one_line
+caught any-line-check-only by tools/tests/test_install.py::test_init_stops_before_any_copy_unless_workflows_is_on_one_line
+caught workflows-kept by tools/tests/test_install.py::test_a_new_target_gets_boundary_client_and_a_second_run_changes_nothing
+total 4: caught 4, survived 0, not applied 0, error 0

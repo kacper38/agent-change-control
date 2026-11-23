@@ -109,7 +109,9 @@ issue forms; an Azure DevOps target gets `azure-pipelines.yml`,
 
 `--boundary own|client` sets the `boundary` line of a new target's
 `.claude/guard.json`: new targets get `client` (the strict mode for client
-work) unless you pass `--boundary own` for a repository of your own. An
+work) unless you pass `--boundary own` for a repository of your own. Its
+`workflows` list is empty: the kit's own list binds the kit's reviewed
+files, and a target lists what it reviewed itself (item #69). An
 existing `.claude/guard.json` is never touched, not even with `--force`; the
 installer prints a note and the summary says `boundary: left as is`. Upgrade
 note: a target installed before this change copied this repository's `own`
@@ -238,6 +240,14 @@ variables (`KZ_TRACKER_REPO`, `KZ_TRACKER_AREA`, `KZ_TRACKER_ADO_MODE`,
   that is the agreed route for installs. The guard reads text and prompts; it
   is no sandbox, and `DECISIONS.md` (2026-11-16, 2026-11-17, 2026-11-18 and
   2026-11-19) lists the forms it does not see.
+- Since guard 0.12.1 (item #69) an entry of `workflows` binds a name to
+  the sha256 of its file: `{"name": "review-panel", "sha256": "<64 hex>"}`
+  (`shasum -a 256 .claude/workflows/review-panel.js`). At launch every file
+  the guard finds for the name (the lookup of `cloud-launch` below) must
+  hash to one of the name's sha256 values; a file that differs, no file, a
+  file it cannot read, a bare name (the form of 0.12.0) or an entry with no
+  valid sha256 asks, and in a box or in cloud that is a deny. So an edited
+  workflow file starts unasked only after its new sha256 is committed.
 - Since guard 0.12.0 (item #67) `.claude/settings.json` pins
   `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=2` under `env`, and the PreToolUse
   guard hook carries `onFailure: block`: a guard that runs past its 5 s
@@ -405,6 +415,34 @@ variables (`KZ_TRACKER_REPO`, `KZ_TRACKER_AREA`, `KZ_TRACKER_ADO_MODE`,
   `.git/fresh-review/<sha>.json`; `/pr-prep` pastes the verdict. At work the
   same prompt is `.github/instructions/review.instructions.md` for Copilot code
   review, on GitHub and on Azure Repos.
+- The saved workflow `review-panel` (`.claude/workflows/review-panel.js`,
+  Claude Code only, item #69) is a wider, advisory review beside it, not in
+  place of it, of a change in this working tree. Write the diff to a file
+  named by its head, inside the git folder:
+  `d="$(git rev-parse --absolute-git-dir)/review-panel"; mkdir -p "$d"`,
+  then `git diff origin/main...HEAD > "$d/$(git rev-parse HEAD).diff"`, and
+  ask Claude to run the workflow `review-panel` with args
+  `{"diff": "<that path>", "head": "<git rev-parse HEAD>"}`. Three lenses
+  (`code-reviewer`, `infra-reviewer`, `gxp-compliance-reviewer`) and one
+  verifier, each `model: 'opus'`: four agents a run, a cap of $15 a run that
+  the run logs and the ledger measures (`ledger.py agents --session <id>`;
+  the first run cost $7.01). Each finding names its evidence (a command, a
+  quoted line or an inference); the verifier re-reads quotes and is asked to
+  re-run a command only when the script finds it one plain read (`git log`,
+  `grep`, `cat` and a few more, no shell syntax), so the panel asks it to run
+  no test, script or network call a lens wrote; any other is listed as not
+  re-checked. The verifier is a `code-reviewer` with Bash, sent only the
+  title and the evidence of each finding: that text is a lens's, so its
+  prompt and the guard are what keep it from running anything else. A
+  finding with no evidence kind is rejected and listed, an unconfirmed one
+  is listed and counted, a lens with no result or at another head is
+  reported, and the result names the head. It runs in the session, so the
+  diff stays where the session already is; no egress screen and no receipt.
+  `.claude/guard.json` lists it bound to its sha256: after a reviewed edit
+  write the new value (`shasum -a 256 .claude/workflows/review-panel.js`),
+  or the launch asks. The guard checks every copy it finds from the call's
+  folder up, so a worktree under `.claude/worktrees/` also meets the main
+  checkout's copy: while the two differ, the launch asks.
 
 ### Orchestration
 

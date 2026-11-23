@@ -1,0 +1,38 @@
+{
+  "base": "66edd2f",
+  "base_sha": "66edd2f72f04b1865ebaf4f9f36d23a7b3a41339",
+  "cost_usd": 0.5997224,
+  "diff_sha256": "5204163d5feabd3675910dcf66249665296980d99d41f0d556dc90bc0cd018d8",
+  "duration_ms": 174854,
+  "findings": [
+    {
+      "file": ".claude/workflows/review-panel.js",
+      "line": 153,
+      "severity": "MAJOR",
+      "summary": "`return a.includes('%G') || ...` misses git's placeholder modifiers. In pretty.c, a `+`, `-` or space right after `%` is a modifier and the next letter is still the placeholder. So `%+GG`, `%-G?` and `% GK` still run check_commit_signature (gpg or ssh-keygen) on signed commits. `+` and `-` are in PLAIN, so `git log --format=%+GG -1` passes the plain-word check without quotes and goes to the verifier. This contradicts DECISIONS.md:584 ('any word holding `%G`, which start gpg or ssh-keygen' is refused; 'no command the panel asks its verifier to run can write, run the change's code or reach the network'). Fix: refuse `new RegExp('%[-+ ]?G')` (the static test forbids regex literals). Add `git log --format=%+GG -1`, `git log --format=%-G? -1` and `git log '--format=% GK' -1` to NOT_READ_ONLY in tools/orchestration/tests/test_review_panel.py."
+    },
+    {
+      "file": ".claude/workflows/review-panel.js",
+      "line": 198,
+      "severity": "MINOR",
+      "summary": "The verifier no longer gets `detail` or `severity`. It now checks a quote against 'what the title says', and its 'confirmed (the evidence holds and shows the defect)' rests on the title alone. DECISIONS.md:584 records the narrowing and the security reason. It does not record the cost: a short or vague title can now be refuted or confirmed on less context. It also does not say what would change the decision, as AGENTS.md rule 4 asks."
+    },
+    {
+      "file": "DECISIONS.md",
+      "line": 590,
+      "severity": "MINOR",
+      "summary": "Some of the cited evidence is not in this diff. Line 590 says each round 2 finding 'is in `review-findings.md`'. Line 587 says the hook check ran 'at the head again for the evidence folder'. Line 585 still says 'The list of round 1 at the head: 73 of 73 caught', but the code at the head has changed since then. No planted-break list is named for round 2's new checks (the `%G` branch and the verifier projection), and the Evidence bullet (line 592) names only round 1's lists. The evidence commit has to land before merge, and the 'at the head' counts need a rerun at the final head."
+    }
+  ],
+  "model_requested": "opus",
+  "models": [
+    "claude-opus-5-5"
+  ],
+  "prompt_file": "tools/review/prompt.md",
+  "prompt_sha256": "2838ab69f23a485ba5fc83c8654a4dd880b90ff8260f86ce5d721494dd29e93c",
+  "sha": "acd0f946f65d0c487b8135b2a785398b611d397e",
+  "summary": "Round 2 does three things. It narrows what the verifier receives to the title plus the evidence a check needs. It refuses `--show-signature` and words holding `%G`. It adds a test that `install.sh` stops before copying anything. All test changes are additions and none are removed. The `%G` refusal has a gap: git format placeholders accept a `+`, `-` or space modifier after `%`. So `git log --format=%+GG -1` passes the list and still runs the signature check, which starts gpg or ssh-keygen. The DECISIONS line and the code comment both say this path is now refused. Two minor points: the cost of judging a finding from its title alone is not recorded, and the round 2 evidence is cited but not part of this diff.",
+  "ts": "2026-11-23T16:12:25Z",
+  "verdict": "COMMENT",
+  "verdict_as_answered": "COMMENT"
+}

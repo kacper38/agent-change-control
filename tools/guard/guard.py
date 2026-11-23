@@ -22,6 +22,7 @@ import collections
 import copy
 import datetime as _dt
 import functools
+import hashlib
 import json
 import os
 import re
@@ -36,7 +37,7 @@ import time
 from collections.abc import Mapping
 from typing import Callable, Optional
 
-VERSION = "0.12.0"
+VERSION = "0.12.1"
 
 # ----------------------------------------------------------------------------
 # Harness normalization
@@ -191,7 +192,8 @@ DEFAULTS = {
     "scratch_md_mode": "ask",  # ask | deny | off
     "host_install": "auto",  # auto (silent only in a container or CI) | ask | off
     "rules_off": [],  # rules whose asks are silenced (own repos only): guard.json, guard.local.json, KZ_RULES_OFF
-    "workflows": [],  # the saved workflows a session starts unasked (0.12.0): only the committed guard.json lists them
+    "workflows": [],  # the saved workflows a session starts unasked (0.12.0): only the committed guard.json lists them;
+    # since 0.12.1 an entry is {"name": ..., "sha256": ...}, the name bound to its reviewed file
     "scratch_md_allow": [
         "docs/", ".claude/", ".github/", "skills/", "agents/", ".agents/", "evidence/",
         "README.md", "DECISIONS.md", "AGENTS.md", "CLAUDE.md", "CHANGELOG.md", "CONTRIBUTING.md",
@@ -4483,6 +4485,12 @@ WORKFLOW_NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*\Z")  # a name that is
 
 def _read_script_file(full: str, path: str) -> tuple:
     """(text, None) of one Workflow script file, or (None, why); `path` is how the message names it."""
+    data, why = _read_script_bytes(full, path)
+    return (None, why) if why else (data.decode("utf-8", errors="replace"), None)
+
+
+def _read_script_bytes(full: str, path: str) -> tuple:
+    """(bytes, None) of one Workflow script file, or (None, why); `path` is how the message names it."""
     try:  # a directory, a device, a FIFO or a huge file would raise or stall the hook: each asks
         # a FIFO swapped in cannot block here, and a tty cannot become the controlling terminal
         fd = os.open(full, os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_NOCTTY", 0))
@@ -4495,17 +4503,16 @@ def _read_script_file(full: str, path: str) -> tuple:
             data = fh.read(WORKFLOW_SCRIPT_MAX + 1)
             if len(data) > WORKFLOW_SCRIPT_MAX:  # it grew after fstat: refuse, never judge a prefix
                 return None, f"the Workflow script {path} is larger than {WORKFLOW_SCRIPT_MAX} bytes"
-            return data.decode("utf-8", errors="replace"), None
+            return data, None
     except OSError as exc:
         return None, f"the Workflow script {path} could not be read ({type(exc).__name__})"
 
 
-def _named_workflow(ev: Event, name: str) -> tuple:
-    """A saved workflow's files, wherever the harness may take one from: `.claude/workflows/<name>.js` in the call's
-    folder and in every folder above it (the project's, wherever the session stands in it), in the project folder
-    the harness names (CLAUDE_PROJECT_DIR), and in the user's Claude folder (CLAUDE_CONFIG_DIR, else ~/.claude).
-    Every file found is read as a scriptPath is and judged together; none found answers as 0.11.0 did (a built-in
-    workflow, or none at all)."""
+def _workflow_files(ev: Event, name: str) -> tuple:
+    """([paths], None) of a saved workflow's files, wherever the harness may take one from: `.claude/workflows/
+    <name>.js` in the call's folder and in every folder above it (the project's, wherever the session stands in it),
+    in the project folder the harness names (CLAUDE_PROJECT_DIR), and in the user's Claude folder (CLAUDE_CONFIG_DIR,
+    else ~/.claude); one path per real file. (None, why) for a name that is no plain file name."""
     if not WORKFLOW_NAME_RE.match(name):
         return None, f"a Workflow name that is no plain file name ({name[:80]!r})"
     candidates, d = [], os.path.abspath(ev.cwd or ".")
@@ -4519,11 +4526,23 @@ def _named_workflow(ev: Event, name: str) -> tuple:
         candidates.append(os.path.join(os.environ["CLAUDE_PROJECT_DIR"], ".claude", "workflows", name + ".js"))
     user = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.join(os.path.expanduser("~"), ".claude")
     candidates.append(os.path.join(user, "workflows", name + ".js"))
-    texts, seen = [], set()
+    found, seen = [], set()
     for full in candidates:
         if not os.path.lexists(full) or os.path.realpath(full) in seen:
             continue
         seen.add(os.path.realpath(full))
+        found.append(full)
+    return found, None
+
+
+def _named_workflow(ev: Event, name: str) -> tuple:
+    """A saved workflow's script: every file `_workflow_files` finds, read as a scriptPath is and judged together;
+    none found answers as 0.11.0 did (a built-in workflow, or none at all)."""
+    files, why = _workflow_files(ev, name)
+    if why:
+        return None, why
+    texts = []
+    for full in files:
         text, unread = _read_script_file(full, full)
         if unread:
             return None, unread
@@ -4591,22 +4610,55 @@ WORKFLOW_SCRIPT_MSG = ("workflow-launch: an inline or file script (`script`, `sc
                        "workflow; confirm the call.")
 WORKFLOW_UNKNOWN_MSG = ("workflow-launch: the workflow `{name}` is not listed; the list is `workflows` in the "
                         "committed .claude/guard.json. Confirm the call.")
+# 0.12.1 (item #69): a listed name is bound to its reviewed file by a sha256
+WORKFLOW_UNBOUND_MSG = ("workflow-launch: `{name}` is listed in `workflows` without a sha256; since guard 0.12.1 an "
+                        "entry is {{\"name\": ..., \"sha256\": ...}} and binds the name to its reviewed file. "
+                        "Confirm the call.")
+WORKFLOW_NOFILE_MSG = ("workflow-launch: no file of the workflow `{name}` was found to check against its sha256 in "
+                       "`workflows` (a built-in or a plugin's workflow cannot be bound). Confirm the call.")
+WORKFLOW_CHANGED_MSG = ("workflow-launch: {path} is not the reviewed file of the listed workflow `{name}`: its "
+                        "sha256 is not one `workflows` names in the committed .claude/guard.json. Confirm the call, "
+                        "or review the file and write its new sha256 there.")
+WORKFLOW_UNCHECKED_MSG = ("workflow-launch: {what}; the guard could not check the listed workflow `{name}` against "
+                          "its sha256. Confirm the call.")
+_SHA256_RE = re.compile(r"[0-9a-f]{64}\Z")
 
 
-def listed_workflows(cfg: dict) -> set:
-    """The names in `workflows`: its string entries; missing is empty, anything but a list is empty with a note."""
-    names = cfg.get("workflows", [])
-    if not isinstance(names, list):
-        print("guard: ignoring workflows: expected a list of workflow names", file=sys.stderr)
-        return set()
-    if not all(isinstance(n, str) for n in names):
-        print("guard: workflows: entries that are not text are ignored", file=sys.stderr)
-    return {n for n in names if isinstance(n, str)}
+def listed_workflows(cfg: dict) -> dict:
+    """name -> the sha256 values `workflows` binds it to (0.12.1). An entry {"name": text, "sha256": 64 lower-case
+    hex} binds; a bare name (the form of 0.12.0) or an entry whose sha256 is no such text binds nothing (an empty
+    set: the name asks); any other entry is ignored. Missing is empty; anything but a list is empty. A note on
+    stderr names what was ignored or binds nothing."""
+    entries = cfg.get("workflows", [])
+    if not isinstance(entries, list):
+        print("guard: ignoring workflows: expected a list of {name, sha256} entries", file=sys.stderr)
+        return {}
+    out, ignored, unbound = {}, 0, 0
+    for entry in entries:
+        name = entry if isinstance(entry, str) else entry.get("name") if isinstance(entry, Mapping) else None
+        if not isinstance(name, str):
+            ignored += 1
+            continue
+        sha = entry.get("sha256") if isinstance(entry, Mapping) else None
+        if isinstance(sha, str) and _SHA256_RE.match(sha):
+            out.setdefault(name, set()).add(sha)
+        else:
+            out.setdefault(name, set())
+            unbound += 1
+    if ignored:
+        print(f"guard: workflows: {ignored} entries with no name as text are ignored", file=sys.stderr)
+    if unbound:
+        asking = sorted(n for n, shas in out.items() if not shas)
+        print(f"guard: workflows: {unbound} entries bind no sha256 (64 lower-case hex); names with no binding at "
+              f"all ask: {', '.join(asking) or 'none'}", file=sys.stderr)
+    return out
 
 
 def rule_workflow_launch(ev: Event, cfg: dict) -> Optional[Decision]:
-    """A Workflow call: a script or scriptPath asks; a name asks unless `workflows` lists it exactly. Listed: no
-    answer (the harness's permission rules decide). `args` and `resumeFromRunId` change nothing."""
+    """A Workflow call: a script or scriptPath asks; a name asks unless `workflows` lists it exactly. Listed (0.12.1):
+    every file `_workflow_files` finds for the name must hash to one of its sha256 values, else it asks (a bare
+    name, no file, a file that differs or cannot be read); bound and matching: no answer (the harness's permission
+    rules decide). `args` and `resumeFromRunId` change nothing."""
     if ev.event != "PreToolUse" or ev.kind != "workflow":
         return None
     if "script" in ev.args or "scriptPath" in ev.args:
@@ -4614,9 +4666,23 @@ def rule_workflow_launch(ev: Event, cfg: dict) -> Optional[Decision]:
     name = ev.args.get("name")
     if not isinstance(name, str) or not name:
         return "ask", READER_MSG.format(rule="workflow-launch", what="a Workflow call without a name as text")
-    if name in listed_workflows(cfg):
-        return None
-    return "ask", WORKFLOW_UNKNOWN_MSG.format(name=name)
+    listed = listed_workflows(cfg)
+    if name not in listed:
+        return "ask", WORKFLOW_UNKNOWN_MSG.format(name=name)
+    if not listed[name]:
+        return "ask", WORKFLOW_UNBOUND_MSG.format(name=name)
+    files, why = _workflow_files(ev, name)
+    if why:
+        return "ask", WORKFLOW_UNCHECKED_MSG.format(name=name, what=why)
+    if not files:
+        return "ask", WORKFLOW_NOFILE_MSG.format(name=name)
+    for full in files:
+        data, unread = _read_script_bytes(full, full)
+        if unread:
+            return "ask", WORKFLOW_UNCHECKED_MSG.format(name=name, what=unread)
+        if hashlib.sha256(data).hexdigest() not in listed[name]:
+            return "ask", WORKFLOW_CHANGED_MSG.format(name=name, path=full)
+    return None
 
 
 # ----------------------------------------------------------------------------

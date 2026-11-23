@@ -1,0 +1,3 @@
+baseline: exit 0 on the unbroken file; no break was run
+................................................................         [100%]
+

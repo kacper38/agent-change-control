@@ -1,0 +1,44 @@
+{
+  "base": "origin/main",
+  "base_sha": "1cacf7e906bab5c95ee630782c3e30d46d001d3e",
+  "cost_usd": 1.0260104,
+  "diff_sha256": "2785276ea8daeedc6dffec6bfe75e1f8176ed6363e8ed087ee63fc7850925e64",
+  "duration_ms": 229043,
+  "findings": [
+    {
+      "file": ".claude/workflows/review-panel.js",
+      "line": 118,
+      "severity": "MINOR",
+      "summary": "The verifier is told to run command strings written by the lens agents: \"- evidence of kind command: run the command again in this working tree, as given, if it only reads (...)\". The lens agents wrote those commands after reading the diff, which is untrusted text. So text in a diff can reach Bash through a lens finding. The only controls are the verifier's own judgement and the guard hook. DECISIONS.md:563 justifies this as \"a command that writes, pushes or deletes asks or is denied as anywhere else\". That claims too much: the README calls the guard \"no sandbox\" and points to the forms it does not see, such as arbitrary interpreters and network to hosts outside its tables. Either check each command against a short read-only allowlist in the script before it goes to the verifier, or record this as a named limit instead of a guarantee."
+    },
+    {
+      "file": "tools/orchestration/tests/test_workflow_pins.py",
+      "line": 183,
+      "severity": "MINOR",
+      "summary": "The checker can be bypassed in two ways, although the docstring says \"so that a pin cannot hide\". (a) `if prev in ((\"punct\", \".\"), (\"punct\", \"?.\")) or nxt == (\"punct\", \":\"): continue` skips every `agent` followed by a colon, including the middle of a ternary. So `const a = c ? agent : null` followed by `await a('go', {})` is reported as no problem, and the unpinned call passes. (b) `_options` (lines 138-141) records only keys that are a plain name or a string, so a computed key is ignored. `agent('go', {model: 'opus', ['model']: m})` passes, but at runtime the later key wins and the model is `m`. Add both forms to `test_a_script_without_a_pin_fails`."
+    },
+    {
+      "file": "DECISIONS.md",
+      "line": 560,
+      "severity": "MINOR",
+      "summary": "The panel decision says \"Cost: four Opus agents a run, cap $15 a run API-equivalent (Q11 of the orchestration plan), measured below.\" No measured cost of a run follows. Line 561 only says how a run would be measured (`ledger.py agents --session <id>`). The only evidence that the panel works is the mock Node harness. AGENTS.md rule 4 asks for a rough monthly figure. Record a measured run, or state that no live run has happened yet and that this is deferred."
+    },
+    {
+      "file": "DECISIONS.md",
+      "line": 564,
+      "severity": "MINOR",
+      "summary": "Validation evidence is cited from a place that does not last: \"Planted breaks: 32 of 32 caught (a scratch check, its list in the session's scratchpad)\". Line 565 says \"15 of 15 planted breaks in the checker are caught\" and names no location at all. An auditor cannot reproduce or inspect either claim from the repository or the pull request (ALCOA+: enduring, available). Commit the lists of planted breaks, or attach them to the pull request."
+    }
+  ],
+  "model_requested": "opus",
+  "models": [
+    "claude-opus-5-5"
+  ],
+  "prompt_file": "tools/review/prompt.md",
+  "prompt_sha256": "683e6cb23a490840220464c2039be7658e0be0abbc7f14529b0dd208e2eb3a60",
+  "sha": "ae370d8c59828b8212c5fe63a4c628f067adbd47",
+  "summary": "Guard 0.12.1 only makes the guard stricter. A listed workflow name used to pass with no further check; now its file must also match a recorded sha256, and an unlisted name asks as before. The changed expectations in test_guard_0120.py and test_heldout_0_12_0.py all turn a silent answer into an ask or a deny, and each one asserts the new message text, so no verification was weakened. No secrets or client data. There are four MINOR findings and no BLOCKER or MAJOR: (1) the panel's verifier runs command strings written by lens agents that read untrusted diff text, and the DECISIONS line that justifies this claims more than the guard does; (2) the static pin checker has two forms that let a script pass without a pin; (3) the cost the decision log says is \"measured below\" is never recorded; (4) the planted-break counts point to evidence kept only in a session scratchpad.",
+  "ts": "2026-11-22T17:18:44Z",
+  "verdict": "COMMENT",
+  "verdict_as_answered": "COMMENT"
+}

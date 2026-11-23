@@ -257,7 +257,12 @@ def test_a_new_target_gets_boundary_client_and_a_second_run_changes_nothing(tmp_
     assert "  boundary: client (new file)" in r.stdout
     kit = (ROOT / ".claude/guard.json").read_text().splitlines()
     got = (t / ".claude/guard.json").read_text().splitlines()
-    assert [a for a, b in zip(kit, got) if a != b] == ['  "boundary": "own",'] and len(kit) == len(got)
+    changed = [(a, b) for a, b in zip(kit, got) if a != b]
+    assert [a for a, _ in changed][0] == '  "boundary": "own",' and len(kit) == len(got)
+    # item #69: the kit's workflows bind the kit's reviewed files; a new target lists none of its own yet
+    assert [b for _, b in changed] == ['  "boundary": "client",', '  "workflows": []']
+    assert json.loads((ROOT / ".claude/guard.json").read_text())["workflows"]
+    assert json.loads((t / ".claude/guard.json").read_text())["workflows"] == []
     r = into(t)
     assert "changes: 0 " in r.stdout and "  boundary: left as is (existing file)" in r.stdout
     assert "note: .claude/guard.json exists; boundary left as it is (check it: client is the default for new " \

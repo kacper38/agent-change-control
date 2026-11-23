@@ -269,6 +269,26 @@ def test_a_new_target_gets_boundary_client_and_a_second_run_changes_nothing(tmp_
            "targets)" in r.stdout
 
 
+@pytest.mark.parametrize("workflows", [
+    '  "workflows": [\n    {"name": "a", "sha256": "' + "0" * 64 + '"}\n  ],\n',
+    "",
+    '  "workflows": [],\n  "workflows": [],\n',
+], ids=["three-lines", "missing", "twice"])
+def test_init_stops_before_any_copy_unless_workflows_is_on_one_line(tmp_path, workflows):
+    # review round 2 of item #69: the check before any copy, on a kit whose guard.json holds the list otherwise
+    kit = tmp_path / "kit"
+    (kit / ".claude").mkdir(parents=True)
+    (kit / "install.sh").write_bytes(INSTALL.read_bytes())
+    (kit / ".claude/guard.json").write_text('{\n  "boundary": "own",\n' + workflows + '  "telemetry_dir": "x"\n}\n')
+    t = target_repo(tmp_path, None)
+    env = {"PATH": os.environ["PATH"], "HOME": str(tmp_path)}
+    r = subprocess.run(["bash", str(kit / "install.sh"), "--into", str(t)], cwd=kit, env=env, text=True,
+                       capture_output=True)
+    assert r.returncode == 1, r.stdout + r.stderr
+    assert 'expected "workflows": [...] on exactly one line' in r.stderr
+    assert sorted(p.name for p in t.iterdir()) == [".git"]
+
+
 def test_boundary_own_is_written_when_asked(tmp_path):
     t = target_repo(tmp_path, None)
     r = into(t, "--boundary", "own")

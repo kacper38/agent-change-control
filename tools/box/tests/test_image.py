@@ -288,6 +288,15 @@ def test_header_values_that_are_not_numbers_are_not_printed(firewall):
     assert "the answer names no rate limit and no reset time" in msg
 
 
+@pytest.mark.parametrize("digits", ["9" * 11, "9" * 20, "9" * 5000])
+def test_digit_values_too_long_for_a_time_or_a_count_are_not_read(firewall, digits):
+    exc = refused(429, {"x-ratelimit-limit": "60", "x-ratelimit-remaining": "0", "x-ratelimit-reset": digits,
+                        "retry-after": digits})
+    msg = firewall.refusal(exc, False, RESET)  # no OverflowError from the date, no ValueError from int()
+    assert "rate limit used up: 0 of 60 calls left" in msg
+    assert "resets at" not in msg and "retry after" not in msg and digits not in msg
+
+
 def test_other_refusals_name_the_code_and_the_token_only(firewall):
     msg = firewall.refusal(refused(401, {"x-ratelimit-remaining": "0"}), True, RESET)
     assert msg == ("GitHub refused the fetch of its ranges: HTTP 401 from https://api.github.com/meta, "

@@ -87,7 +87,8 @@ def token_words(with_token: bool) -> str:
 
 def refusal(exc: urllib.error.HTTPError, with_token: bool, now: float) -> str:
     """What a refused fetch of the ranges says: the code, whether the token went with it, and for 403 and 429 the
-    rate limit and its reset as GitHub's headers give them. Only header values made of digits are shown."""
+    rate limit and its reset as GitHub's headers give them. Only header values of at most ten digits are read
+    (epoch seconds up to the year 2286): a longer one would overflow the date or Python's int limit."""
     msg = f"GitHub refused the fetch of its ranges: HTTP {exc.code} from {GITHUB_META}, {token_words(with_token)}"
     if exc.code not in (403, 429):
         return msg
@@ -95,7 +96,7 @@ def refusal(exc: urllib.error.HTTPError, with_token: bool, now: float) -> str:
 
     def number(name: str):
         value = (hdrs.get(name) if hdrs is not None else None) or ""
-        return int(value) if value.isascii() and value.isdigit() else None
+        return int(value) if value.isascii() and value.isdigit() and len(value) <= 10 else None
 
     left, limit, reset, retry = (number(n) for n in ("x-ratelimit-remaining", "x-ratelimit-limit",
                                                        "x-ratelimit-reset", "retry-after"))

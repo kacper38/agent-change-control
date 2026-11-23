@@ -4648,8 +4648,9 @@ def listed_workflows(cfg: dict) -> dict:
     if ignored:
         print(f"guard: workflows: {ignored} entries with no name as text are ignored", file=sys.stderr)
     if unbound:
-        print(f"guard: workflows: {unbound} entries bind no sha256 (64 lower-case hex); their names ask",
-              file=sys.stderr)
+        asking = sorted(n for n, shas in out.items() if not shas)
+        print(f"guard: workflows: {unbound} entries bind no sha256 (64 lower-case hex); names with no binding at "
+              f"all ask: {', '.join(asking) or 'none'}", file=sys.stderr)
     return out
 
 

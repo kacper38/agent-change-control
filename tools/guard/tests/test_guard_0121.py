@@ -184,6 +184,15 @@ def test_odd_entries_are_named_on_stderr(guard_path, tmp_path):
     assert "workflows" in stderr and "ignored" in stderr
 
 
+def test_the_note_names_only_the_names_that_ask(guard, capsys):
+    # review round 1 of item #69: a bare entry beside a bound one of the same name leaves that name bound
+    assert guard.listed_workflows({"workflows": [{"name": "a", "sha256": SHA}, "a", "b"]}) == {"a": {SHA}, "b": set()}
+    err = capsys.readouterr().err
+    assert "2 entries bind no sha256" in err and "names with no binding at all ask: b" in err
+    guard.listed_workflows({"workflows": [{"name": "a", "sha256": SHA}, "a"]})
+    assert "names with no binding at all ask: none" in capsys.readouterr().err
+
+
 def test_listed_workflows_maps_names_to_their_hashes(guard):
     assert guard.listed_workflows({"workflows": ENTRIES["twice"]}) == {"review-panel": {OTHER, SHA}}
     assert guard.listed_workflows({"workflows": ["review-panel"]}) == {"review-panel": set()}

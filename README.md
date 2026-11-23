@@ -415,19 +415,29 @@ variables (`KZ_TRACKER_REPO`, `KZ_TRACKER_AREA`, `KZ_TRACKER_ADO_MODE`,
   review, on GitHub and on Azure Repos.
 - The saved workflow `review-panel` (`.claude/workflows/review-panel.js`,
   Claude Code only, item #69) is a wider, advisory review beside it, not in
-  place of it: `git diff origin/main...HEAD > /tmp/x.diff`, then ask Claude to
-  run the workflow `review-panel` with args `{"diff": "/tmp/x.diff"}` and the
-  working tree at the head. Three lenses (`code-reviewer`, `infra-reviewer`,
-  `gxp-compliance-reviewer`) and one verifier, each `model: 'opus'`: four
-  agents a run, a cap of $15 a run that the run logs and the ledger
-  measures (`ledger.py agents`). Each finding names its evidence (a command,
-  a quoted line or an inference); the verifier re-runs commands and re-reads
-  quotes; a finding with no evidence kind is rejected and listed, an
-  unconfirmed one is listed and counted, a lens with no result is reported.
-  It runs in the session, so the diff stays where the session already is; no
-  egress screen and no receipt. `.claude/guard.json` lists it bound to its
-  sha256: after a reviewed edit write the new value
-  (`shasum -a 256 .claude/workflows/review-panel.js`), or the launch asks.
+  place of it, of a change in this working tree. Write the diff to a file
+  named by its head, inside the git folder:
+  `d="$(git rev-parse --absolute-git-dir)/review-panel"; mkdir -p "$d"`,
+  then `git diff origin/main...HEAD > "$d/$(git rev-parse HEAD).diff"`, and
+  ask Claude to run the workflow `review-panel` with args
+  `{"diff": "<that path>", "head": "<git rev-parse HEAD>"}`. Three lenses
+  (`code-reviewer`, `infra-reviewer`, `gxp-compliance-reviewer`) and one
+  verifier, each `model: 'opus'`: four agents a run, a cap of $15 a run that
+  the run logs and the ledger measures (`ledger.py agents --session <id>`;
+  the first run cost $7.01). Each finding names its evidence (a command, a
+  quoted line or an inference); the verifier re-reads quotes and re-runs a
+  command only when the script finds it one plain read (`git log`, `grep`,
+  `cat` and a few more, no shell syntax), so it runs no test, script or
+  network call a lens wrote; any other is listed as not re-checked. A
+  finding with no evidence kind is rejected and listed, an unconfirmed one
+  is listed and counted, a lens with no result or at another head is
+  reported, and the result names the head. It runs in the session, so the
+  diff stays where the session already is; no egress screen and no receipt.
+  `.claude/guard.json` lists it bound to its sha256: after a reviewed edit
+  write the new value (`shasum -a 256 .claude/workflows/review-panel.js`),
+  or the launch asks. The guard checks every copy it finds from the call's
+  folder up, so a worktree under `.claude/worktrees/` also meets the main
+  checkout's copy: while the two differ, the launch asks.
 
 ### Orchestration
 

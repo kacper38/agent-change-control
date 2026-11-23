@@ -1,0 +1,407 @@
+[
+ [
+  "verifier-model",
+  "schema: VERDICTS, agentType: 'code-reviewer', model: 'opus' }",
+  "schema: VERDICTS, agentType: 'code-reviewer' }"
+ ],
+ [
+  "lens-model",
+  "agentType: lens.agentType, model: 'opus' }",
+  "agentType: lens.agentType }"
+ ],
+ [
+  "lens-model-tier",
+  "agentType: lens.agentType, model: 'opus' }",
+  "agentType: lens.agentType, model: 'sonnet' }"
+ ],
+ [
+  "null-lens-dropped",
+  "    lenses.push({ key: lens.key, agent_type: lens.agentType, status: 'null', findings: 0, summary: '', head_seen: '',\n      head_ok: false })\n",
+  ""
+ ],
+ [
+  "null-lens-not-logged",
+  "log(`review-panel: the lens ${lens.key} returned no result; it is reported, not dropped`)",
+  "void 0"
+ ],
+ [
+  "no-kind-accepted",
+  "if (!e || typeof e !== 'object' || !KINDS.includes(e.kind)) return",
+  "if (!e || typeof e !== 'object') return"
+ ],
+ [
+  "need-unchecked",
+  "if (typeof e[need] !== 'string' || !e[need].trim()) return",
+  "if (false) return"
+ ],
+ [
+  "blank-accepted",
+  "|| !e[need].trim()) return",
+  ") return"
+ ],
+ [
+  "line-unchecked",
+  "if (!Number.isInteger(f.line) || f.line < 0) return 'no line number'",
+  "if (false) return 'no line number'"
+ ],
+ [
+  "severity-unchecked",
+  "if (!SEVERITIES.includes(f.severity)) return",
+  "if (false) return"
+ ],
+ [
+  "file-unchecked",
+  "if (typeof f.file !== 'string' || !f.file.trim()) return 'no file'",
+  "if (false) return 'no file'"
+ ],
+ [
+  "rejected-not-listed",
+  "rejected.push({ id, lens: lens.key, reason: why, finding: f })",
+  "void 0"
+ ],
+ [
+  "inference-verified",
+  "const toCheck = findings.filter(f => f.check === null)",
+  "const toCheck = findings.slice()"
+ ],
+ [
+  "all-sent-to-verifier",
+  "agent(verifyPrompt(toCheck)",
+  "agent(verifyPrompt(findings)"
+ ],
+ [
+  "verifier-always",
+  "if (toCheck.length) {",
+  "if (true) {"
+ ],
+ [
+  "error-swallowed",
+  "error = String((e && e.message) || e)",
+  "error = null"
+ ],
+ [
+  "missing-verdict-confirmed",
+  "      f.check = 'unconfirmed'\n      f.check_note = ok ?",
+  "      f.check = 'confirmed'\n      f.check_note = ok ?"
+ ],
+ [
+  "status-unfiltered",
+  " && STATUSES.includes(v.status)) byId",
+  ") byId"
+ ],
+ [
+  "count-wrong",
+  "unconfirmed: count('unconfirmed')",
+  "unconfirmed: 0"
+ ],
+ [
+  "rejected-uncounted",
+  "rejected: rejected.length,",
+  "rejected: 0,"
+ ],
+ [
+  "cap-not-logged",
+  "log(`review-panel: cap $${CAP_USD} a run",
+  "void(`review-panel: cap $${CAP_USD} a run"
+ ],
+ [
+  "cap-changed",
+  "const CAP_USD = 15",
+  "const CAP_USD = 50"
+ ],
+ [
+  "args-unchecked",
+  "typeof args.diff !== 'string' || !args.diff.startsWith('/') || ",
+  ""
+ ],
+ [
+  "relative-allowed",
+  " || !args.diff.startsWith('/') ||",
+  " ||"
+ ],
+ [
+  "no-sort",
+  "findings.sort((a, b) => SEVERITIES.indexOf(a.severity) - SEVERITIES.indexOf(b.severity))",
+  "void 0"
+ ],
+ [
+  "no-verify-phase",
+  "  phase('Verify')\n",
+  ""
+ ],
+ [
+  "infra-type",
+  "{ key: 'infra', agentType: 'infra-reviewer',",
+  "{ key: 'infra', agentType: 'code-reviewer',"
+ ],
+ [
+  "verifier-note-lost",
+  "f.check_note = [v.how, v.note].filter(x => typeof x === 'string' && x).join('; ')",
+  "f.check_note = v.how"
+ ],
+ [
+  "error-note-lost",
+  "`the verifier: ${verifier.status}, ${verifier.note}`",
+  "'the verifier failed'"
+ ],
+ [
+  "meta-not-literal",
+  "  name: 'review-panel',",
+  "  name: ['review', 'panel'].join('-'),"
+ ],
+ [
+  "diff-not-in-prompt",
+  "the unified diff in the file ${DIFF}. Read",
+  "the unified diff. Read"
+ ],
+ [
+  "schema-dropped",
+  "schema: FINDINGS, agentType",
+  "agentType"
+ ],
+ [
+  "head-unchecked",
+  "|| typeof args.head !== 'string'\n    || !SHA.test(args.head)) {",
+  ") {"
+ ],
+ [
+  "head-unanchored",
+  "new RegExp('^[0-9a-f]{40}$')",
+  "new RegExp('[0-9a-f]{40}')"
+ ],
+ [
+  "head-anycase",
+  "new RegExp('^[0-9a-f]{40}$')",
+  "new RegExp('^[0-9a-fA-F]{40}$')"
+ ],
+ [
+  "head-not-in-lens-prompt",
+  "at commit ${HEAD}: first run",
+  "at the head: first run"
+ ],
+ [
+  "head-not-in-verify-prompt",
+  "at commit ${HEAD}, the head of the change",
+  "at the head of the change"
+ ],
+ [
+  "head-not-returned",
+  "return { schema: 'review-panel/1', head: HEAD,",
+  "return { schema: 'review-panel/1',"
+ ],
+ [
+  "lens-head-unchecked",
+  "head_seen: seen, head_ok: seen === HEAD })",
+  "head_seen: seen, head_ok: true })"
+ ],
+ [
+  "lens-head-untrimmed",
+  "answer.head.trim() : ''",
+  "answer.head : ''"
+ ],
+ [
+  "lens-head-not-logged",
+  "if (seen !== HEAD) log(`review-panel: the lens",
+  "if (false) log(`review-panel: the lens"
+ ],
+ [
+  "verifier-head-unchecked",
+  "note: '', head_seen: seen, head_ok: seen === HEAD }",
+  "note: '', head_seen: seen, head_ok: true }"
+ ],
+ [
+  "verifier-head-not-logged",
+  "if (ok && seen !== HEAD) log(",
+  "if (false) log("
+ ],
+ [
+  "wrong-head-uncounted",
+  "lenses_wrong_head: lenses.filter(l => l.status === 'ok' && !l.head_ok).length,",
+  "lenses_wrong_head: 0,"
+ ],
+ [
+  "command-not-filtered",
+  "const why = notRerunnable(f.evidence.command)",
+  "const why = null"
+ ],
+ [
+  "dq-dollar",
+  "['$', '`', '\\\\', '!']",
+  "['`', '\\\\', '!']"
+ ],
+ [
+  "dq-backtick",
+  "['$', '`', '\\\\', '!']",
+  "['$', '\\\\', '!']"
+ ],
+ [
+  "dq-backslash",
+  "['$', '`', '\\\\', '!']",
+  "['$', '`', '!']"
+ ],
+ [
+  "dq-bang",
+  "['$', '`', '\\\\', '!']",
+  "['$', '`', '\\\\']"
+ ],
+ [
+  "unclosed-quote-ok",
+  "if (j < 0) return null",
+  "if (j < 0) return out"
+ ],
+ [
+  "tilde-anywhere",
+  "((c === '~' || c === '^') && cur && ALNUM.includes(cur[cur.length - 1]))",
+  "(c === '~' || c === '^')"
+ ],
+ [
+  "tilde-after-any",
+  "&& cur && ALNUM.includes(cur[cur.length - 1]))",
+  "&& cur)"
+ ],
+ [
+  "plain-glob",
+  "const PLAIN = ALNUM + '_.,:=@%+/-'",
+  "const PLAIN = ALNUM + '_.,:=@%+/-*?['"
+ ],
+ [
+  "plain-operators",
+  "const PLAIN = ALNUM + '_.,:=@%+/-'",
+  "const PLAIN = ALNUM + '_.,:=@%+/-;|&<>(){}$#\\n\\\\'"
+ ],
+ [
+  "quiet-mid-word",
+  "const quiet = cur === null && QUIET.find(",
+  "const quiet = QUIET.find("
+ ],
+ [
+  "quiet-suffix",
+  "(i + q.length === cmd.length || ' \\t'.includes(cmd[i + q.length]))",
+  "true"
+ ],
+ [
+  "quiet-extra",
+  "const QUIET = ['2>&1', '2>/dev/null']",
+  "const QUIET = ['2>&1', '2>/dev/null', '>', '1>&2']"
+ ],
+ [
+  "reads-python",
+  "['shasum', []], ['sha256sum', []], ['diff', []],",
+  "['shasum', []], ['sha256sum', []], ['diff', []], ['python3', []],"
+ ],
+ [
+  "reads-tail",
+  "['grep', []], ['cat', []], ['head', []],",
+  "['grep', []], ['cat', []], ['head', []], ['tail', []],"
+ ],
+ [
+  "git-status",
+  "['log', 'show', 'diff', 'rev-parse',",
+  "['log', 'show', 'diff', 'status', 'rev-parse',"
+ ],
+ [
+  "git-any-sub",
+  "if (!subs.includes(w[1])) return",
+  "if (false) return"
+ ],
+ [
+  "git-refused-off",
+  "return refused ? `git ${w[1]} ${refused} writes a file or starts a program` : null",
+  "return null"
+ ],
+ [
+  "git-prefix-exact",
+  "GIT_REFUSED.some(r => r.startsWith(name))",
+  "GIT_REFUSED.includes(name)"
+ ],
+ [
+  "git-equals-kept",
+  "const name = a.split('=')[0]",
+  "const name = a"
+ ],
+ [
+  "git-short-words",
+  "(name.length > 2 &&",
+  "(name.length > 1 &&"
+ ],
+ [
+  "git-no-output",
+  "const GIT_REFUSED = ['--output', ",
+  "const GIT_REFUSED = ["
+ ],
+ [
+  "git-no-ext-diff",
+  "'--ext-diff', '--textconv',",
+  "'--textconv',"
+ ],
+ [
+  "git-no-textconv",
+  "'--ext-diff', '--textconv',",
+  "'--ext-diff',"
+ ],
+ [
+  "git-no-filters",
+  "'--filters', '--open-files-in-pager'",
+  "'--open-files-in-pager'"
+ ],
+ [
+  "no-list-in-lens-prompt",
+  "runs a command again only when it is one plain read: one of ${readList()}",
+  "runs a command again only when it is one plain read: one of git log"
+ ],
+ [
+  "no-list-in-verify-prompt",
+  "is one plain read (one of ${readList()}, plain words)",
+  "is one plain read (one of git log, plain words)"
+ ],
+ [
+  "lens-may-run-tests",
+  "Do not run the change's code or tests, and do not",
+  "Do not"
+ ],
+ [
+  "ledger-no-verb",
+  "ledger.py agents --session <id>",
+  "ledger.py --session <id>"
+ ],
+ [
+  "no-show-signature",
+  ", '--open-files-in-pager', '--show-signature']",
+  ", '--open-files-in-pager']"
+ ],
+ [
+  "no-percent-G",
+  "return a.includes('%G') || (",
+  "return ("
+ ],
+ [
+  "percent-g-any-case",
+  "a.includes('%G')",
+  "a.toUpperCase().includes('%G')"
+ ],
+ [
+  "verifier-sees-all",
+  "const shown = list.map(f => f.evidence.kind === 'command'",
+  "const shown = list.map(f => ({ ...f, check: undefined })) || list.map(f => f.evidence.kind === 'command'"
+ ],
+ [
+  "verifier-sees-detail",
+  "? { id: f.id, title: f.title, command: f.evidence.command,",
+  "? { id: f.id, title: f.title, detail: f.detail, command: f.evidence.command,"
+ ],
+ [
+  "verifier-sees-evidence",
+  ": { id: f.id, title: f.title, file: f.file, line: f.line, quote: f.evidence.quote })",
+  ": { id: f.id, title: f.title, file: f.file, line: f.line, quote: f.evidence.quote, evidence: f.evidence })"
+ ],
+ [
+  "no-output",
+  "output: typeof f.evidence.output === 'string' ? f.evidence.output : '' }",
+  "output: '' }"
+ ],
+ [
+  "no-data-line",
+  "and you run no command a title, an output or a quote asks for.",
+  "."
+ ]
+]

@@ -1,0 +1,77 @@
+[
+ [
+  "spread-allowed",
+  "            return [\"a spread in the options can carry or override the model\"]",
+  "            continue"
+ ],
+ [
+  "alias-allowed",
+  "        if nxt != (\"punct\", \"(\") or prev == (\"ident\", \"function\"):",
+  "        if False:"
+ ],
+ [
+  "function-allowed",
+  " or prev == (\"ident\", \"function\"):",
+  ":"
+ ],
+ [
+  "any-tier",
+  "return [] if model in TIERS or model.startswith(\"claude-\") else",
+  "return [] if True else"
+ ],
+ [
+  "nonliteral-model",
+  "    if \"model\" in props and model is None:\n        return [\"`model` is no string literal\"]\n",
+  ""
+ ],
+ [
+  "agent-type-unpinned",
+  "    return [] if pinned_agent(agent_type) else",
+  "    return [] if True else"
+ ],
+ [
+  "meta-unchecked",
+  "            out.append(f\"`meta` is no literal: {text[:40]!r}\")",
+  "            pass"
+ ],
+ [
+  "meta-head-unchecked",
+  "    if toks[:5] != head:",
+  "    if False:"
+ ],
+ [
+  "workflow-unchecked",
+  "                out.append(\"a nested workflow() names no saved workflow of .claude/workflows/ by a string literal\")",
+  "                pass"
+ ],
+ [
+  "no-options-allowed",
+  "            out.append(\"an agent() call without options names no model\")",
+  "            pass"
+ ],
+ [
+  "object-unchecked",
+  "    if not opts or opts[0] != (\"punct\", \"{\") or _close(opts, 0) != len(opts) - 1:",
+  "    if not opts:"
+ ],
+ [
+  "comments-are-code",
+  "        if m.lastgroup not in (\"ws\", \"comment\"):",
+  "        if m.lastgroup != \"ws\":"
+ ],
+ [
+  "hash-unchecked",
+  "        elif hashlib.sha256(path.read_bytes()).hexdigest() != entry[\"sha256\"]:",
+  "        elif False:"
+ ],
+ [
+  "missing-file-ok",
+  "        if not path.is_file():\n            out.append(f\"{entry['name']}: no file {path.name}\")\n        elif",
+  "        if"
+ ],
+ [
+  "bare-entry-ok",
+  "        if not isinstance(entry, dict) or set(entry) != {\"name\", \"sha256\"}:",
+  "        if not isinstance(entry, (dict, str)):"
+ ]
+]

@@ -1,0 +1,50 @@
+{
+  "base": "7a42f08",
+  "base_sha": "7a42f0898c2cdec35ad2306c87d29bbaca961cb4",
+  "cost_usd": 1.3251184,
+  "diff_sha256": "23b7dc14185baf8934dc2216eb39795b35860fbde06beb9764233e5ff8ba1524",
+  "duration_ms": 252096,
+  "findings": [
+    {
+      "file": "evidence/2026-11-22-review-panel-0.12.1/review-findings.md",
+      "line": 83,
+      "severity": "MAJOR",
+      "summary": "The line reads \"The first found two MINOR points in `DECISIONS.md`, fixed in the commit after this folder. None of the three receipts is here: the first came after this folder was assembled\". It does not say what the two findings were, and it names no fixing commit. That breaks the index's promise at SUMMARY.md:32 (\"Every finding \u2026 of the fresh reviews, with how each was closed: fixed in a named commit, or named as a limit\"). Row fr3-2 (line 59, \"Fixed in DECISIONS\") also names no commit. The reason given for leaving out the `7a42f08` receipt contradicts itself: this line reports that review's result, so the folder was edited after the review. Either SHA256SUMS was recomputed after that edit, in which case `fresh-review-7a42f08.json` could have been added and hashed the same way, or SHA256SUMS predates the edit and the hash of review-findings.md no longer matches. The only remaining record is the pull-request body, which can change and sits outside the repository (ALCOA+: complete, enduring). Fix: add the `7a42f08` receipt, list its two findings with the commit that closes them, and regenerate SHA256SUMS."
+    },
+    {
+      "file": "evidence/2026-11-22-review-panel-0.12.1/review-findings.md",
+      "line": 60,
+      "severity": "MINOR",
+      "summary": "Row fr3-3 says \"The folder is the last commit\". Lines 76-83 of the same file describe \"the commit after this folder\", which fixes DECISIONS.md, and \"the commits after it \u2026 at the pull request's head\". SUMMARY.md:8 says the same. Because of that, the captured `tools/commit_msg.py --range 1cacf7e..HEAD` and the lint and suite captures stop at `7a42f08`. No capture here covers this folder's commit or the DECISIONS fix after it. Reword fr3-3, and say which check (for example CI at the PR head) covers the commits after `7a42f08`."
+    },
+    {
+      "file": "evidence/2026-11-22-review-panel-0.12.1/planted-breaks/run_panel_mutants.py",
+      "line": 27,
+      "severity": "MINOR",
+      "summary": "`if r.returncode == 0:` \u2026 `else: print(f\"caught {name}\")`. Every non-zero exit counts as caught, including a collection error, exit 5 (no test selected by `-k`), a cached package missing for `uv run --offline`, or one test that always fails. The runner never runs the unmutated file first, and it does not record which test failed. So the 83 of 83 and 39 of 39 results at `0f7f6de`, which had no survivor, do not by themselves show that the tests detect each break. SUMMARY.md:25 names this exact risk for the hash test. Fix: run the unmutated file first and stop unless it passes, and record the first failing test id for each mutant."
+    },
+    {
+      "file": "evidence/2026-11-22-review-panel-0.12.1/probe_both.sh",
+      "line": 6,
+      "severity": "MINOR",
+      "summary": "Some scripts cannot be rerun from the folder alone. probe_both.sh loads the old checker from `\"$pad/r0/tae370d8\"`, and nothing in the folder creates that directory (SUMMARY.md:26 says `git show ae370d8:\u2026`, but no command is recorded). breaks.sh:8-12 writes `panel_v4_result-$h.txt`, `pin_v2_result-$h.txt` and `install_v3_result-$h.txt`, but the folder keeps `*_mutants_*-<sha>.txt`, and the rename is not recorded. The scratch copies of `1eae9bd` and `330f0f7` used for the first lists (SUMMARY.md:25, \"`git archive`\") have no recorded command. Record these setup steps so an auditor can reproduce the runs."
+    },
+    {
+      "file": "evidence/2026-11-22-review-panel-0.12.1/SUMMARY.md",
+      "line": 47,
+      "severity": "MINOR",
+      "summary": "Several original records were described but not kept. One Python 3.9 suite run failed (1 failed, 9,373 passed); \"its output was cut to the last line, so the failing test is not known\". The partial capture files of the aborted run at `e559273` are not kept (lines 15-16). Nor is the output of the 71 of 73 and 38 of 39 planted-break pass (line 25). ALCOA+ 'complete' expects failing and aborted originals kept beside the passing reruns. The 3.9 failure has no stated cause; planted breaks editing files in place in the same tree is implied but not said, and no tracker item follows it up. State the cause or open an item."
+    }
+  ],
+  "model_requested": "opus",
+  "models": [
+    "claude-opus-5-5"
+  ],
+  "prompt_file": "tools/review/prompt.md",
+  "prompt_sha256": "94173cbf5d1cdcb653c3adb32634f622da9f434147087c8cb9c710acbfbe968e",
+  "sha": "f401dd2982b383692ba7414357486be9da716c55",
+  "summary": "This diff adds only an evidence folder (`evidence/2026-11-22-review-panel-0.12.1/`). It changes no code, test, CI step or guard rule, so no check is weakened, and it holds no secrets or private names: home paths and the login name are replaced by placeholders. Its internal counts agree with each other. SHA256SUMS lists all 42 other files. Each sha and byte count in `captures.json` matches SHA256SUMS and the file sizes. The capture times run in the stated order. The planted-break totals add up (73, 81 and 83 for the panel, 39 for the pin reader, 3 and then 4 of 4 for install.sh). The ledger sums are right, and so are the replay's 13, 12, 5 and 6. The gaps are in what the record leaves out. The review of `7a42f08` alone is cited, but its findings, its receipt and the commit that fixes them are not here. One row says the folder is the last commit, which other lines in the folder contradict. The mutation runner counts any non-zero exit as caught and runs no unmutated baseline. Two scripts depend on scratch state that nothing in the folder creates. Failed and aborted runs are described, but their outputs were not kept.",
+  "ts": "2026-11-23T16:55:03Z",
+  "verdict": "COMMENT",
+  "verdict_as_answered": "COMMENT"
+}

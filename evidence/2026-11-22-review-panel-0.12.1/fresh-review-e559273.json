@@ -1,0 +1,26 @@
+{
+  "base": "acd0f94",
+  "base_sha": "acd0f946f65d0c487b8135b2a785398b611d397e",
+  "cost_usd": 1.1662919999999999,
+  "diff_sha256": "3e4436756bf46f4c90f46b7fc6b1cb00edce3604b3de60194e507b4866db1bb4",
+  "duration_ms": 86451,
+  "findings": [
+    {
+      "file": "DECISIONS.md",
+      "line": 584,
+      "severity": "MINOR",
+      "summary": "The limits list names \"a diff driver, textconv or `log.showSignature` the local config names\" as the ways config makes git start a program. Two config routes that reach the %G check this round closes are not named. A `pretty.<name>` alias holding `%GG` is used through `--format=<name>`, a word with no `%G` in it. A `format.pretty` default holding `%GG` applies to a bare `git log`/`git show`. Both start gpg or ssh-keygen and pass the regex at review-panel.js:155, because the list only checks the command line. The general premise (\"git reads its own config\") covers them, but after round 2 corrected overstated claims, the named examples read as exhaustive. Add these two routes, or say the examples are not complete."
+    }
+  ],
+  "model_requested": "opus",
+  "models": [
+    "claude-opus-5-5"
+  ],
+  "prompt_file": "tools/review/prompt.md",
+  "prompt_sha256": "5b9cf0f40a4374ec46e7a33357a6de6bdd603ff9d80d7a5ab3c18df35a4e90e5",
+  "sha": "e55927330f9463ad86932b8d420a275af0dab398",
+  "summary": "Round 3 replaces `a.includes('%G')` with `new RegExp('%[-+ ]?G')` (review-panel.js:34, :155). The new pattern matches everything the old one did, so the check is stricter, not looser. It covers each modifier git reads between `%` and the placeholder letter (`+`, `-`, space). git reads only one modifier, and `%<(N)` or `%>(N)` prefixes still leave a `%G` substring, so no form of the signature placeholder gets through on the command line. Five new refusal cases cover all three modifiers, including a space inside quotes and a `tformat:` form. Refusing a literal `%%G` is a false positive, which is the safe direction. The install test gets a fourth input (one key on one line, a second key over two lines), with no change to install.sh. The guard.json hash moves to `32cc9711\u2026`, and the DECISIONS.md text matches it. No check is weakened or removed, and the diff contains no secrets. One minor point: the limit recorded in DECISIONS.md does not name a config route that reaches the same signature check.",
+  "ts": "2026-11-23T16:35:53Z",
+  "verdict": "COMMENT",
+  "verdict_as_answered": "COMMENT"
+}

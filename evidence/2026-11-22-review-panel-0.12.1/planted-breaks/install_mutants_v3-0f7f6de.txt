@@ -1,0 +1,5 @@
+caught no-workflows-check
+caught one-line-check-only
+caught any-line-check-only
+caught workflows-kept
+total 4: caught 4, survived 0, not applied 0

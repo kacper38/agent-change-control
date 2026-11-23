@@ -273,7 +273,9 @@ def test_a_new_target_gets_boundary_client_and_a_second_run_changes_nothing(tmp_
     '  "workflows": [\n    {"name": "a", "sha256": "' + "0" * 64 + '"}\n  ],\n',
     "",
     '  "workflows": [],\n  "workflows": [],\n',
-], ids=["three-lines", "missing", "twice"])
+    # one key on one line and another over two: the one-line count is 1, the count of keys is not
+    '  "workflows": [],\n  "workflows": [\n  ],\n',
+], ids=["three-lines", "missing", "twice", "one-line-and-another"])
 def test_init_stops_before_any_copy_unless_workflows_is_on_one_line(tmp_path, workflows):
     # review round 2 of item #69: the check before any copy, on a kit whose guard.json holds the list otherwise
     kit = tmp_path / "kit"

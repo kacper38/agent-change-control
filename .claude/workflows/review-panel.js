@@ -27,9 +27,11 @@ const READS = new Map([
   ['shasum', []], ['sha256sum', []], ['diff', []],
 ])
 // git long options that write a file or start a program (--show-signature starts gpg or ssh-keygen); git takes a
-// unique prefix of a long option, so a prefix of one of these is refused too. So is a word holding %G, the format
-// placeholders that check a signature the same way (review round 2).
+// unique prefix of a long option, so a prefix of one of these is refused too. So is a word holding a %G format
+// placeholder, which checks a signature the same way, also behind the modifier +, - or space that git reads between
+// % and the letter (review rounds 2 and 3).
 const GIT_REFUSED = ['--output', '--ext-diff', '--textconv', '--filters', '--open-files-in-pager', '--show-signature']
+const SIGNATURE = new RegExp('%[-+ ]?G')
 const ALNUM = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
 const PLAIN = ALNUM + '_.,:=@%+/-'
 const QUIET = ['2>&1', '2>/dev/null']
@@ -150,7 +152,7 @@ function notRerunnable(cmd) {
   if (!subs.includes(w[1])) return `${w.slice(0, 2).join(' ')} is not on the read-only list`
   const refused = w.slice(2).find(a => {
     const name = a.split('=')[0]
-    return a.includes('%G') || (name.length > 2 && GIT_REFUSED.some(r => r.startsWith(name)))
+    return SIGNATURE.test(a) || (name.length > 2 && GIT_REFUSED.some(r => r.startsWith(name)))
   })
   return refused ? `git ${w[1]} ${refused} writes a file or starts a program` : null
 }

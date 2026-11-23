@@ -251,6 +251,12 @@ NOT_READ_ONLY = [
     ("git log --format=%GG -1", "git log --format=%GG writes a file or starts a program"),
     ("git log '--pretty=format:%h %G?'", "git log --pretty=format:%h %G? writes a file or starts a program"),
     ("git show -s --format=%GK", "git show --format=%GK writes a file or starts a program"),
+    # review round 3: git reads a +, - or space between % and the letter as a modifier
+    ("git log --format=%+GG -1", "git log --format=%+GG writes a file or starts a program"),
+    ("git log --format=%-G? -1", "shell syntax beyond plain words"),
+    ("git log '--format=%-G?' -1", "git log --format=%-G? writes a file or starts a program"),
+    ("git log '--format=% GK' -1", "git log --format=% GK writes a file or starts a program"),
+    ("git log --pretty=tformat:%h%+GS", "git log --pretty=tformat:%h%+GS writes a file or starts a program"),
     ("curl -s https://example.org", "curl is not on the read-only list"),
     ("rm -rf tools", "rm is not on the read-only list"),
     ("sed -n 1,5p README.md", "sed is not on the read-only list"),

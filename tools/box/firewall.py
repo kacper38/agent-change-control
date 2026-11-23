@@ -10,24 +10,34 @@ licence terms into this repository, which were not checked. Rules, in order: loo
 already open; port 53 to the nameservers of /etc/resolv.conf only (a named skeleton gap: names resolve freely,
 so a lookup can still carry data out through that resolver); TCP 443 to the allowed set; everything
 else is rejected, so a refused call fails at once instead of hanging. IPv6 is closed entirely when the kernel
-has it. After the rules are in, the script checks itself: a host off the list must be unreachable and the first
-host on the list reachable; any failure exits non-zero, and the entrypoint then starts no session.
+has it. GitHub's ranges are read from its API before the rules go in; when GH_TOKEN is set (bin/box sets it from
+the Keychain entry agent-box-github), that one request carries it, so box starts do not share the unauthenticated
+limit of 60 calls an hour; the doctor starts without it. After the rules are in, the script checks itself: a host
+off the list must be unreachable and the first host on the list reachable; any failure exits non-zero, and the
+entrypoint then starts no session.
 
 Standard library only. Exit codes: 0 rules set and checked, 1 a rule or the self-check failed, 2 usage error.
 """
 import argparse
+import datetime as _dt
 import ipaddress
 import json
+import math
 import os
+import re
 import socket
 import subprocess
 import sys
+import time
+import urllib.error
 import urllib.request
 
 HERE = os.path.dirname(os.path.realpath(__file__))
 SET = "box-allow"
 GITHUB_META = "https://api.github.com/meta"
 GITHUB_META_KEYS = ("web", "api", "git")
+GITHUB_TOKEN_ENV = "GH_TOKEN"  # set by bin/box from the Keychain entry agent-box-github; absent for the doctor
+PLAIN_TOKEN = re.compile(r"[A-Za-z0-9_]{1,255}")
 OFF_LIST_PROBE = ("example.com", 443)  # must fail once the rules are in
 
 
@@ -55,6 +65,49 @@ def resolve(host: str) -> set:
     except socket.gaierror:
         return set()
     return {info[4][0] for info in infos}
+
+
+def meta_request(token: str) -> urllib.request.Request:
+    """The request for GitHub's ranges. Unauthenticated, a box start shares GitHub's limit of 60 calls an hour
+    with every other start from the same address; with the box's token it draws on that token's own limit. The
+    token goes in a header urllib does not carry across a redirect, so it reaches this address and no other host.
+    A token that is not a plain token is refused here, before http.client would put its text into an error."""
+    req = urllib.request.Request(GITHUB_META)
+    if token:
+        if not PLAIN_TOKEN.fullmatch(token):
+            raise ValueError(f"{GITHUB_TOKEN_ENV} is set but is not a plain token (letters, digits, underscores); "
+                             f"its text is not shown")
+        req.add_unredirected_header("Authorization", f"Bearer {token}")
+    return req
+
+
+def token_words(with_token: bool) -> str:
+    return "with the box's GitHub token" if with_token else "without a token"
+
+
+def refusal(exc: urllib.error.HTTPError, with_token: bool, now: float) -> str:
+    """What a refused fetch of the ranges says: the code, whether the token went with it, and for 403 and 429 the
+    rate limit and its reset as GitHub's headers give them. Only header values made of digits are shown."""
+    msg = f"GitHub refused the fetch of its ranges: HTTP {exc.code} from {GITHUB_META}, {token_words(with_token)}"
+    if exc.code not in (403, 429):
+        return msg
+    hdrs = exc.headers
+
+    def number(name: str):
+        value = (hdrs.get(name) if hdrs is not None else None) or ""
+        return int(value) if value.isascii() and value.isdigit() else None
+
+    left, limit, reset, retry = (number(n) for n in ("x-ratelimit-remaining", "x-ratelimit-limit",
+                                                       "x-ratelimit-reset", "retry-after"))
+    parts = []
+    if left is not None and limit is not None:
+        parts.append(f"rate limit {'used up' if left == 0 else 'not used up'}: {left} of {limit} calls left")
+    if reset is not None:
+        at = _dt.datetime.fromtimestamp(reset, _dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        parts.append(f"it resets at {at} (in {max(0, math.ceil((reset - now) / 60))} min)")
+    if retry is not None:
+        parts.append(f"GitHub asks for a retry after {retry} s")
+    return msg + "; " + ("; ".join(parts) if parts else "the answer names no rate limit and no reset time")
 
 
 def github_ranges(meta: dict) -> set:
@@ -151,8 +204,12 @@ def main(argv: list) -> int:
             if not found:
                 raise RuntimeError(f"{host} does not resolve")
             nets |= {f"{ip}/32" for ip in found}
-        with urllib.request.urlopen(GITHUB_META, timeout=15) as resp:  # read before the list is closed
-            nets |= github_ranges(json.load(resp))
+        token = os.environ.get(GITHUB_TOKEN_ENV, "")
+        try:
+            with urllib.request.urlopen(meta_request(token), timeout=15) as resp:  # read before the list is closed
+                nets |= github_ranges(json.load(resp))
+        except urllib.error.HTTPError as exc:
+            raise RuntimeError(refusal(exc, bool(token), time.time())) from exc
         with open(ns.resolv_conf, encoding="utf-8") as fh:
             resolvers = nameservers(fh.read())
         if not resolvers:
@@ -166,7 +223,8 @@ def main(argv: list) -> int:
     except (OSError, ValueError, RuntimeError) as exc:
         sys.stderr.write(f"firewall: {exc}\n")
         return 1
-    sys.stderr.write(f"firewall: set, {len(nets)} allowed networks from {len(hosts)} names and GitHub's ranges\n")
+    sys.stderr.write(f"firewall: set, {len(nets)} allowed networks from {len(hosts)} names and GitHub's ranges "
+                     f"(fetched {token_words(bool(token))})\n")
     return 0
 
 

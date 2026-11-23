@@ -229,12 +229,12 @@
   },
   "box": {
     "schema": "box-probe/1",
-    "date": "2026-11-21",
+    "date": "2026-11-23",
     "cli_version": "2.1.323",
     "runtime": "Docker Engine - Community 29.8.2 linux/arm64 (context orbstack)",
-    "image": "agent-box:b2eeafeab56efab3002c8c57e30fa95c17cb9738",
+    "image": "agent-box:c235b41707d7f96396a560e6d8a7fc65294f1675",
     "model": "haiku",
-    "cost_usd": 0.0017,
+    "cost_usd": 0.0037,
     "questions": {
       "permission-flag-non-root": {
         "status": "holds",
@@ -306,7 +306,7 @@
             "is_error": false,
             "num_turns": 4,
             "subtype": "success",
-            "total_cost_usd": 0.00127558
+            "total_cost_usd": 0.00249205
           },
           "permission_mode": "bypassPermissions",
           "uid": 1000

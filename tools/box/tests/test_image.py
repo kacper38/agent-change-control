@@ -1,7 +1,13 @@
 """The image's inputs: pins, firewall rules, marker. Offline; nothing here starts a container."""
 import datetime as _dt
+import http.client
+import http.server
+import io
 import json
 import re
+import threading
+import urllib.error
+import urllib.request
 
 import pytest
 
@@ -133,6 +139,178 @@ def test_firewall_main_fails_closed_on_an_unresolvable_name(firewall, tmp_path, 
     monkeypatch.setattr(firewall, "run", ran.append)
     assert firewall.main(["--allowlist", str(path)]) == 1
     assert ran == []  # no rule is set from a partial list
+
+
+# --- firewall: the box's GitHub token on the fetch of GitHub's ranges (#83) ---
+
+TOKEN = "tok_" + "a1b2" * 10  # the form of a plain token, not a real token's prefix
+RESET = 1795289760  # 2026-11-21T19:36:00Z
+
+
+def refused(code: int, headers: dict) -> urllib.error.HTTPError:
+    hdrs = http.client.HTTPMessage()
+    for key, value in headers.items():
+        hdrs[key] = value
+    return urllib.error.HTTPError("https://api.github.com/meta", code, "refused", hdrs, io.BytesIO(b"{}"))
+
+
+def start(firewall, tmp_path, monkeypatch, opener, token=None):
+    """firewall.main with the network faked: one name that resolves, the given urlopen, the rules recorded."""
+    allow = tmp_path / "allowlist"
+    allow.write_text("api.anthropic.com\n", encoding="utf-8")
+    resolv = tmp_path / "resolv.conf"
+    resolv.write_text("nameserver 10.0.0.2\n", encoding="utf-8")
+    if token is None:
+        monkeypatch.delenv("GH_TOKEN", raising=False)
+    else:
+        monkeypatch.setenv("GH_TOKEN", token)
+    monkeypatch.setattr(firewall, "resolve", lambda host: {"1.2.3.4"})
+    monkeypatch.setattr(firewall, "has_ipv6", lambda: False)
+    monkeypatch.setattr(firewall, "reachable", lambda host, port, timeout=5.0: host != firewall.OFF_LIST_PROBE[0])
+    monkeypatch.setattr(firewall.urllib.request, "urlopen", opener)
+    ran = []
+    monkeypatch.setattr(firewall, "run", ran.append)
+    return firewall.main(["--allowlist", str(allow), "--resolv-conf", str(resolv)]), ran
+
+
+def meta_opener(sent: list):
+    def opener(req, timeout=None):
+        sent.append(req)
+        return io.BytesIO(json.dumps({"web": ["140.82.112.0/20"], "api": [], "git": []}).encode())
+    return opener
+
+
+def test_the_token_goes_in_a_header_that_no_redirect_carries(firewall):
+    req = firewall.meta_request(TOKEN)
+    assert req.full_url == "https://api.github.com/meta"
+    assert req.unredirected_hdrs == {"Authorization": f"Bearer {TOKEN}"}
+    assert req.headers == {}
+
+
+def test_without_a_token_the_request_has_no_header(firewall):
+    assert firewall.meta_request("").header_items() == []
+
+
+def test_a_redirect_does_not_carry_the_token_to_its_target(firewall, monkeypatch):
+    seen = {}
+
+    class Quiet(http.server.BaseHTTPRequestHandler):
+        def log_message(self, *args):
+            pass
+
+    class Target(Quiet):
+        def do_GET(self):
+            seen["target"] = self.headers.get("Authorization")
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b"{}")
+
+    servers = [http.server.HTTPServer(("127.0.0.1", 0), Target)]
+
+    class Redirect(Quiet):
+        def do_GET(self):
+            seen["first"] = self.headers.get("Authorization")
+            self.send_response(302)
+            self.send_header("Location", f"http://127.0.0.1:{servers[0].server_port}/meta")
+            self.end_headers()
+
+    servers.append(http.server.HTTPServer(("127.0.0.1", 0), Redirect))
+    for srv in servers:
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        monkeypatch.setattr(firewall, "GITHUB_META", f"http://127.0.0.1:{servers[1].server_port}/meta")
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))  # no proxy from the environment
+        with opener.open(firewall.meta_request(TOKEN), timeout=10) as resp:
+            assert resp.status == 200
+    finally:
+        for srv in servers:
+            srv.shutdown()
+            srv.server_close()
+    assert seen == {"first": f"Bearer {TOKEN}", "target": None}
+
+
+def test_main_sends_the_token_and_never_prints_it(firewall, tmp_path, monkeypatch, capsys):
+    sent = []
+    code, ran = start(firewall, tmp_path, monkeypatch, meta_opener(sent), TOKEN)
+    err = capsys.readouterr().err
+    assert code == 0 and ran
+    assert [req.unredirected_hdrs.get("Authorization") for req in sent] == [f"Bearer {TOKEN}"]
+    assert "with the box's GitHub token" in err and TOKEN not in err
+
+
+@pytest.mark.parametrize("token", [None, ""])
+def test_main_without_a_token_fetches_as_before(firewall, tmp_path, monkeypatch, capsys, token):
+    sent = []
+    code, ran = start(firewall, tmp_path, monkeypatch, meta_opener(sent), token)
+    assert code == 0 and ran
+    assert [req.header_items() for req in sent] == [[]]
+    assert "without a token" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("token", ["secret_part\nX-Injected: 1", "secret_part\r", "secret_part value",
+                                   "secret_part;x", " secret_part"])
+def test_a_token_that_is_not_plain_stops_the_start_without_its_text(firewall, tmp_path, monkeypatch, capsys, token):
+    sent = []
+    code, ran = start(firewall, tmp_path, monkeypatch, meta_opener(sent), token)
+    err = capsys.readouterr().err
+    assert code == 1 and sent == [] and ran == []
+    assert "GH_TOKEN" in err and "secret_part" not in err
+
+
+@pytest.mark.parametrize("code", [403, 429])
+def test_a_used_up_rate_limit_names_the_limit_and_its_reset(firewall, code):
+    exc = refused(code, {"x-ratelimit-limit": "60", "x-ratelimit-remaining": "0", "x-ratelimit-reset": str(RESET)})
+    msg = firewall.refusal(exc, False, RESET - 45 * 60)
+    assert f"HTTP {code} from https://api.github.com/meta, without a token" in msg
+    assert "rate limit used up: 0 of 60 calls left" in msg
+    assert "resets at 2026-11-21T19:36:00Z (in 45 min)" in msg
+
+
+def test_a_refusal_with_calls_left_says_the_limit_is_not_the_cause(firewall):
+    exc = refused(403, {"x-ratelimit-limit": "5000", "x-ratelimit-remaining": "4990", "x-ratelimit-reset": str(RESET)})
+    assert "rate limit not used up: 4990 of 5000 calls left" in firewall.refusal(exc, True, RESET)
+
+
+def test_a_secondary_limit_names_its_retry_time(firewall):
+    msg = firewall.refusal(refused(429, {"retry-after": "60"}), True, RESET)
+    assert "with the box's GitHub token" in msg and "GitHub asks for a retry after 60 s" in msg
+
+
+def test_a_refusal_without_rate_limit_headers_says_so(firewall):
+    assert "the answer names no rate limit and no reset time" in firewall.refusal(refused(403, {}), False, RESET)
+
+
+def test_header_values_that_are_not_numbers_are_not_printed(firewall):
+    exc = refused(403, {"x-ratelimit-remaining": "\x1b[2J", "x-ratelimit-limit": "60", "x-ratelimit-reset": "soon",
+                        "retry-after": "-1"})
+    msg = firewall.refusal(exc, False, RESET)
+    assert "\x1b" not in msg and "soon" not in msg and "-1" not in msg
+    assert "the answer names no rate limit and no reset time" in msg
+
+
+@pytest.mark.parametrize("digits", ["9" * 11, "9" * 20, "9" * 5000])
+def test_digit_values_too_long_for_a_time_or_a_count_are_not_read(firewall, digits):
+    exc = refused(429, {"x-ratelimit-limit": "60", "x-ratelimit-remaining": "0", "x-ratelimit-reset": digits,
+                        "retry-after": digits})
+    msg = firewall.refusal(exc, False, RESET)  # no OverflowError from the date, no ValueError from int()
+    assert "rate limit used up: 0 of 60 calls left" in msg
+    assert "resets at" not in msg and "retry after" not in msg and digits not in msg
+
+
+def test_other_refusals_name_the_code_and_the_token_only(firewall):
+    msg = firewall.refusal(refused(401, {"x-ratelimit-remaining": "0"}), True, RESET)
+    assert msg == ("GitHub refused the fetch of its ranges: HTTP 401 from https://api.github.com/meta, "
+                   "with the box's GitHub token")
+
+
+def test_main_stops_on_a_rate_limit_with_the_message_and_no_token_text(firewall, tmp_path, monkeypatch, capsys):
+    def opener(req, timeout=None):
+        raise refused(403, {"x-ratelimit-limit": "60", "x-ratelimit-remaining": "0", "x-ratelimit-reset": str(RESET)})
+    code, ran = start(firewall, tmp_path, monkeypatch, opener, TOKEN)
+    err = capsys.readouterr().err
+    assert code == 1 and ran == []
+    assert "rate limit used up" in err and "resets at 2026-11-21T19:36:00Z" in err
+    assert "HTTP Error 403" not in err and TOKEN not in err
 
 
 # --- marker ---

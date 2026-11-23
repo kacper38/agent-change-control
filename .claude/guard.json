@@ -5,5 +5,5 @@
   "boundary": "own",
   "scratch_md_mode": "ask",
   "host_install": "auto",
-  "workflows": [{"name": "review-panel", "sha256": "e0c790c9f94d9e57a5f290ad152c01e21750ff124aff76905b1d01c1779c63db"}]
+  "workflows": [{"name": "review-panel", "sha256": "bdcc36e63e0debfc1b0e620313159e4da4b53b3048b05a0a442df0537d8d0f97"}]
 }

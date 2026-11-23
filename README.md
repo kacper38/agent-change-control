@@ -427,10 +427,13 @@ variables (`KZ_TRACKER_REPO`, `KZ_TRACKER_AREA`, `KZ_TRACKER_ADO_MODE`,
   verifier, each `model: 'opus'`: four agents a run, a cap of $15 a run that
   the run logs and the ledger measures (`ledger.py agents --session <id>`;
   the first run cost $7.01). Each finding names its evidence (a command, a
-  quoted line or an inference); the verifier re-reads quotes and re-runs a
-  command only when the script finds it one plain read (`git log`, `grep`,
-  `cat` and a few more, no shell syntax), so it runs no test, script or
-  network call a lens wrote; any other is listed as not re-checked. A
+  quoted line or an inference); the verifier re-reads quotes and is asked to
+  re-run a command only when the script finds it one plain read (`git log`,
+  `grep`, `cat` and a few more, no shell syntax), so the panel asks it to run
+  no test, script or network call a lens wrote; any other is listed as not
+  re-checked. The verifier is a `code-reviewer` with Bash, sent only the
+  title and the evidence of each finding: that text is a lens's, so its
+  prompt and the guard are what keep it from running anything else. A
   finding with no evidence kind is rejected and listed, an unconfirmed one
   is listed and counted, a lens with no result or at another head is
   reported, and the result names the head. It runs in the session, so the

@@ -13,8 +13,11 @@ LATEST_END = datetime.date(2026, 12, 31)  # Phase 1 plan, section 5: each relaxa
 # id prefix -> the `AGENTS.md` section whose items are rules; `## Harness notes` says which harness reads which file
 SECTIONS = {"NN": "Non-negotiables", "CP": "Coding principles", "WF": "Working files",
             "ST": "Default stack choices", "MR": "Model routing", "OR": "Orchestration"}
-D12_IDS = {"D12-1", "D12-2", "D12-3"}  # plan rev 3, row 1.6: who starts a cloud session, `/web-setup`, the App
-RELAXATION_IDS = {"P5-1", "P5-2", "P5-3", "P5-4", "P5-5", "P5-6", "L-fleet", "L-rules-off"}
+EXTRA_RULE_IDS = {"MR-5", "MR-6"}  # the paragraph under the model table, which `items` does not count
+D12_IDS = {"D12-1", "D12-2", "D12-3", "D12-4", "D12-5"}  # plan rev 3, D12: the controls `docs/RULES.md` lists
+RELAXATION_IDS = {"P5-1", "P5-2", "P5-3", "P5-4", "P5-5", "P5-6", "L-fleet", "L-rules-off", "S-1"}
+TESTPATHS = re.findall(r'"([^"]+)"', re.search(r"testpaths\s*=\s*\[(.*?)\]",
+                                               (ROOT / "pyproject.toml").read_text(encoding="utf-8")).group(1))
 ENFORCER_RE = re.compile(r"`([a-z]+):([^`]+)`")
 JUDGMENT = "judgment"
 
@@ -86,18 +89,20 @@ def guard_rules(root: pathlib.Path) -> set:
 
 
 def ci_jobs(root: pathlib.Path) -> set:
+    """Jobs of the workflows that a pull request starts (`pull_request` under `on:`)."""
     jobs = set()
     for wf in sorted((root / ".github/workflows").glob("*.yml")):
-        inside = False
+        block, keys = None, {"on": set(), "jobs": set()}
         for line in wf.read_text(encoding="utf-8").splitlines():
-            if re.match(r"jobs:\s*$", line):
-                inside = True
-            elif inside and re.match(r"\S", line):
-                inside = False
-            elif inside:
-                m = re.match(r"  ([A-Za-z0-9_-]+):\s*$", line)
+            top = re.match(r"([A-Za-z]+):", line)
+            if top:
+                block = top.group(1) if top.group(1) in keys else None
+            elif block:
+                m = re.match(r"  ([A-Za-z0-9_-]+):", line)
                 if m:
-                    jobs.add(m.group(1))
+                    keys[block].add(m.group(1))
+        if "pull_request" in keys["on"]:
+            jobs |= keys["jobs"]
     return jobs
 
 
@@ -111,19 +116,22 @@ def enforcer_problem(kind: str, ref: str, root: pathlib.Path) -> str:
     if kind == "guard":
         return "" if ref in guard_rules(root) else f"`guard:{ref}` is no key of RULES in tools/guard/guard.py"
     if kind == "ci":
-        return "" if ref in ci_jobs(root) else f"`ci:{ref}` is no job in .github/workflows/*.yml"
+        ok = ref in ci_jobs(root)
+        return "" if ok else f"`ci:{ref}` is no job of a workflow in .github/workflows/ that a pull request starts"
     if kind == "hook":
-        ok = any(ref in c for c in hook_commands(root))
-        return "" if ok else f"`hook:{ref}` is run by no hook of .claude/settings.json"
+        run = re.compile(r'(?:^|[\s"/])' + re.escape(ref) + r"(?:\s|$)")  # the script's path as a word of the command
+        ok = (root / ref).is_file() and any(run.search(c) for c in hook_commands(root))
+        return "" if ok else f"`hook:{ref}` is no file that a hook of .claude/settings.json runs"
     if kind == "test":
         path, _, name = ref.partition("::")
         file = root / path
-        if not file.is_file():
-            return f"`test:{ref}`: {path} does not exist"
-        tree = ast.parse(file.read_text(encoding="utf-8"))
-        names = {n.name for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)}
-        ok = name.startswith("test_") and name in names
-        return "" if ok else f"`test:{ref}`: no test function {name!r} in {path}"
+        if not file.is_file() or not any(path.startswith(p.rstrip("/") + "/") for p in TESTPATHS):
+            return f"`test:{ref}`: {path} is no file under pytest's testpaths {TESTPATHS}"
+        body = ast.parse(file.read_text(encoding="utf-8")).body
+        tests = [n for n in body if isinstance(n, ast.FunctionDef)]  # module level, or a method of a test class
+        tests += [m for c in body if isinstance(c, ast.ClassDef) for m in c.body if isinstance(m, ast.FunctionDef)]
+        ok = name.startswith("test_") and any(n.name == name for n in tests)
+        return "" if ok else f"`test:{ref}`: no test function {name!r} at module or class level in {path}"
     return f"`{kind}:{ref}`: unknown enforcer kind (guard, ci, hook, test)"
 
 
@@ -157,17 +165,24 @@ def rule_problems(rules_md: str, agents_md: str, plan_md: str, root: pathlib.Pat
         for rid, (quote, cell) in rows.items():
             if not rid.startswith(prefix + "-"):
                 continue
+            if rid not in expected and rid not in EXTRA_RULE_IDS:
+                problems.append(f"{rid}: `AGENTS.md` ## {name} has no such item")
+                continue
             where = expected.get(rid, norm(text))
             if not quote or norm(quote) not in where:
                 problems.append(f"{rid}: the quote {quote!r} is not in {'that item' if rid in expected else name}")
             problems += enforcer_problems(rid, cell, root)
     problems += [f"{rid}: id prefix names no section of AGENTS.md" for rid in rows if rid.split("-")[0] not in SECTIONS]
+    problems += [f"{rid}: no row for this rule of the paragraph under the model table"
+                 for rid in sorted(EXTRA_RULE_IDS - set(rows))]
     if "**D12 —" not in plan_md:
         return problems + ["plan rev 3 has no block `**D12 —`"]
     d12 = norm(plan_md.split("**D12 —", 1)[1].split("**D13 —", 1)[0])
     seen = set()
     for row in table(rules_md, "Judgment controls"):
         rid, quote, cell = (row + ["", "", ""])[:3]
+        if rid in seen:
+            problems.append(f"{rid}: two rows")
         seen.add(rid)
         if not quote or norm(quote) not in d12:
             problems.append(f"{rid}: the quote {quote!r} is not in plan rev 3, D12")
@@ -183,6 +198,8 @@ def relaxation_problems(rules_md: str, today: datetime.date) -> list:
             problems.append(f"relaxations table: a row needs 5 cells, got {row}")
             continue
         rid, _what, _source, ends, state = row
+        if rid in seen:
+            problems.append(f"{rid}: two rows")
         seen.add(rid)
         try:
             end = datetime.date.fromisoformat(ends)
@@ -194,8 +211,9 @@ def relaxation_problems(rules_md: str, today: datetime.date) -> list:
         if state == "in force":
             if end < today:
                 problems.append(f"{rid}: in force past its end ({end}); end it, or the owner gives it a new end")
-        elif not re.fullmatch(r"ended \d{4}-\d{2}-\d{2}", state):
-            problems.append(f"{rid}: state must be `in force` or `ended YYYY-MM-DD`, got {state!r}")
+        elif state != f"ended {ends}" or end > today:
+            problems.append(f"{rid}: state must be `in force`, or `ended {ends}` (its end, not after today), "
+                            f"got {state!r}")
     problems += [f"{rid}: no row for this relaxation" for rid in sorted(RELAXATION_IDS - seen)]
     return problems
 
@@ -222,7 +240,8 @@ def test_every_non_negotiable_is_counted():
     assert {"NN-1", "NN-5", "NN-6.1", "NN-6.9", "NN-8"} <= set(found) and "NN-6" not in found
 
 
-@pytest.mark.parametrize("token", ["`guard:no-such-rule`", "`ci:no-such-job`", "`hook:tools/no_such.py`",
+@pytest.mark.parametrize("token", ["`guard:no-such-rule`", "`ci:no-such-job`", "`ci:lint`", "`hook:tools/no_such.py`",
+                                   "`hook:py`", "`hook:tools/scan`",
                                    "`test:tools/tests/test_agents.py::test_no_such_test`",
                                    "`test:tools/no/such_test.py::test_x`", "`lint:ruff`", "nothing"])
 def test_a_missing_enforcer_fails(token):
@@ -260,3 +279,65 @@ def test_a_relaxation_past_its_end_fails():
 def test_an_end_after_delivery_fails():
     md = read("docs/RULES.md").replace("| 2026-12-31 | in force |", "| 2027-01-15 | in force |", 1)
     assert any("after 2026-12-31" in p for p in relaxation_problems(md, datetime.date(2026, 11, 23)))
+
+
+def all_problems(md: str, today: datetime.date = datetime.date(2026, 11, 23)) -> list:
+    return real_rule_problems(rules_md=md) + relaxation_problems(md, today)
+
+
+def row_of(md: str, rid: str) -> str:
+    return next(line for line in md.splitlines() if line.startswith(f"| {rid} |"))
+
+
+@pytest.mark.parametrize("rid", ["NN-7", "MR-5", "MR-6", "D12-5", "S-1", "P5-1", "L-fleet"])
+def test_a_missing_row_fails(rid):
+    md = read("docs/RULES.md")
+    problems = all_problems(md.replace(row_of(md, rid) + "\n", "", 1))
+    assert [p for p in problems if p.startswith(f"{rid}: ")] and all(p.startswith(f"{rid}: ") for p in problems)
+
+
+@pytest.mark.parametrize("after, extra, why", [
+    ("NN-8", "| NN-6.10 | x | judgment | |", "NN-6.10: `AGENTS.md` ## Non-negotiables has no such item"),
+    ("NN-8", "| NN-1 | Plan first. | judgment | |", "NN-1: two rows"),
+    ("NN-8", "| XX-1 | x | judgment | |", "XX-1: id prefix names no section"),
+    ("D12-5", "| D12-5 | its `allow_remote_sessions` policy is off | judgment | |", "D12-5: two rows"),
+    ("S-1", "| P5-2 | x | y | 2026-12-31 | in force |", "P5-2: two rows"),
+])
+def test_a_stray_or_doubled_row_fails(after, extra, why):
+    md = read("docs/RULES.md")
+    problems = all_problems(md.replace(row_of(md, after), row_of(md, after) + "\n" + extra, 1))
+    assert len(problems) == 1 and problems[0].startswith(why), problems
+
+
+@pytest.mark.parametrize("rid, old, new, today", [
+    ("P5-2", "| in force |", "| paused |", datetime.date(2026, 11, 23)),
+    ("P5-1", "| ended 2026-11-21 |", "| ended 2026-11-20 |", datetime.date(2026, 11, 23)),  # not its end
+    ("P5-1", "| ended 2026-11-21 |", "| ended 2026-11-21 |", datetime.date(2026, 11, 20)),  # ended in the future
+    ("P5-2", "| 2026-12-31 |", "| 31.12.2026 |", datetime.date(2026, 11, 23)),
+])
+def test_a_bad_state_or_end_fails(rid, old, new, today):
+    md = read("docs/RULES.md")
+    row = row_of(md, rid)
+    problems = relaxation_problems(md.replace(row, row.replace(old, new, 1), 1), today)
+    assert len(problems) == 1 and problems[0].startswith(f"{rid}: "), problems
+
+
+def test_an_enforcer_counts_only_where_it_runs(tmp_path):
+    (tmp_path / ".github/workflows").mkdir(parents=True)
+    (tmp_path / ".github/workflows/push.yml").write_text("on:\n  push:\njobs:\n  build:\n    runs-on: x\n")
+    (tmp_path / ".claude").mkdir()
+    command = 'python3 "${CLAUDE_PROJECT_DIR:-.}"/tools/x.py hook'
+    (tmp_path / ".claude/settings.json").write_text(json.dumps(
+        {"hooks": {"PreToolUse": [{"hooks": [{"type": "command", "command": command}]}]}}))
+    (tmp_path / "tools/tests").mkdir(parents=True)
+    (tmp_path / "tools/x.py").write_text("")
+    (tmp_path / "tools/tests/test_x.py").write_text(
+        "def test_ok():\n    def test_inner():\n        pass\n\nclass TestC:\n    def test_m(self):\n        pass\n")
+    assert enforcer_problem("ci", "build", tmp_path)  # no pull_request trigger
+    (tmp_path / ".github/workflows/pr.yml").write_text("on:\n  pull_request:\njobs:\n  build:\n    runs-on: x\n")
+    assert enforcer_problem("ci", "build", tmp_path) == ""
+    assert enforcer_problem("hook", "tools/x.py", tmp_path) == ""
+    assert enforcer_problem("hook", "x.py", tmp_path) and enforcer_problem("hook", "tools", tmp_path)
+    assert enforcer_problem("test", "tools/tests/test_x.py::test_ok", tmp_path) == ""
+    assert enforcer_problem("test", "tools/tests/test_x.py::test_m", tmp_path) == ""
+    assert "module or class level" in enforcer_problem("test", "tools/tests/test_x.py::test_inner", tmp_path)

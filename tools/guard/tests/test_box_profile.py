@@ -229,8 +229,8 @@ def test_the_box_profile_entry(guard):
 
 
 def test_the_version_is_0_11_0(guard):
-    # 0.11.0 brought the box profile; the guard is 0.12.1 since item #69 (test_guard_0121.py)
-    assert guard.VERSION == "0.12.1"
+    """0.11.0 brought the box profile; test_guard_0121.py pins the version of today."""
+    assert tuple(int(p) for p in guard.VERSION.split(".")) >= (0, 11, 0)
 
 
 # ----------------------------------------------------------------------------

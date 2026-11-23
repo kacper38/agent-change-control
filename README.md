@@ -600,6 +600,27 @@ Anti-over-engineering (the lazy family):
   `n/a` for its line and for the total. The type and the short description
   of each agent are text from the session: the tree of a client session
   stays where that session's data may be.
+- `tools/telemetry/page.py` writes the task page: one static HTML file of the
+  tasks of the current folder's repository over the last seven days
+  (`--days N`, `--session <id or prefix>`), grouped by branch. Per task: its
+  sessions with their scope (title, branch, folder, model, host or box), the
+  agents, every tool call with the guard's verdict, every ask and deny, the
+  fresh-review receipts tied to the branch and how each review compares with
+  the one before it, the `evidence/` paths the branch changed, and the cost.
+  It prints the path of the file, `~/.claude/telemetry/pages/<UTC>.html`
+  (mode 0600; `--out PATH` puts it elsewhere, never inside a git work tree and
+  never over an existing file). The page has no script and loads nothing
+  (CSP `default-src 'none'`), and shows no tool input or output: an agent
+  appears by its type, without the description its Agent call was given, and
+  a workflow without its script's name. What it is not: a live console (it is
+  read after the fact; live state is a terminal multiplexer's), or evidence
+  (the files it reads are). A session is grouped under the branch most of its
+  lines carry, so a session that works in a worktree by absolute paths from the
+  main checkout sits under the main checkout's branch. The page holds titles,
+  folders, branch names and finding summaries, so it stays on this machine:
+  never attach it to a ticket, a pull request, a chat or an evidence pack. A
+  page is kept 30 days: a run says on stderr how many pages in the default
+  folder are older, and you remove them (it deletes nothing).
 - Nothing from here is installed at work: no memory, telemetry, tokens or
   transcripts cross the boundary, and memory push stays off until
   `KZ_MEMORY_PUSH` names a project.

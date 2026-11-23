@@ -1,0 +1,62 @@
+{
+  "base": "d9ee47f",
+  "base_sha": "d9ee47f81b22b3b5edcb034ce5b470c1890a588e",
+  "cost_usd": 2.293528,
+  "diff_sha256": "a8542777db1fc85698e21417f361006cab1aaf5cfaf05251d82d175197177050",
+  "duration_ms": 307613,
+  "findings": [
+    {
+      "file": "evidence/2026-11-22-review-panel-0.12.1/planted-breaks/first_lists.sh",
+      "line": 8,
+      "severity": "MINOR",
+      "summary": "The script runs `git -C \"$wt\" archive -o \"$pad/r0/1eae9bd.tar\" 1eae9bd` (and the same at line 9) before `mkdir -p \"$pad/r0/t1eae9bd\" ...` at line 10. `git archive -o` does not create missing parent directories, so on a fresh `<PAD>` both archives fail. The script has `set -u` but no `set -e`, so it carries on: `tar` fails and the runners then hit a missing target file. The script also expects the runners and lists under `$pad/mut/`, but the folder keeps them in `planted-breaks/`, and no line says how one maps to the other. review-findings.md row fr5b-4 says this script fixes the reproducibility finding. Fix: create `$pad/r0` (and `$pad/mut` from `planted-breaks/`) first, and add `set -e`."
+    },
+    {
+      "file": "evidence/2026-11-22-review-panel-0.12.1/planted-breaks/final_runs.sh",
+      "line": 15,
+      "severity": "MINOR",
+      "summary": "`bash \"$pad/captures.sh\" \"$wt\"` calls a script that this folder does not keep and does not list in `SHA256SUMS`. review-findings.md row fr5b-4 says `final_runs.sh` holds the run at `acd0f94`, but the capture step of that run (whose partial output is `originals/stopped-acd0f94/`) cannot be repeated from the folder. Keep `captures.sh`, or replace the call with the `evidence_export.py capture` commands it ran."
+    },
+    {
+      "file": "evidence/2026-11-22-review-panel-0.12.1/review-findings.md",
+      "line": 106,
+      "severity": "MINOR",
+      "summary": "\"Their receipts name `d9ee47f` and this folder's last commit, so they are not here.\" That reason holds only for the review of the head. A receipt that names `d9ee47f` can be committed in the commit after `d9ee47f`, which is this one. As written, the record of both last reviews lives only in the pull-request body. That is the case fr5b-1 raised as MAJOR (a mutable record outside the repository). Add the `d9ee47f` receipt here, or give the real reason (for example, that review ran after this commit was made), and name where the receipt for the head will be kept for good (for example, an evidence commit after the merge)."
+    },
+    {
+      "file": "evidence/2026-11-22-review-panel-0.12.1/SUMMARY.md",
+      "line": 28,
+      "severity": "MINOR",
+      "summary": "\"The session's own line is the session's cost up to that moment, the panel included.\" In `ledger-agents.txt` the total is $33.44 = $26.43 (session) + $7.01 (workflow), and the footer says \"the total counts each agent once\". If the $26.43 included the panel, the total would count the $7.01 twice. Either the sentence or the ledger's total is wrong. Say whether the session line includes the four agents."
+    },
+    {
+      "file": "evidence/2026-11-22-review-panel-0.12.1/live_0121.py",
+      "line": 17,
+      "severity": "MINOR",
+      "summary": "`for name in (\"review-panel\", \"other\"):`. The live check sends only a listed name and an unlisted one. It has no case where a listed name's file does not match its recorded sha256, which is the behaviour 0.12.1 adds; for these two inputs the 0.12.0 rule gave the same answers (a listed name was silent, an unlisted one asked). Neither `live-hook-check.txt` nor `replay-first-run.txt` records the head, the guard version or the time. Unlike `pin-probe.txt`, which prints `rev-parse HEAD`, the claim at SUMMARY.md:12 that they ran at `e76140f` rests on prose alone. Print the head (and the guard version) in both outputs, and consider a live case with a stale hash."
+    },
+    {
+      "file": "evidence/2026-11-22-review-panel-0.12.1/fresh-review-f401dd2.json",
+      "line": 45,
+      "severity": "MINOR",
+      "summary": "The receipt names `\"sha\": \"f401dd2...\"`, which SUMMARY.md:31 and review-findings.md:86 describe as \"never pushed\". That commit is not in the branch history and will be garbage-collected. The receipt's citations (`review-findings.md:83`, `:60`, `SUMMARY.md:47`, `:25`) point at file versions that no longer exist, and the kept files have different line numbering. An auditor cannot check the review against what it read. Keep the reviewed version (for example under `originals/f401dd2/`), or push a ref to it."
+    },
+    {
+      "file": "evidence/2026-11-22-review-panel-0.12.1/SUMMARY.md",
+      "line": 48,
+      "severity": "MINOR",
+      "summary": "One full 3.9 suite run failed (\"1 failed, 9,373 passed\"). The failing test is not known, the cause is \"likely ..., though unproven\", and review-findings.md:95 decides that \"No item is opened\" because three later 3.9 captures passed. Three passes do not rule out a flaky test. In a validation record, a failure that is unexplained and untracked is an open deviation, not a closed one. Open a tracker item (or link an existing flaky-test item) so the failure is followed up."
+    }
+  ],
+  "model_requested": "opus",
+  "models": [
+    "claude-opus-5-5"
+  ],
+  "prompt_file": "tools/review/prompt.md",
+  "prompt_sha256": "aa70ecbe088aaf8bee65df916e76b0e35e9a26f66a342f41d287e5e6a167bc2d",
+  "sha": "0bdbd7a68ce0b35a0b9ef4359e47afd71f9ca6c3",
+  "summary": "This diff adds only the second commit of the evidence folder. No code, test, CI step or guard rule changes, so no check is weakened, and there are no secrets, private names or home paths. The internal counts agree with each other. `captures.json` sha values match `SHA256SUMS`. The 3.13 capture time matches pytest's 132 s. The panel lists hold 73 + 8 + 2 = 83 breaks. The ledger's agent lines add up to $7.01 and 136 tool calls. The replay's 13, 12, 5 and 6 are right. The rows of `review-findings.md` match the severities and counts in every receipt. The second runner fixes the \"any non-zero exit is caught\" gap with a baseline and a named failed test. There are seven MINOR findings, all about evidence and reproducibility: (1) the reproduction script for the first lists fails on a fresh scratch folder; (2) `final_runs.sh` calls a `captures.sh` that is not kept; (3) the stated reason for leaving out the `d9ee47f` review receipt does not hold, so the last reviews are again recorded only in the PR body; (4) one sentence about the ledger contradicts the ledger's total; (5) the live hook check and the replay do not record their head, and the live check does not exercise the sha256 binding; (6) the receipt of review 5b cites a commit that is no longer reachable; (7) the failed 3.9 suite run is closed without a cause or a tracker item.",
+  "ts": "2026-11-23T18:24:57Z",
+  "verdict": "COMMENT",
+  "verdict_as_answered": "COMMENT"
+}

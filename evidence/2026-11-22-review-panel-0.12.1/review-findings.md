@@ -95,17 +95,44 @@ counts, sums and capture hashes consistent with each other, and saw the gaps in 
 | fr5b-4 | MINOR | Some runs cannot be repeated from the folder alone: the old checker copy, the `git archive` copies, the renamed result files | Fixed: `planted-breaks/first_lists.sh` holds the commands as the session ran them, with the renames, and `final_runs.sh` holds the run at `acd0f94`. `breaks_v2.sh` writes the folder's names itself |
 | fr5b-5 | MINOR | Failed and stopped runs are described but not kept. The 3.9 failure has no stated cause and no item | Kept what exists, in `originals/`: the two stopped capture runs (`acd0f94`, `e559273`), the full captures at `66edd2f` (read by round 2) and at `7a42f08` (read by review 5b), and the 3.9 rerun of round 1. The failing 3.9 run's output was never written to a file, since only its last line reached the session, so it cannot be kept. Its likely cause, unproven: planted breaks were editing files of the same tree in place during that run. Since then, breaks and captures run one after the other. No item is opened: every 3.9 capture on a clean tree since has passed |
 
-## The last reviews
+## The folder's first two commits
 
-Review 5a's fix and this folder together are a diff over the egress screen's 200,000 characters, so the folder is two
-commits and the last reviews read them apart:
+Round 4's fix, review 5a's fix and this folder together are a diff over the egress screen's 200,000 characters, so
+the folder is three commits, and the first two were each read by a review of their own.
 
-- `e76140f` (review 5a's fix) with the folder's first commit `d9ee47f` (`originals/` and `panel-run-ae370d8.json`),
-  `--base 7a42f08` at `d9ee47f`;
-- the folder's second commit, the one that adds this file, `--base d9ee47f` at the pull request's head.
+### Review of `d9ee47f`
 
-Their receipts name `d9ee47f` and this folder's last commit, so they are not here. The pull request names both and
-how their findings closed.
+`bin/fresh-review --base 7a42f08` at `d9ee47f`, which reads `e76140f` (review 5a's fix) with the folder's first
+commit (`originals/` and `panel-run-ae370d8.json`); receipt `fresh-review-d9ee47f.json`. COMMENT, 1 MAJOR, 2 MINOR,
+$0.83.
+
+| Id | Severity | The finding, in short | How it closed |
+|---|---|---|---|
+| fr6a-1 | MAJOR | The DECISIONS lines cite files this diff does not add: the second runner's results, `review-findings.md`, `SUMMARY.md`, `SHA256SUMS`. The only `7a42f08` break files it adds ran no break | By design of the split. The folder's second commit, `0bdbd7a`, adds those files, and its own review read them. The files in `originals/breaks-v2-first-try-7a42f08/` are the runner's first try, which stopped at its baseline (`SUMMARY.md`) |
+| fr6a-2 | MINOR | The compliance clause still says "data stays in the boundary", beside limits that name a program able to reach the network and a verifier that only its prompt and the guard stop | Fixed in DECISIONS, `0adfd4f`: a property of the command line only, not a boundary the panel holds |
+| fr6a-3 | MINOR | Files in `originals/` are not described or tied to a head, and the stopped runs give no reason | Answered by `SUMMARY.md`, which the second commit adds: each set with its head and why each stopped run was stopped. The 3.9 rerun ran by hand on the round-1 tree before it was committed, so it has no `captures.json` |
+
+### Review of `0bdbd7a`
+
+`bin/fresh-review --base d9ee47f` at `0bdbd7a`, the folder's second commit; receipt `fresh-review-0bdbd7a.json`.
+COMMENT, 7 MINOR, $2.29. It checked the counts, the sums, the capture hashes and times, the ledger's arithmetic and
+each receipt's figures against the rows here, and found them consistent.
+
+| Id | Severity | The finding, in short | How it closed |
+|---|---|---|---|
+| fr6b-1 | MINOR | `first_lists.sh` fails on a fresh scratch folder: `git archive -o` comes before the `mkdir`, there is no `set -e`, and the runners are expected under `<PAD>/mut` | Fixed in this commit: `set -eu`, the folders made first, the runner and lists copied from `planted-breaks/`. Run from this folder on an empty scratch folder: 31 of 32 and 15 of 15 again, each result file identical to the one kept here (`planted-breaks/first-lists-rerun.txt`) |
+| fr6b-2 | MINOR | `final_runs.sh` calls a `captures.sh` that the folder does not keep | Fixed: `captures.sh` is kept beside `SUMMARY.md` |
+| fr6b-3 | MINOR | The reason given for leaving out the receipt of `d9ee47f` does not hold, so the last reviews were recorded only in the pull request | Fixed: both receipts are in this commit, with their findings above. Only the receipt of the review of this commit is outside, in the pull request and a note on item #69 |
+| fr6b-4 | MINOR | `SUMMARY.md` says the session's ledger line includes the panel, while the total adds the two | Fixed in `SUMMARY.md`: the session line is the main session without the panel's agents, and $26.43 + $7.01 = $33.44 |
+| fr6b-5 | MINOR | The live check and the replay record no head or guard version, and no live case has a stale hash | Fixed in part: both now print the head and whether the tree is clean, plus the guard version or the panel's path, and both ran again at `0adfd4f`. The stale hash stays with the unit tests, which run on real files (`test_guard_0121.py`, rows B02, B05, B18, B24, B26, B29). The live check is criterion 6: the binding on the real worktree |
+| fr6b-6 | MINOR | The receipt of review 5b names a commit that is no longer reachable, so its citations cannot be checked | Fixed: `originals/f401dd2/` keeps the two files it cites, as `SUMMARY.md` and `review-findings.md` were at `f401dd2`. Each has the sha256 of `git show f401dd2:…`, checked while that commit was still in the object store |
+| fr6b-7 | MINOR | The failed 3.9 run is closed with no cause and no item | Linked to item #88 (a guard test that fails on Python 3.9 under CPU load), which fits it: the planted breaks loaded the CPU. A note on #88 records the occurrence |
+
+## The last review
+
+`bin/fresh-review --base 0bdbd7a` at the pull request's head reads `0adfd4f` and this folder's third commit. Its
+receipt names that commit, so it cannot be in it. The pull request and a note on item #69 keep it, with how its
+findings closed.
 
 ## A hole neither review found
 

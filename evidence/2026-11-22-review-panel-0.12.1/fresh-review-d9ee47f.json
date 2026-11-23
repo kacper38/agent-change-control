@@ -1,0 +1,38 @@
+{
+  "base": "7a42f08",
+  "base_sha": "7a42f0898c2cdec35ad2306c87d29bbaca961cb4",
+  "cost_usd": 0.8266224,
+  "diff_sha256": "d47f5b047a11116c242b15673c35b9584d3d54e8d3327ce3b01c68eb240d9d7d",
+  "duration_ms": 153812,
+  "findings": [
+    {
+      "file": "DECISIONS.md",
+      "line": 585,
+      "severity": "MAJOR",
+      "summary": "The changed lines cite evidence this diff does not add. Line 585 claims the lists ran \"again at `7a42f08` with a runner that runs the unbroken file first and names the test that failed (review 5b): 83 of 83, each by a failed test\". The only 7a42f08 break outputs added are `originals/breaks-v2-first-try-7a42f08/{install_mutants_v3,panel_mutants_v4,pin_mutants_v2}-7a42f08.txt`, and each one's line 1 reads \"baseline: exit 0 on the unbroken file; no break was run\". Line 591 places `review-findings.md` and `fresh-review-e559273.json` in the evidence folder. Line 593 names `SHA256SUMS`, the second runner and its 7a42f08 results. None of these, nor `SUMMARY.md`, is in 7a42f08...HEAD, and nothing hashes the `originals/` files added here. Line 591 says the folder is split over two commits. The second part must land, and the merge-gate fresh-review receipt must cover it, before this head merges; until then the 83/83, 39/39 and 4/4 claims and the round 4, 5a and 5b records point at files that are not there (ALCOA+: available, traceable)."
+    },
+    {
+      "file": "DECISIONS.md",
+      "line": 584,
+      "severity": "MINOR",
+      "summary": "The 5a fix still makes the overstatement 5a flagged. The new clause reads \"compliance: no command line the script lets through to the verifier asks for a write, the change's code or the network (data stays in the boundary); what git's own config starts is the first limit below, and such a program can write or reach the network\". The parenthetical states the boundary property as a conclusion, and the same sentence says a config-started program can reach the network. The same bullet's limits say that only the verifier's prompt and the guard stop it from running a command that lens text asks for. The panel result added in this diff shows the guard silent on a curl upload at boundary own (`panel-run-ae370d8.json`, gxp-6: output \"own []\"). Make the boundary claim conditional, or drop it."
+    },
+    {
+      "file": "evidence/2026-11-22-review-panel-0.12.1/originals/pytest-py39-round1-rerun.txt",
+      "line": 132,
+      "severity": "MINOR",
+      "summary": "`originals/` holds runs the record does not describe or tie to a head. Line 591 says `originals/` \"keeps the superseded and stopped capture runs\". The diff also adds `breaks-v2-first-try-7a42f08/`, a planted-break run that ran only its baseline (\"no break was run\"), with no reason given. It adds `pytest-py39-round1-rerun.txt` (\"9374 passed, 9 skipped in 213.29s\") with no captures.json, so it has no head, command or capture time, unlike the `captures-*` folders. The `stopped-acd0f94/` and `stopped-e559273/` folders also give no reason for stopping. Nothing in this diff ties these files to a commit or explains the stops (ALCOA+: attributable, contemporaneous)."
+    }
+  ],
+  "model_requested": "opus",
+  "models": [
+    "claude-opus-5-5"
+  ],
+  "prompt_file": "tools/review/prompt.md",
+  "prompt_sha256": "c007b771bb49716f7b22d876b8e4f0c668e6f5d458cdbc9a2ea0803fa48b30a6",
+  "sha": "d9ee47f81b22b3b5edcb034ce5b470c1890a588e",
+  "summary": "No BLOCKER: the diff changes no tests, CI or code, and no secrets or personal paths appear (machine paths are placeholders). One MAJOR: the changed DECISIONS lines cite evidence that this diff does not add. The only 7a42f08 planted-break files it adds say no break was run. Two MINOR: the 5a fix still claims \"data stays in the boundary\" in the same sentence that names a network-capable limit, and some files under `originals/` are not described and cannot be tied to a head.",
+  "ts": "2026-11-23T18:30:46Z",
+  "verdict": "COMMENT",
+  "verdict_as_answered": "COMMENT"
+}

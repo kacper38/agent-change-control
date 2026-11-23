@@ -11,6 +11,11 @@ import tempfile
 
 root = pathlib.Path(sys.argv[1])
 guard = root / "tools" / "guard" / "guard.py"
+head = subprocess.run(["git", "-C", str(root), "rev-parse", "HEAD"], check=True, capture_output=True, text=True)
+dirty = subprocess.run(["git", "-C", str(root), "status", "--short"], check=True, capture_output=True, text=True)
+version = subprocess.run([sys.executable, str(guard), "version"], capture_output=True, text=True)
+print(f"head {head.stdout.strip()}, tree {'clean' if not dirty.stdout.strip() else 'NOT clean'}, "
+      f"guard {(version.stdout or version.stderr).strip()}")
 with tempfile.TemporaryDirectory() as tel:
     env = {k: v for k, v in os.environ.items() if not k.startswith("KZ_") and k != "CLAUDE_PROJECT_DIR"}
     env["KZ_TELEMETRY_DIR"] = tel

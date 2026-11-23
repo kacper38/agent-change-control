@@ -9,6 +9,10 @@ import sys
 
 root = pathlib.Path(sys.argv[1])
 run = json.loads(pathlib.Path(sys.argv[2]).read_text())
+head = subprocess.run(["git", "-C", str(root), "rev-parse", "HEAD"], check=True, capture_output=True, text=True)
+dirty = subprocess.run(["git", "-C", str(root), "status", "--short"], check=True, capture_output=True, text=True)
+print(f"head {head.stdout.strip()}, tree {'clean' if not dirty.stdout.strip() else 'NOT clean'}, "
+      f"panel {root / '.claude/workflows/review-panel.js'}")
 found = run["result"]["findings"]
 keep = ("severity", "file", "line", "title", "detail", "evidence")
 answer = {"head": "0" * 40, "summary": "replay", "findings": [{k: f[k] for k in keep} for f in found]}

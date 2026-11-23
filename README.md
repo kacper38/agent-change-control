@@ -109,7 +109,9 @@ issue forms; an Azure DevOps target gets `azure-pipelines.yml`,
 
 `--boundary own|client` sets the `boundary` line of a new target's
 `.claude/guard.json`: new targets get `client` (the strict mode for client
-work) unless you pass `--boundary own` for a repository of your own. An
+work) unless you pass `--boundary own` for a repository of your own. Its
+`workflows` list is empty: the kit's own list binds the kit's reviewed
+files, and a target lists what it reviewed itself (item #69). An
 existing `.claude/guard.json` is never touched, not even with `--force`; the
 installer prints a note and the summary says `boundary: left as is`. Upgrade
 note: a target installed before this change copied this repository's `own`
@@ -239,7 +241,7 @@ variables (`KZ_TRACKER_REPO`, `KZ_TRACKER_AREA`, `KZ_TRACKER_ADO_MODE`,
   is no sandbox, and `DECISIONS.md` (2026-11-16, 2026-11-17, 2026-11-18 and
   2026-11-19) lists the forms it does not see.
 - Since guard 0.12.1 (item #69) an entry of `workflows` binds a name to
-  its reviewed file: `{"name": "review-panel", "sha256": "<64 hex>"}`
+  the sha256 of its file: `{"name": "review-panel", "sha256": "<64 hex>"}`
   (`shasum -a 256 .claude/workflows/review-panel.js`). At launch every file
   the guard finds for the name (the lookup of `cloud-launch` below) must
   hash to one of the name's sha256 values; a file that differs, no file, a

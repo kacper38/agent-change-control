@@ -6,8 +6,12 @@ What the reader holds to, so that a pin cannot hide: the options of a call are a
 (no variable, no spread), `model` is a string literal of a known tier or a `claude-` id, `agentType` a string
 literal; the name `agent` appears only as a call (no alias, no own function of that name); a nested `workflow()`
 names a saved workflow by a string literal (its own file is read here too). Comments and the text of strings are no
-code. Limits: a regular expression literal is read as code, so `agent(` inside one counts as a call (it can only
-fail the test, never pass a script)."""
+code; the code inside a template's `${…}` is. What the reader cannot read fails the script, never passes it: a `/`
+where a regular expression literal may start (write `new RegExp('…')`), a `/` inside `${…}`, and the names that
+reach code without naming it (`eval`, `Function`, `arguments`, `constructor`, `this`, `globalThis`, …), wherever
+they stand. Limit: it reads plain scripts and is no sandbox; a script built to hide a call (a computed member such as
+x['constr' + 'uctor'] reaching a global `agent`, if the runtime has one) is for the review that writes the sha256
+(review round 1 of item #69)."""
 import hashlib
 import json
 import pathlib
@@ -25,10 +29,20 @@ _TOKEN = re.compile(r"""
   | (?P<num>\d[\w.]*) | (?P<ident>[A-Za-z_$][\w$]*)
   | (?P<punct>\.\.\.|=>|===|!==|==|!=|&&|\|\||\?\?|\?\.|[{}()\[\],:;.=+\-*/<>!?&|%^~])
 """, re.S | re.X)
+# Words after which a `/` starts a regular expression literal, and those whose `( … )` a regular expression may follow.
+_BEFORE_EXPRESSION = {"return", "typeof", "instanceof", "in", "of", "new", "delete", "void", "throw", "case", "do",
+                      "else", "yield", "await"}
+_PAREN_KEYWORDS = {"if", "while", "for", "with", "await"}
+# Names that reach code or a scope without writing `agent`: any use fails, as a property too.
+FLAGGED = {"eval", "Function", "arguments", "constructor", "this", "globalThis", "global", "self", "window", "with",
+           "import", "require"}
 
 
-def _template_end(src: str, i: int) -> int:
-    """The index after the template literal that starts at src[i] == '`', through `${...}` and nested literals."""
+def _template_end(src: str, i: int) -> tuple:
+    """(the index after the template literal that starts at src[i] == '`', the (start, stop) of each `${...}` in it);
+    a `/` inside `${...}` (a comment, a regular expression, a division) is refused, so the closing } is never
+    guessed wrong."""
+    spans = []
     i += 1
     while i < len(src):
         c = src[i]
@@ -36,9 +50,10 @@ def _template_end(src: str, i: int) -> int:
             i += 2
             continue
         if c == "`":
-            return i + 1
+            return i + 1, spans
         if src.startswith("${", i):
             depth, i = 1, i + 2
+            start = i
             while depth:
                 if i >= len(src):
                     raise ValueError("an unclosed ${ in a template literal")
@@ -50,29 +65,55 @@ def _template_end(src: str, i: int) -> int:
                     i = m.end()
                     continue
                 if c == "`":
-                    i = _template_end(src, i)
+                    i = _template_end(src, i)[0]
                     continue
+                if c == "/":
+                    raise ValueError(f"a / inside ${{...}} at {i}, which the reader cannot read")
                 depth += {"{": 1, "}": -1}.get(c, 0)
                 i += 1
+            spans.append((start, i - 1))
             continue
         i += 1
     raise ValueError("an unclosed template literal")
 
 
+def _division(prev: tuple, closes_keyword_paren: bool) -> bool:
+    """Whether a `/` after the token prev divides; else a regular expression literal may start there."""
+    kind, text = prev
+    if kind in ("num", "str", "tpl"):
+        return True
+    if kind == "ident":
+        return text not in _BEFORE_EXPRESSION
+    return text == "]" or (text == ")" and not closes_keyword_paren)
+
+
 def tokens(src: str) -> list:
-    """(kind, text) for every token but blanks and comments; kind is str, tpl, num, ident or punct."""
-    out, i = [], 0
+    """(kind, text) for every token but blanks and comments; kind is str, tpl, num, ident or punct. The code of each
+    `${...}` of a template follows its tpl token, in parentheses."""
+    out, i, parens, keyword_close = [], 0, [], False
     while i < len(src):
         if src[i] == "`":
-            end = _template_end(src, i)
+            end, spans = _template_end(src, i)
             out.append(("tpl", src[i:end]))
-            i = end
+            for start, stop in spans:
+                out += [("punct", "("), *tokens(src[start:stop]), ("punct", ")")]
+            i, keyword_close = end, False
             continue
         m = _TOKEN.match(src, i)
         if not m:
             raise ValueError(f"no token at {i}: {src[i:i + 20]!r}")
-        if m.lastgroup not in ("ws", "comment"):
-            out.append((m.lastgroup, m.group()))
+        kind, text = m.lastgroup, m.group()
+        if kind not in ("ws", "comment"):
+            if (kind, text) == ("punct", "/") and not (out and _division(out[-1], keyword_close)):
+                raise ValueError(f"a regular expression literal at {i}, which the reader cannot read "
+                                 "(write new RegExp('...'))")
+            closes = False
+            if (kind, text) == ("punct", "("):
+                parens.append(bool(out) and out[-1][0] == "ident" and out[-1][1] in _PAREN_KEYWORDS)
+            elif (kind, text) == ("punct", ")") and parens:
+                closes = parens.pop()
+            out.append((kind, text))
+            keyword_close = closes
         i = m.end()
     return out
 
@@ -139,6 +180,8 @@ def _options(opts: list) -> list:
             props[part[0][1].strip("'\"")] = part[2:]
         elif len(part) == 1 and part[0][0] == "ident":  # {model} shorthand: a variable
             props[part[0][1]] = part
+        else:  # a computed key ([k]: v), a method or a getter: a later one could set the model (review round 1)
+            return ["an option that is no `key: value` or plain name, which the reader cannot read"]
     model = _literal(props["model"]) if "model" in props else None
     if "model" in props and model is None:
         return ["`model` is no string literal"]
@@ -176,12 +219,17 @@ def _problems(toks: list) -> list:
             out.append(f"`meta` is no literal: {text[:40]!r}")
             break
     for n, (kind, text) in enumerate(toks):
+        if kind == "ident" and text in FLAGGED:
+            out.append(f"`{text}` can reach code the reader does not see; a workflow script does not use it")
+            continue
         if kind != "ident" or text not in ("agent", "workflow"):
             continue
         prev = toks[n - 1] if n else ("", "")
         nxt = toks[n + 1] if n + 1 < len(toks) else ("", "")
-        if prev in (("punct", "."), ("punct", "?.")) or nxt == ("punct", ":"):
-            continue  # a property of another object, or an object key
+        if prev in (("punct", "."), ("punct", "?.")):
+            continue  # a property of another object
+        if nxt == ("punct", ":") and prev in (("punct", "{"), ("punct", ",")):
+            continue  # an object key; `c ? agent : x` is no key (review round 1)
         if nxt != ("punct", "(") or prev == ("ident", "function"):
             out.append(f"`{text}` is used other than as a call (an alias or an own definition hides the pin)")
             continue
@@ -261,6 +309,31 @@ META = "export const meta = {name: 'x', description: 'y', phases: [{title: 'A', 
     ("function agent(p) { return p }\nawait agent('go', {model: 'opus'})", "is used other than as a call"),
     ("await workflow({scriptPath: '/tmp/x.js'})", "a nested workflow() names no saved workflow"),
     ("await workflow('no-such-workflow')", "a nested workflow() names no saved workflow"),
+    ("const a = c ? agent : null\nawait a('go', {})", "is used other than as a call"),
+    ("await agent('go', {model: 'opus', ['model']: m})", "which the reader cannot read"),
+    ("await agent('go', {model: 'opus', get agentType() { return t }})", "which the reader cannot read"),
+    ("await agent('go', {model: 'opus', model: m})", "`model` is no string literal"),
+    # review round 1 of item #69: each of these passed the reader at ae370d8 and calls agent() with no model
+    ("const s = `${await agent('go')}`", "an agent() call without options names no model"),
+    ("const s = `a ${`b ${await agent('go')}`}`", "an agent() call without options names no model"),
+    ("const s = `${agent}`", "is used other than as a call"),
+    ("const r = /`/\nawait agent('go')\nconst q = /`/", "a regular expression literal"),
+    ("const r = /'/; await agent('go'); const q = /'/", "a regular expression literal"),
+    ("if (c) /'/.test(s); await agent('go'); const q = /'/", "a regular expression literal"),
+    ("while (c) /'/.test(s)", "a regular expression literal"),
+    ("const f = () => /x/", "a regular expression literal"),
+    ("return /x/", "a regular expression literal"),
+    ("/x/.test(s)", "a regular expression literal"),
+    ("const o = {}\n/'/.test(s); await agent('go'); /'/", "a regular expression literal"),
+    ("const s = `${1 /* } */ + await agent('go')}`", "a / inside ${...}"),
+    ("await agent(`${0, {model: 'opus'}}`)", "an agent() call without options names no model"),
+    ("const s = `${a / b}`", "a / inside ${...}"),
+    ("await eval('agent')('go')", "`eval` can reach code"),
+    ("await arguments[0]('go')", "`arguments` can reach code"),
+    ("await (async () => 1).constructor('return agent')()('go')", "`constructor` can reach code"),
+    ("await new Function('return agent')()('go')", "`Function` can reach code"),
+    ("await globalThis.agent('go')", "`globalThis` can reach code"),
+    ("await this.agent('go')", "`this` can reach code"),
 ])
 def test_a_script_without_a_pin_fails(body, why):
     found = problems(META + body + "\n")
@@ -289,6 +362,12 @@ def test_a_meta_that_is_no_literal_fails(head, why):
     "await parallel([1, 2].map(i => () => agent(`p${i}`, {phase: 'A', model: 'haiku'})))",
     "await workflow('review-panel', {diff: '/tmp/x.diff'})",
     "await agent('go', {model: 'opus' /* the tier */, label: 'a' // why\n})",
+    # a / that divides, and a pattern written as a string (review round 1)
+    "const h = n / 2\nconst k = (n + 1) / 2 / x[0] / 'a'.length / `b`.length\nconst q = x[1] /= 2",
+    "const d = 3 / 'a' / `b` / 2",
+    "const re = new RegExp('^[0-9a-f]{40}$')\nconst s = `${a} / ${b}`",
+    "await agent(`${JSON.stringify({a: 1})}`, {model: 'opus'})",
+    "const t = typeof_x / 2",
 ])
 def test_a_pinned_script_passes(body):
     assert problems(META + body + "\n") == []
@@ -297,3 +376,10 @@ def test_a_pinned_script_passes(body):
 def test_a_comment_in_meta_is_no_code():
     head = "export const meta = {\n  name: 'x', // the name\n  /* shown */ description: 'y',\n}\n"
     assert problems(head + "await agent('go', {model: 'opus'})\n") == []
+
+
+@pytest.mark.parametrize("src", ["/'/", "/x/.test(s)"])
+def test_a_slash_that_begins_the_text_is_a_regular_expression(src):
+    # review round 1: the first token has nothing before it to divide
+    with pytest.raises(ValueError, match="a regular expression literal at 0"):
+        tokens(src)

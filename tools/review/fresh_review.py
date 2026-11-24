@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 """fresh-review — independent, fresh-context review of the branch diff, with a receipt (plan step 3.3).
 
-  bin/fresh-review [--base origin/main] [--model opus] [--dry-run]
+  bin/fresh-review [--base origin/main] [--model opus] [--dry-run] [--pr N [--post-only]]
 `git diff <base>...HEAD` goes through the egress screen, then with the version-controlled
 prompt (tools/review/prompt.md) to `claude -p` with no tools and a JSON schema. The verdict
 lands in .git/fresh-review/<head-sha>.json and on stdout. Advisory, never a hook: exit 0 for
 APPROVE or COMMENT, 1 for BLOCKER, 3 when the screen holds the diff, 2 on errors.
+The diff is one pinned command (DIFF_FLAGS, DIFF_ENV) the receipt records as `diff_command`, so an auditor
+can recompute `diff_sha256` in any clone. --pr N posts the receipt as a comment on pull request N (its lasting
+copy); --post-only posts the newest receipt of HEAD without calling the model. A failed post is exit 2.
 At work the same prompt is .github/instructions/review.instructions.md for Copilot code review.
 """
 import argparse
@@ -13,8 +16,10 @@ import datetime as _dt
 import hashlib
 import json
 import os
+import shlex
 import subprocess
 import sys
+import tempfile
 from typing import Optional
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -46,6 +51,15 @@ SCHEMA = {
 EXIT_BY_VERDICT = {"APPROVE": 0, "COMMENT": 0, "BLOCKER": 1}
 TARGET = "claude"  # the destination is always `claude -p`; the egress label must say so, not a flag
 SEVERITY_RANK = {"MINOR": 1, "MAJOR": 2, "BLOCKER": 3}
+# pin, at git's defaults, what a repository's .git/config could change; the env removes the system and global
+# config files, and DIFF_UNSET what the environment itself could change (GIT_DIFF_OPTS overrides --unified)
+DIFF_FLAGS = ["--full-index", "--no-ext-diff", "--no-color", "--no-textconv", "--diff-algorithm=myers",
+              "--src-prefix=a/", "--dst-prefix=b/", "--unified=3", "--find-renames", "--no-relative",
+              "--indent-heuristic", "--inter-hunk-context=0", "--submodule=short", "--ignore-submodules=none",
+              "-O/dev/null", "-l1000"]
+DIFF_ENV = {"GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": "/dev/null"}
+DIFF_UNSET = ("GIT_CONFIG_PARAMETERS", "GIT_CONFIG_COUNT", "GIT_DIFF_OPTS")
+COMMENT_LIMIT = 65000  # GitHub refuses a comment body over 65,536 characters
 
 
 def effective_verdict(verdict: str, findings: list) -> str:
@@ -69,6 +83,22 @@ def git(args: list, cwd: str) -> str:
     return r.stdout
 
 
+def diff_text(base_sha: str, head_sha: str, cwd: str) -> tuple:
+    """The diff the screen reads, the model reviews and the hash covers, and the shell command that remakes it."""
+    args = ["git", "diff", *DIFF_FLAGS, f"{base_sha}...{head_sha}"]
+    # config given through the environment (GIT_CONFIG_PARAMETERS, GIT_CONFIG_COUNT/KEY_n/VALUE_n) is dropped too
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_CONFIG") and k not in DIFF_UNSET}
+    r = subprocess.run(args, cwd=cwd, capture_output=True, env={**env, **DIFF_ENV})
+    if r.returncode != 0:
+        raise ReviewError(f"git diff: {r.stderr.decode('utf-8', 'replace').strip()}")
+    try:
+        text = r.stdout.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise ReviewError(f"the diff is not UTF-8: {exc}") from exc
+    command = ["env", *(w for k in DIFF_UNSET for w in ("-u", k)), *(f"{k}={v}" for k, v in DIFF_ENV.items()), *args]
+    return text, " ".join(shlex.quote(a) for a in command)
+
+
 def default_base(cwd: str) -> str:
     for cand in ("origin/main", "main"):
         if subprocess.run(["git", "rev-parse", "--verify", "-q", cand], cwd=cwd, capture_output=True).returncode == 0:
@@ -84,6 +114,74 @@ def receipt_path(rdir: str, head: str) -> str:
         if not os.path.exists(cand):
             return cand
         n += 1
+
+
+def newest_receipt(rdir: str, head: str) -> Optional[str]:
+    """The receipt with the highest number for head (the last one receipt_path handed out), or None."""
+    found, n = None, 1
+    while True:
+        cand = os.path.join(rdir, f"{head}.json" if n == 1 else f"{head}.{n}.json")
+        if not os.path.exists(cand):
+            return found
+        found, n = cand, n + 1
+
+
+def summary_line(receipt: dict, model: str, name: str) -> str:
+    """One line for stdout and the comment, with the range reviewed (a delta review shows its own base); it reads
+    the optional fields of a receipt file whatever their type."""
+    cost = f"${receipt['cost_usd']:.2f}" if isinstance(receipt.get("cost_usd"), (int, float)) else "cost n/a"
+    findings, models, base = receipt.get("findings"), receipt.get("models"), receipt.get("base_sha")
+    names = ", ".join(m for m in models if isinstance(m, str)) if isinstance(models, list) else ""
+    span = f"{base[:12] if isinstance(base, str) else '?'}...{receipt['sha'][:12]}"
+    return (f"fresh-review: {receipt['verdict']} ({len(findings) if isinstance(findings, list) else 0} findings) "
+            f"model {names or model}, {cost}; reviewed {span}; receipt {name}")
+
+
+def post_receipt(rpath: str, pr: int, gh_bin: str, cwd: str) -> Optional[str]:
+    """Post the receipt at rpath as a comment on pull request pr; the reason when it was not posted, else None."""
+    try:
+        with open(rpath, encoding="utf-8") as fh:
+            raw = fh.read().rstrip("\n")
+        receipt = json.loads(raw)
+    except (OSError, ValueError) as exc:
+        return f"cannot read the receipt: {exc}"
+    if not isinstance(receipt, dict) or not all(isinstance(receipt.get(k), str) for k in ("sha", "verdict")):
+        return "the receipt has no `sha` or `verdict`"
+    try:  # the pull request must have the reviewed commit as its head: a wrong N or remote gets no evidence
+        v = subprocess.run([gh_bin, "pr", "view", str(pr), "--json", "headRefOid"], cwd=cwd,
+                           capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.SubprocessError) as exc:
+        return f"{gh_bin}: {exc}"
+    if v.returncode != 0:
+        return f"{gh_bin} pr view exited {v.returncode}: {v.stderr.strip()[:400]}"
+    try:
+        pr_head = json.loads(v.stdout).get("headRefOid")
+    except (ValueError, AttributeError):
+        pr_head = None
+    if pr_head != receipt["sha"]:
+        return f"pull request {pr} has head {pr_head or 'unknown'}, the receipt is for {receipt['sha']}"
+    fence = "```"
+    while fence in raw:
+        fence += "`"
+    body = (f"<!-- fresh-review-receipt: {receipt['sha']} -->\n"
+            f"{summary_line(receipt, receipt.get('model_requested', ''), os.path.basename(rpath))}\n\n"
+            f"{fence}json\n{raw}\n{fence}\n")
+    if len(body) > COMMENT_LIMIT:
+        return f"the comment would be {len(body)} characters, over {COMMENT_LIMIT}"
+    try:
+        fd, bpath = tempfile.mkstemp(prefix="fresh-review-", suffix=".md")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                fh.write(body)
+            r = subprocess.run([gh_bin, "pr", "comment", str(pr), "--body-file", bpath], cwd=cwd,
+                               capture_output=True, text=True, timeout=120)
+        finally:
+            os.unlink(bpath)
+    except (OSError, subprocess.SubprocessError) as exc:
+        return f"{gh_bin}: {exc}"
+    if r.returncode != 0:
+        return f"{gh_bin} exited {r.returncode}: {r.stderr.strip()[:400]}"
+    return None
 
 
 def sha256(text: str) -> str:
@@ -119,12 +217,28 @@ def main(argv: list, cwd: Optional[str] = None, out=None) -> int:
     ap.add_argument("--model", default="opus")
     ap.add_argument("--dry-run", action="store_true", help="screen and size the prompt, do not call the model")
     ap.add_argument("--claude-bin", default="claude")
+    ap.add_argument("--pr", type=int, help="post the receipt as a comment on this pull request")
+    ap.add_argument("--post-only", action="store_true", help="with --pr: post the newest receipt of HEAD, no model")
+    ap.add_argument("--gh-bin", default="gh")
     ns = ap.parse_args(argv)
+    if ns.post_only and ns.pr is None:
+        ap.error("--post-only needs --pr N")
     try:
-        base = ns.base or default_base(cwd)
         head = git(["rev-parse", "HEAD"], cwd).strip()
-        base_sha = git(["rev-parse", base], cwd).strip()
-        diff = git(["diff", f"{base}...HEAD"], cwd)
+        rdir = os.path.join(git(["rev-parse", "--git-dir"], cwd).strip(), "fresh-review")
+        rdir = rdir if os.path.isabs(rdir) else os.path.join(cwd, rdir)
+        if ns.post_only:
+            rpath = newest_receipt(rdir, head)
+            if rpath is None:
+                out.write(f"fresh-review: error: no receipt for {head} in {os.path.relpath(rdir, cwd)}\n")
+                return 2
+            with open(rpath, encoding="utf-8") as fh:
+                receipt = json.load(fh)
+            return finish_post(rpath, receipt, ns, cwd, out)
+        base = ns.base or default_base(cwd)
+        base_sha = git(["rev-parse", "--verify", f"{base}^{{commit}}"], cwd).strip()
+        merge_base = git(["merge-base", base_sha, head], cwd).strip()
+        diff, diff_command = diff_text(base_sha, head, cwd)
         if not diff.strip():
             out.write(f"fresh-review: nothing to review ({base}...HEAD is empty)\n")
             return 0
@@ -147,28 +261,40 @@ def main(argv: list, cwd: Optional[str] = None, out=None) -> int:
             "sha": head, "base": base, "base_sha": base_sha, "ts": started.strftime("%Y-%m-%dT%H:%M:%SZ"),
             "model_requested": ns.model, "models": sorted(usage), "cost_usd": data.get("total_cost_usd"),
             "duration_ms": data.get("duration_ms"), "prompt_sha256": sha256(prompt), "diff_sha256": sha256(diff),
+            "diff_command": diff_command, "merge_base": merge_base,
+            "base_tree": git(["rev-parse", f"{merge_base}^{{tree}}"], cwd).strip(),
+            "head_tree": git(["rev-parse", f"{head}^{{tree}}"], cwd).strip(),
             "prompt_file": os.path.relpath(PROMPT_PATH, cwd),
             "verdict": effective_verdict(verdict["verdict"], verdict.get("findings", [])),
             "verdict_as_answered": verdict["verdict"],
             "summary": verdict.get("summary", ""), "findings": verdict.get("findings", []),
         }
-        rdir = os.path.join(git(["rev-parse", "--git-dir"], cwd).strip(), "fresh-review")
-        rdir = rdir if os.path.isabs(rdir) else os.path.join(cwd, rdir)
         os.makedirs(rdir, exist_ok=True)
         rpath = receipt_path(rdir, head)
         with open(rpath, "x", encoding="utf-8") as fh:  # append-only evidence: never overwrite an earlier receipt
             json.dump(receipt, fh, indent=2, sort_keys=True)
             fh.write("\n")
-    except (ReviewError, OSError) as exc:
+    except (ReviewError, OSError, ValueError) as exc:
         out.write(f"fresh-review: error: {exc}\n")
         return 2
-    cost = f"${receipt['cost_usd']:.2f}" if isinstance(receipt["cost_usd"], (int, float)) else "cost n/a"
-    out.write(f"fresh-review: {receipt['verdict']} ({len(receipt['findings'])} findings) "
-              f"model {', '.join(receipt['models']) or ns.model}, {cost}; receipt {os.path.relpath(rpath, cwd)}\n")
+    out.write(summary_line(receipt, ns.model, os.path.relpath(rpath, cwd)) + "\n")
     if receipt["summary"]:
         out.write(f"  {receipt['summary']}\n")
     for f in receipt["findings"]:
         out.write(f"  {f['severity']:<7} {f['file']}:{f['line']}  {f['summary']}\n")
+    if ns.pr is not None:
+        return finish_post(rpath, receipt, ns, cwd, out)
+    return EXIT_BY_VERDICT.get(receipt["verdict"], 2)
+
+
+def finish_post(rpath: str, receipt: dict, ns, cwd: str, out) -> int:
+    """Post the receipt with --pr: the verdict's exit code when posted, 2 (the receipt stays) when not."""
+    reason = post_receipt(rpath, ns.pr, ns.gh_bin, cwd)
+    if reason:
+        out.write(f"fresh-review: error: receipt not posted to pull request {ns.pr} ({reason}); the local receipt "
+                  f"{os.path.relpath(rpath, cwd)} stays; retry with: bin/fresh-review --pr {ns.pr} --post-only\n")
+        return 2
+    out.write(f"fresh-review: receipt posted to pull request {ns.pr}\n")
     return EXIT_BY_VERDICT.get(receipt["verdict"], 2)
 
 

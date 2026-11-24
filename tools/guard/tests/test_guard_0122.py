@@ -174,5 +174,27 @@ def test_a_link_loop_or_a_nul_byte_is_no_crash(guard, tmp_path):
     assert guard.guard_config_class(str(root / ".claude" / "agents" / "x\0.md")) == CLASS
 
 
+# ----------------------------------------------------------------------------
+# Never weaker: the corpus answers as before but for the five inputs that are an agent definition
+# ----------------------------------------------------------------------------
+
+def _listed(changes: dict) -> set:
+    return {rid for (rid, _which), (_old, _new, why) in changes.items() if why.startswith("#90")}
+
+
+def test_every_change_of_0122_is_an_agent_definition_and_none_is_left_out():
+    """The never-weaker checks of 0.9.0 (test_never_weaker.py), 0.10.0 (test_box_profile.py) and 0.11.0
+    (test_guard_0120.py) hold at 0.12.2; the inputs whose answer changes are listed there (stricter only) or, for
+    0.10.0, left out by the same reading of the path. That reading (a plain string test, not the code under test)
+    finds exactly the listed inputs in each baseline."""
+    nw = BP.NW
+    for name, baseline, listed in (
+            ("0.9.0", nw._baseline(), _listed(nw._changes())),
+            ("0.10.0", BP._baseline(), _listed(G._changed())),
+            ("0.11.0", G._baseline(), _listed(G._changed()))):
+        agents = {row["id"] for row in baseline if BP._agent_definition(row["in"])}
+        assert len(listed) == 5 and agents == listed, (name, sorted(agents ^ listed))
+
+
 def test_the_version_is_0_12_2(guard):
     assert guard.VERSION == "0.12.2"

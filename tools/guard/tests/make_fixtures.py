@@ -364,7 +364,8 @@ CASES: dict = {
         ("ask", "edit", {"path": "~/.claude/hooks/ask-on-delete.sh"}),
         ("ask", "edit", {"path": "sub/project/.claude/guard.json"}),
         ("allow", "edit", {"path": "README.md"}),
-        ("allow", "write", {"path": ".claude/agents/x.md", "content": "x"}),
+        # guard 0.12.2 (item #90): an agent definition asks (cases at the end); a folder of the same name elsewhere
+        ("allow", "write", {"path": "docs/agents/x.md", "content": "x"}),
         ("allow", "write", {"path": ".claude/skills/x/SKILL.md", "content": "x"}),
         # guard 0.10.0 (D7): the CI workflows, the test guard, the tag scan, the commit gate and the tracker
         ("ask", "edit", {"path": ".github/workflows/ci.yml"}),
@@ -377,10 +378,13 @@ CASES: dict = {
                "tee -a .claude/settings.json < x", "cp /tmp/x tools/commit_msg.py"),
         *shell("allow", "cat tools/guard/guard.py", "git diff -- tools/guard/guard.py", "pytest tools/guard",
                "cp tools/guard/guard.py /tmp/guard.py"),
-        ("allow", "edit", {"path": "~/.claude/agents/x.md"}),
+        ("allow", "edit", {"path": "~/.claude/agents-notes.md"}),
         ("allow", "edit", {"path": "~/.claude/CLAUDE.md"}),
         ("allow", "edit", {"path": "docs/settings.json"}),
         ("allow", "read", {"path": ".claude/settings.json"}),
+        # guard 0.12.2 (item #90): the agent definitions, the repo's and the user's
+        ("ask", "write", {"path": ".claude/agents/x.md", "content": "x"}),
+        ("ask", "edit", {"path": "~/.claude/agents/x.md"}),
     ],
     "tracker-guard": [
         *shell(

@@ -70,7 +70,24 @@ test_guard_0100.TOOL_ROWS:22 | pre | silent | ask | D3: an inline script is not 
 test_guard_0100.TOOL_ROWS:22 | box | silent | deny | D3: an inline script is not a listed workflow
 test_guard_0100.TOOL_ROWS:23 | pre | silent | ask | D3: a name not in `workflows`
 test_guard_0100.TOOL_ROWS:23 | box | silent | deny | D3: a name not in `workflows`
-"""
+# 0.12.2 (item #90): an edit of an agent definition asks (guard-config); in a box it runs and leaves a
+# `logged` line, which is stricter than a silent run (test_guard_0122.py checks each input is one)
+test_table_forms.FILE_ROWS:27 | pre | silent | ask | #90: an agent definition
+test_table_forms.FILE_ROWS:27 | rule | silent | ask | #90: an agent definition
+test_table_forms.FILE_ROWS:27 | box | silent | logged | #90: an agent definition
+fixture:guard-config/claude/ask/21-claude-agents-x-md.json | pre | silent | ask | #90: an agent definition
+fixture:guard-config/claude/ask/21-claude-agents-x-md.json | rule | silent | ask | #90: an agent definition
+fixture:guard-config/claude/ask/21-claude-agents-x-md.json | box | silent | logged | #90: an agent definition
+fixture:guard-config/claude/ask/22-claude-agents-x-md.json | pre | silent | ask | #90: an agent definition
+fixture:guard-config/claude/ask/22-claude-agents-x-md.json | rule | silent | ask | #90: an agent definition
+fixture:guard-config/claude/ask/22-claude-agents-x-md.json | box | silent | logged | #90: an agent definition
+fixture:guard-config/copilot/ask/21-claude-agents-x-md.json | pre | silent | ask | #90: an agent definition
+fixture:guard-config/copilot/ask/21-claude-agents-x-md.json | rule | silent | ask | #90: an agent definition
+fixture:guard-config/copilot/ask/21-claude-agents-x-md.json | box | silent | logged | #90: an agent definition
+fixture:guard-config/copilot/ask/22-claude-agents-x-md.json | pre | silent | ask | #90: an agent definition
+fixture:guard-config/copilot/ask/22-claude-agents-x-md.json | rule | silent | ask | #90: an agent definition
+fixture:guard-config/copilot/ask/22-claude-agents-x-md.json | box | silent | logged | #90: an agent definition
+"""  # noqa: E501
 
 
 def _changed() -> dict:
@@ -79,7 +96,8 @@ def _changed() -> dict:
         if not line.strip() or line.startswith("#"):
             continue
         rid, which, old, new, why = (p.strip() for p in line.split(" | ", 4))
-        assert ORDER[new] > ORDER[old], f"a listed change must be stricter: {line}"
+        stricter = ORDER[new] > ORDER[old] or (old, new) == ("silent", "logged")  # 0.12.2: a logged line is more
+        assert stricter, f"a listed change must be stricter: {line}"
         assert (rid, which) not in out, f"listed twice: {line}"
         out[(rid, which)] = (old, new, why)
     return out
@@ -148,7 +166,9 @@ def test_every_0110_answer_holds(guard):
 
 def test_every_changed_input_is_a_workflow_call():
     rows = {row["id"]: row["in"] for row in _baseline()}
-    for rid, _which in _changed():
+    for (rid, _which), (_old, _new, why) in _changed().items():
+        if why.startswith("#90"):  # 0.12.2: test_guard_0122.py checks these
+            continue
         inp = rows[rid]
         tool = inp.get("call") or inp.get("fixture", {}).get("tool_name")
         assert tool == "Workflow", (rid, inp)
@@ -619,7 +639,8 @@ G2 | host | silent | Bash | {"command": "cat .claude/workflows/review-panel.js"}
 G2 | host | silent | Write | {"file_path": "{w}/docs/workflows/x.js", "content": "x"}
 G2 | host | silent | Write | {"file_path": "{w}/.claude/workflows-notes.txt", "content": "x"}
 G2 | host | silent | Write | {"file_path": "{w}/.claude/workflows", "content": "x"}
-G2 | host | silent | Write | {"file_path": "{w}/.claude/agents/workflows.md", "content": "x"}
+# 0.12.2 (item #90): `.claude/agents/workflows.md` asks now; the neighbour is a file of that name in skills/
+G2 | host | silent | Write | {"file_path": "{w}/.claude/skills/workflows.md", "content": "x"}
 G2 | box | silent | Read | {"file_path": "{w}/.claude/workflows/review-panel.js"}
 """  # noqa: E501
 GUARD_CONFIG_TABLE = _rows(GUARD_CONFIG_ROWS)

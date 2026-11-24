@@ -383,3 +383,38 @@ def test_diff_opts_and_a_relative_diff_do_not_change_the_hash(review, tmp_path, 
     assert review.main(["--base", "main", "--claude-bin", claude], cwd=str(r / "sub"), out=io.StringIO()) == 0
     _, configured = newest_receipt(r)
     assert configured["diff_sha256"] == plain["diff_sha256"]
+
+
+def test_repository_diff_config_does_not_change_the_hash(review, tmp_path):
+    r = tmp_path / "repo"
+    r.mkdir()
+
+    def g(*args, **kw):
+        return subprocess.run(["git", "-C", str(r), *args], check=True, capture_output=True, text=True, **kw)
+
+    g("init", "-q", "-b", "main")
+    lines = [f"line {i}\n" for i in range(20)]
+    (r / "a.txt").write_text("".join(lines))
+    (r / "b.txt").write_text("b\n")
+    g("add", "a.txt", "b.txt")
+    g("commit", "-q", "-m", "feat: start", env=ENV)
+    g("switch", "-q", "-c", "step-x")
+    lines[3], lines[14] = "changed 3\n", "changed 14\n"  # two hunks at the default context, one at 10
+    (r / "a.txt").write_text("".join(lines))
+    (r / "b.txt").write_text("b2\n")
+    g("update-index", "--add", "--cacheinfo", f"160000,{'1' * 40},mod")  # a submodule pointer, no submodule
+    g("add", "a.txt", "b.txt")
+    g("commit", "-q", "-m", "feat: two hunks and a gitlink", env=ENV)
+    claude, _ = fake_claude(tmp_path, {"verdict": "APPROVE", "summary": "", "findings": []})
+    assert review.main(["--base", "main", "--claude-bin", claude], cwd=str(r), out=io.StringIO()) == 0
+    _, plain = newest_receipt(r)
+    order = tmp_path / "order"
+    order.write_text("mod\nb.txt\na.txt\n")
+    for key, value in (("diff.orderFile", str(order)), ("diff.interHunkContext", "10"), ("diff.submodule", "log"),
+                       ("diff.ignoreSubmodules", "all")):
+        before = g("diff", "main...HEAD").stdout
+        g("config", key, value)
+        assert g("diff", "main...HEAD").stdout != before, f"plain git really reads {key}"
+    assert review.main(["--base", "main", "--claude-bin", claude], cwd=str(r), out=io.StringIO()) == 0
+    _, configured = newest_receipt(r)
+    assert configured["diff_sha256"] == plain["diff_sha256"]

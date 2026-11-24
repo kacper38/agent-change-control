@@ -416,8 +416,8 @@ variables (`KZ_TRACKER_REPO`, `KZ_TRACKER_AREA`, `KZ_TRACKER_ADO_MODE`,
   same prompt is `.github/instructions/review.instructions.md` for Copilot code
   review, on GitHub and on Azure Repos.
 - Each receipt records `diff_sha256` over one pinned diff (`git diff
-  --full-index ... <base sha>...<head sha>`, every flag at git's default for
-  what a repository's config could change, with `GIT_CONFIG_NOSYSTEM=1
+  --full-index ... <base sha>...<head sha>`, with flags at git's defaults for
+  the diff settings a repository's config can change, `GIT_CONFIG_NOSYSTEM=1
   GIT_CONFIG_GLOBAL=/dev/null` and `GIT_CONFIG_PARAMETERS`,
   `GIT_CONFIG_COUNT` and `GIT_DIFF_OPTS` unset), the exact command as
   `diff_command`, and `merge_base`, `base_tree` (the merge base's tree) and

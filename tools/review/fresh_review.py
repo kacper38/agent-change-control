@@ -55,7 +55,8 @@ SEVERITY_RANK = {"MINOR": 1, "MAJOR": 2, "BLOCKER": 3}
 # config files, and DIFF_UNSET what the environment itself could change (GIT_DIFF_OPTS overrides --unified)
 DIFF_FLAGS = ["--full-index", "--no-ext-diff", "--no-color", "--no-textconv", "--diff-algorithm=myers",
               "--src-prefix=a/", "--dst-prefix=b/", "--unified=3", "--find-renames", "--no-relative",
-              "--indent-heuristic", "--inter-hunk-context=0", "--submodule=short", "-O/dev/null"]
+              "--indent-heuristic", "--inter-hunk-context=0", "--submodule=short", "--ignore-submodules=none",
+              "-O/dev/null"]
 DIFF_ENV = {"GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": "/dev/null"}
 DIFF_UNSET = ("GIT_CONFIG_PARAMETERS", "GIT_CONFIG_COUNT", "GIT_DIFF_OPTS")
 COMMENT_LIMIT = 65000  # GitHub refuses a comment body over 65,536 characters

@@ -1187,9 +1187,18 @@ def test_a_replaced_head_does_not_hide_a_change_to_the_guard(guard, monkeypatch,
 
 
 def test_a_graft_does_not_hide_a_change_to_the_guard(guard, monkeypatch, judge, work):
-    sha, base = _head_with(work, _write("tools/guard/guard.py"))
+    # #88: the head is committed a second after the base, the case that made this test fail under load: with the
+    # cycle base -> head -> base, git's merge-base followed the commit dates; grafting the head as a root ends it
+    monkeypatch.setenv("GIT_COMMITTER_DATE", "1700000000 +0000")
+
+    def change(w):
+        _write("tools/guard/guard.py")(w)
+        monkeypatch.setenv("GIT_COMMITTER_DATE", "1700000001 +0000")
+
+    sha, base = _head_with(work, change)
+    monkeypatch.delenv("GIT_COMMITTER_DATE")
     (work / ".git" / "info").mkdir(exist_ok=True)
-    (work / ".git" / "info" / "grafts").write_text(f"{base} {sha}\n")  # base claims the head as its parent
+    (work / ".git" / "info" / "grafts").write_text(f"{base} {sha}\n{sha}\n")  # base claims the head, the head none
     assert _git(work, "merge-base", base, sha) == sha  # plain git is fooled: the diff from the base would be empty
     _receipt(work, sha, "COMMENT")
     _box(guard, monkeypatch, judge, _judged(base))

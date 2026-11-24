@@ -193,6 +193,22 @@ def test_the_class_reads_no_folder_the_path_names(guard, tmp_path, monkeypatch):
     assert str(root / ".claude" / "agents") in seen and outside == [], outside
 
 
+def test_a_cwd_outside_the_project_reads_the_project_folders_link(guard, monkeypatch, judge, work, tmp_path):
+    # review of #90, round 2: the cwd can lie outside the project (an added working folder); the link of the project
+    # folder the harness names (CLAUDE_PROJECT_DIR) counts too, through `hook pre` as in the class
+    _layout(work, "kit")
+    other = tmp_path / "other"
+    other.mkdir()
+    target = str(work / "agents" / "x.md")
+    assert guard.guard_config_class(target, root=str(other)) is None  # neither folder holds the link
+    monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(work))
+    assert guard.guard_config_class(target, root=str(other)) == CLASS
+    assert guard.guard_config_class(target) == CLASS
+    G._profile(guard, monkeypatch, judge, "host")
+    final, rows = BP._hook(guard, monkeypatch, BP._tool(other, "Write", {"file_path": target, "content": "x"}))
+    assert final is not None and final[0] == "ask" and CLASS in final[1], (final, rows)
+
+
 def test_a_nested_project_link_is_a_named_limit(guard, tmp_path):
     # DECISIONS.md, 2026-11-24 (item #90): a link below the call's folder is not read; `.claude/agents/**` of the
     # nested project still asks by its parts

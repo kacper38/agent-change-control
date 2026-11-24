@@ -243,15 +243,17 @@ variables (`KZ_TRACKER_REPO`, `KZ_TRACKER_AREA`, `KZ_TRACKER_ADO_MODE`,
 - Since guard 0.12.2 (item #90) `guard-config` covers the agent definitions
   too: `.claude/agents` itself and everything below it (the repo's, a nested
   project's and `~/.claude/agents`), and everything at or below the folder
-  that the `.claude/agents` link of the session's folder, or of a folder
-  above it, points to (`agents/` in this kit). An agent type takes its tools
+  that the `.claude/agents` link of the session's folder, of the project
+  folder the harness names (`CLAUDE_PROJECT_DIR`) or of a folder above
+  either points to (`agents/` in this kit). An agent type takes its tools
   and prompt from that file, in a workflow and in an Agent call alike, so a
   Write, an Edit, a shell write or a GitHub file tool there asks on the host;
   in a box the edit is logged and the box merges no head that changes one
-  (the link is read in the judge's folder); cloud denies it. The guard reads
-  only those links: the path itself is compared as text, never resolved, so
-  a folder or mount it names is not touched. Not covered: a link in a nested
-  project below the session's folder or in another repository, a write
+  (the link is read in the judge's folder); cloud denies it. For this class
+  the guard reads only those links: the path itself is compared as text,
+  never resolved, so this class touches no folder or mount the path names
+  (other rules may still look at the path). Not covered: a link in a nested
+  project below those folders or in another repository, a write
   through another link into an agent folder, and the target of a link to a
   single file inside `.claude/agents` (the edit that names the link counts).
 - Since guard 0.12.1 (item #69) an entry of `workflows` binds a name to

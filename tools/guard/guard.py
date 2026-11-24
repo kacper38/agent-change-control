@@ -3187,50 +3187,57 @@ def guard_config_class(path: Optional[str], root: Optional[str] = None) -> Optio
     """What kind of hook configuration a path is, or None for an ordinary file. 0.9.0: read as written and in
     lower case, as secret_class reads a path since 0.8.0 (the owner's file system ignores case); the home prefix
     is compared the same way. 0.12.2: `root` is the folder the call runs in (the event's cwd; the judge's folder for
-    the box's merge check): a relative path is read from it, and the `.claude/agents` links of it and of the folders
-    above it name the agent folder they point to. With no root no link is read."""
+    the box's merge check): a relative path is read from it, and the `.claude/agents` links of it, of the project
+    folder the harness names (CLAUDE_PROJECT_DIR) and of the folders above either name the agent folder they point
+    to. With neither, no link is read."""
     if not path:
         return None
     home_claude = os.path.join(os.path.expanduser("~"), ".claude")
     return (_guard_config_as_written(path, home_claude)
             or _guard_config_as_written(path.lower(), home_claude.lower())
-            or (_agent_link_class(path, root) if root else None))
+            or _agent_link_class(path, root))
 
 
 # 0.12.2 (item #90): an agent type takes its tools and prompt from its definition file, in a workflow and in an Agent
 # call alike, and the sha256 binding of 0.12.1 covers the workflow's script only. `.claude/agents` and every path
 # below it are named by their parts; the folder a `.claude/agents` link points to (`agents/` in this kit) is named by
-# reading that link in the call's own folder and the folders above it. The path itself is compared as text and never
-# resolved, so no folder or mount it names is touched (review of #90, round 1: a hook must stay fast and off the
-# network). Named limits: a link in a nested project below the call's folder or in another repository is not read;
-# a write through another link into an agent folder (`ln -s "$PWD/agents" /tmp/a`, then `/tmp/a/x.md`) is read as
-# written, as for every path of guard-config; a link to a single file inside `.claude/agents` (the user's folder may
-# hold such links into another repo) counts when the edit names the link, not its target.
+# reading that link in the call's own folder, in the project folder the harness names (round 2: the cwd can lie
+# outside the project, in an added working folder) and in the folders above either. The path itself is compared as
+# text and never resolved, so no folder or mount it names is touched (review of #90, round 1: a hook must stay fast
+# and off the network). Named limits: a link in a nested project below those folders or in another repository is
+# not read; a write through another link into an agent folder (`ln -s "$PWD/agents" /tmp/a`, then `/tmp/a/x.md`) is
+# read as written, as for every path of guard-config; a link to a single file inside `.claude/agents` (the user's
+# folder may hold such links into another repo) counts when the edit names the link, not its target.
 AGENT_CLASS = "an agent definition"
 
 
-def _agent_link_class(path: str, root: str) -> Optional[str]:
+def _agent_link_class(path: str, root: Optional[str]) -> Optional[str]:
     """AGENT_CLASS when the path (normalized, not resolved; as written and in lower case) is at or below the folder
-    the `.claude/agents` link of `root` or of a folder above it points to; None otherwise, and when a path cannot be
-    read (a NUL byte)."""
+    the `.claude/agents` link of `root`, of CLAUDE_PROJECT_DIR or of a folder above either points to; None otherwise,
+    and when a path cannot be read (a NUL byte)."""
+    anchors = [a for a in (root, os.environ.get("CLAUDE_PROJECT_DIR")) if a]
+    if not anchors:
+        return None
     try:
-        full = os.path.normpath(os.path.join(root, os.path.expanduser(path)))
-        folder = os.path.normpath(os.path.abspath(root))
-        while True:
-            link = os.path.join(folder, ".claude", "agents")
-            if os.path.islink(link):
-                targets = (os.path.normpath(os.path.join(os.path.dirname(link), os.readlink(link))),
-                           os.path.realpath(link))
-                for t in targets:
-                    for p, q in ((full, t), (full.lower(), t.lower())):
-                        if p == q or p.startswith(q.rstrip(os.sep) + os.sep):
-                            return AGENT_CLASS
-            up = os.path.dirname(folder)
-            if up == folder:
-                return None
-            folder = up
+        full = os.path.normpath(os.path.join(anchors[0], os.path.expanduser(path)))
+        for anchor in anchors:
+            folder = os.path.normpath(os.path.abspath(anchor))
+            while True:
+                link = os.path.join(folder, ".claude", "agents")
+                if os.path.islink(link):
+                    targets = (os.path.normpath(os.path.join(os.path.dirname(link), os.readlink(link))),
+                               os.path.realpath(link))
+                    for t in targets:
+                        for p, q in ((full, t), (full.lower(), t.lower())):
+                            if p == q or p.startswith(q.rstrip(os.sep) + os.sep):
+                                return AGENT_CLASS
+                up = os.path.dirname(folder)
+                if up == folder:
+                    break
+                folder = up
     except (OSError, ValueError):
         return None
+    return None
 
 
 def _guard_config_as_written(path: str, home_claude: str) -> Optional[str]:

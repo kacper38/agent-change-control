@@ -422,9 +422,8 @@ variables (`KZ_TRACKER_REPO`, `KZ_TRACKER_AREA`, `KZ_TRACKER_ADO_MODE`,
   `GIT_CONFIG_COUNT` and `GIT_DIFF_OPTS` unset), the exact command as
   `diff_command`, and `merge_base`, `base_tree` (the merge base's tree) and
   `head_tree`: an auditor pastes `diff_command` in a clone and pipes it to
-  `sha256sum`. What it does not pin (`.gitattributes`, `core.quotePath`,
-  `diff.renameLimit`, `diff.suppressBlankEmpty`) is named in `DECISIONS.md`
-  (2026-11-24).
+  `sha256sum`. What it does not pin is named in `DECISIONS.md` (2026-11-24),
+  for example `.gitattributes`, `core.quotePath` and `core.bigFileThreshold`.
 - The receipt's lasting copy is a comment on the pull request:
   `bin/fresh-review --pr N` posts it (a marker line, a summary line and the
   receipt JSON; the summary line names the range reviewed) with `gh pr

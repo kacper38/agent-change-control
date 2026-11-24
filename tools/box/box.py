@@ -309,6 +309,21 @@ def check_mounts(mount_list: list) -> None:
                 raise BoxError(f"refused mount {src}: it is under {path}")
 
 
+# At every start, so a clone made by an older wrapper gets it too (item #85); a clone without the hook is left alone.
+HOOKS_PATH = "if [ -f /work/.githooks/commit-msg ]; then git -C /work config core.hooksPath .githooks; fi"
+
+
+def set_hooks_path(image: str, clone: str, name: str) -> None:
+    """core.hooksPath in the box's clone, set by git inside a throwaway container as clone_facts reads it: no
+    network, no token and no entrypoint, so no firewall start spends a fetch of GitHub's ranges on it."""
+    argv = ["docker", "run", "--rm", "--network", "none", "--user", "1000:1000", "--entrypoint", "sh",
+            "--security-opt", "no-new-privileges", "--mount", f"type=bind,src={clone},dst=/work",
+            image, "-c", HOOKS_PATH]
+    r = subprocess.run(argv, stdin=subprocess.DEVNULL)
+    if r.returncode != 0:
+        raise BoxError(f"setting core.hooksPath in the clone of box {name} failed (exit {r.returncode})")
+
+
 def prepare(name: str, seat: str) -> tuple:
     """Gate, folders, judge, managed settings, image and tokens for box name; (image, judge SHA, mounts, env)."""
     if not NAME.fullmatch(name):
@@ -340,6 +355,7 @@ def prepare(name: str, seat: str) -> tuple:
         if r.returncode != 0:
             raise BoxError(f"the clone inside the box failed (exit {r.returncode}); check the token in {GITHUB_TOKEN}")
     own_or_refuse(clone_facts(image, clone)["boundary"], f"the clone of box {name}")
+    set_hooks_path(image, clone, name)
     return image, judge_sha, mount_list, env
 
 

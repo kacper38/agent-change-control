@@ -82,7 +82,9 @@ def git(args: list, cwd: str) -> str:
 def diff_text(base_sha: str, head_sha: str, cwd: str) -> tuple:
     """The diff the screen reads, the model reviews and the hash covers, and the shell command that remakes it."""
     args = ["git", "diff", *DIFF_FLAGS, f"{base_sha}...{head_sha}"]
-    r = subprocess.run(args, cwd=cwd, capture_output=True, env={**os.environ, **DIFF_ENV})
+    # config given through the environment (GIT_CONFIG_PARAMETERS, GIT_CONFIG_COUNT/KEY_n/VALUE_n) is dropped too
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_CONFIG")}
+    r = subprocess.run(args, cwd=cwd, capture_output=True, env={**env, **DIFF_ENV})
     if r.returncode != 0:
         raise ReviewError(f"git diff: {r.stderr.decode('utf-8', 'replace').strip()}")
     try:
@@ -133,6 +135,21 @@ def post_receipt(rpath: str, pr: int, gh_bin: str, cwd: str) -> Optional[str]:
         receipt = json.loads(raw)
     except (OSError, ValueError) as exc:
         return f"cannot read the receipt: {exc}"
+    if not isinstance(receipt, dict) or not all(isinstance(receipt.get(k), str) for k in ("sha", "verdict")):
+        return "the receipt has no `sha` or `verdict`"
+    try:  # the pull request must have the reviewed commit as its head: a wrong N or remote gets no evidence
+        v = subprocess.run([gh_bin, "pr", "view", str(pr), "--json", "headRefOid"], cwd=cwd,
+                           capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.SubprocessError) as exc:
+        return f"{gh_bin}: {exc}"
+    if v.returncode != 0:
+        return f"{gh_bin} pr view exited {v.returncode}: {v.stderr.strip()[:400]}"
+    try:
+        pr_head = json.loads(v.stdout).get("headRefOid")
+    except (ValueError, AttributeError):
+        pr_head = None
+    if pr_head != receipt["sha"]:
+        return f"pull request {pr} has head {pr_head or 'unknown'}, the receipt is for {receipt['sha']}"
     fence = "```"
     while fence in raw:
         fence += "`"

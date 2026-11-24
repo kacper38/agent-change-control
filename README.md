@@ -496,6 +496,13 @@ or gap, 2 usage):
   run `pbpaste | tr -d ' \n' | pbcopy` to join it, check that
   `pbpaste | wc -c` says 108 (on 2.1.323), then paste. A missing, expired or revoked token stops the start
   with its name; nothing falls back to the owner's own login.
+- At every start the wrapper sets `core.hooksPath .githooks` in the work
+  clone, inside a container, when the clone has `.githooks/commit-msg`, so a
+  box commit with a bad message is refused at commit time. The session can
+  unset it; CI's commit-msg check stays the backstop.
+- After a box run, the host checks the pushed branch in the host worktree:
+  `ruff check tools`, `python3.9 -m pytest`, `python3.13 -m pytest` and
+  `python3 tools/commit_msg.py --range <merge-base>..<head>`.
 - It is not: an image in a registry, a scanned image, a box for a client or
   secret repository (the wrapper refuses one whose committed `guard.json`
   does not say `boundary: own`), or a place where the tokens are hidden from

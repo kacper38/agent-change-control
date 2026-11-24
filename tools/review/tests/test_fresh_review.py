@@ -441,3 +441,33 @@ def test_a_gitmodules_ignore_setting_cannot_hide_a_submodule_change(review, tmp_
     assert "Subproject commit" not in g("diff", "main...HEAD").stdout, "plain git really hides it"
     text, _ = review.diff_text(g("rev-parse", "main").stdout.strip(), g("rev-parse", "HEAD").stdout.strip(), str(r))
     assert f"+Subproject commit {'1' * 40}" in text
+
+
+def test_a_low_rename_limit_does_not_change_the_hash(review, tmp_path):
+    r = tmp_path / "repo"
+    r.mkdir()
+
+    def g(*args):
+        return subprocess.run(["git", "-C", str(r), *args], check=True, capture_output=True, text=True, env=ISOLATED)
+
+    g("init", "-q", "-b", "main")
+    lines = [f"line {i}\n" for i in range(10)]
+    (r / "old.txt").write_text("".join(lines))
+    g("add", "old.txt")
+    g("commit", "-q", "-m", "feat: start")
+    g("switch", "-q", "-c", "step-x")
+    g("mv", "old.txt", "new.txt")  # renamed under another basename, and edited
+    lines[5] = "changed 5\n"
+    (r / "new.txt").write_text("".join(lines))
+    (r / "other.txt").write_text("other\n")  # a second added path: 1 source times 2 destinations > 1 squared
+    g("add", "new.txt", "other.txt")
+    g("commit", "-q", "-m", "feat: rename and edit")
+    claude, _ = fake_claude(tmp_path, {"verdict": "APPROVE", "summary": "", "findings": []})
+    assert review.main(["--base", "main", "--claude-bin", claude], cwd=str(r), out=io.StringIO()) == 0
+    _, plain = newest_receipt(r)
+    assert "rename from old.txt" in g("diff", "main...HEAD").stdout
+    g("config", "diff.renameLimit", "1")
+    assert "rename from old.txt" not in g("diff", "main...HEAD").stdout, "plain git really reads diff.renameLimit"
+    assert review.main(["--base", "main", "--claude-bin", claude], cwd=str(r), out=io.StringIO()) == 0
+    _, configured = newest_receipt(r)
+    assert configured["diff_sha256"] == plain["diff_sha256"]

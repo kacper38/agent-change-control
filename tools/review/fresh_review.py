@@ -56,7 +56,7 @@ SEVERITY_RANK = {"MINOR": 1, "MAJOR": 2, "BLOCKER": 3}
 DIFF_FLAGS = ["--full-index", "--no-ext-diff", "--no-color", "--no-textconv", "--diff-algorithm=myers",
               "--src-prefix=a/", "--dst-prefix=b/", "--unified=3", "--find-renames", "--no-relative",
               "--indent-heuristic", "--inter-hunk-context=0", "--submodule=short", "--ignore-submodules=none",
-              "-O/dev/null"]
+              "-O/dev/null", "-l1000"]
 DIFF_ENV = {"GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": "/dev/null"}
 DIFF_UNSET = ("GIT_CONFIG_PARAMETERS", "GIT_CONFIG_COUNT", "GIT_DIFF_OPTS")
 COMMENT_LIMIT = 65000  # GitHub refuses a comment body over 65,536 characters

@@ -31,6 +31,8 @@ def test_prepare_sets_hooks_path_inside_the_container(box, monkeypatch, tmp_path
     (argv,) = seen
     assert argv[:2] == ["docker", "run"] and "agent-box:abc" in argv
     assert f"type=bind,src={tmp_path}/boxes/b1/clone,dst=/work" in argv
+    assert argv[argv.index("--network") + 1] == "none" and argv[argv.index("--entrypoint") + 1] == "sh"
+    assert not any(token in a for a in argv for token in box.TOKEN_ENV.values())  # no token, no firewall fetch
     script = argv[-1]
     assert "[ -f /work/.githooks/commit-msg ]" in script and "git -C /work config core.hooksPath .githooks" in script
 

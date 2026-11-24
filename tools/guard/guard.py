@@ -3186,38 +3186,45 @@ GUARD_CONFIG_MSG = (
 def guard_config_class(path: Optional[str], root: Optional[str] = None) -> Optional[str]:
     """What kind of hook configuration a path is, or None for an ordinary file. 0.9.0: read as written and in
     lower case, as secret_class reads a path since 0.8.0 (the owner's file system ignores case); the home prefix
-    is compared the same way. 0.12.2: `root` is the folder a relative path is read from for the agent link (the
-    box's merge check hands in the judge's folder); None reads it from the process's folder."""
+    is compared the same way. 0.12.2: `root` is the folder the call runs in (the event's cwd; the judge's folder for
+    the box's merge check): a relative path is read from it, and the `.claude/agents` links of it and of the folders
+    above it name the agent folder they point to. With no root no link is read."""
     if not path:
         return None
     home_claude = os.path.join(os.path.expanduser("~"), ".claude")
     return (_guard_config_as_written(path, home_claude)
             or _guard_config_as_written(path.lower(), home_claude.lower())
-            or _agent_link_class(path, root))
+            or (_agent_link_class(path, root) if root else None))
 
 
 # 0.12.2 (item #90): an agent type takes its tools and prompt from its definition file, in a workflow and in an Agent
 # call alike, and the sha256 binding of 0.12.1 covers the workflow's script only. `.claude/agents` and every path
-# below it are named by their parts; the folder a `.claude/agents` link resolves to (`agents/` in this kit) is found
-# by reading the link in each folder above the path. Named limit: a link to a single file inside `.claude/agents`
-# (the user's folder may hold such links into another repo) is covered when the edit names the link, not its target.
+# below it are named by their parts; the folder a `.claude/agents` link points to (`agents/` in this kit) is named by
+# reading that link in the call's own folder and the folders above it. The path itself is compared as text and never
+# resolved, so no folder or mount it names is touched (review of #90, round 1: a hook must stay fast and off the
+# network). Named limits: a link in a nested project below the call's folder or in another repository is not read;
+# a write through another link into an agent folder (`ln -s "$PWD/agents" /tmp/a`, then `/tmp/a/x.md`) is read as
+# written, as for every path of guard-config; a link to a single file inside `.claude/agents` (the user's folder may
+# hold such links into another repo) counts when the edit names the link, not its target.
 AGENT_CLASS = "an agent definition"
 
 
-def _agent_link_class(path: str, root: Optional[str]) -> Optional[str]:
-    """AGENT_CLASS when the path is at or below the folder a `.claude/agents` link of one of its folders resolves
-    to, compared as written and in lower case; None otherwise, and when the path cannot be read (a NUL byte)."""
+def _agent_link_class(path: str, root: str) -> Optional[str]:
+    """AGENT_CLASS when the path (normalized, not resolved; as written and in lower case) is at or below the folder
+    the `.claude/agents` link of `root` or of a folder above it points to; None otherwise, and when a path cannot be
+    read (a NUL byte)."""
     try:
-        full = os.path.abspath(os.path.join(root, path) if root else path)
-        real = os.path.realpath(full)
-        folder = os.path.dirname(full)
+        full = os.path.normpath(os.path.join(root, os.path.expanduser(path)))
+        folder = os.path.normpath(os.path.abspath(root))
         while True:
             link = os.path.join(folder, ".claude", "agents")
             if os.path.islink(link):
-                target = os.path.realpath(link)
-                for p, t in ((real, target), (real.lower(), target.lower())):
-                    if p == t or p.startswith(t.rstrip(os.sep) + os.sep):
-                        return AGENT_CLASS
+                targets = (os.path.normpath(os.path.join(os.path.dirname(link), os.readlink(link))),
+                           os.path.realpath(link))
+                for t in targets:
+                    for p, q in ((full, t), (full.lower(), t.lower())):
+                        if p == q or p.startswith(q.rstrip(os.sep) + os.sep):
+                            return AGENT_CLASS
             up = os.path.dirname(folder)
             if up == folder:
                 return None
@@ -3258,7 +3265,7 @@ def rule_guard_config(ev: Event, cfg: dict) -> Optional[Decision]:
         return _guard_config_shell(ev)
     if ev.kind not in ("write", "edit"):
         return None
-    what = guard_config_class(ev.abspath())
+    what = guard_config_class(ev.abspath(), root=ev.cwd)
     if what is None:
         return None
     return "ask", GUARD_CONFIG_MSG.format(path=ev.path, what=what)
@@ -3281,7 +3288,8 @@ _GC_PATH_RE = re.compile(r"[\w.~/$-]+")
 def _gc_class(path: str, cwd: str, below: bool = False) -> Optional[str]:
     """guard_config_class of a word as the shell names a file; `below`: a directory a file is written into."""
     full = _expand(path.strip("\"'`,;)"), cwd)
-    return guard_config_class(full) or (guard_config_class(os.path.join(full, "x")) if below else None)
+    return (guard_config_class(full, root=cwd)
+            or (guard_config_class(os.path.join(full, "x"), root=cwd) if below else None))
 
 
 def _gc_operands(args: list[str]) -> list[str]:

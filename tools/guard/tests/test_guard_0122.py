@@ -158,20 +158,59 @@ def test_a_box_merges_no_head_that_changes_an_agent_definition(guard, monkeypatc
 def test_the_class_names_an_agent_definition(guard, tmp_path):
     root = tmp_path / "r"
     _layout(root, "kit")
+    r = str(root)
     for path in (".claude/agents/x.md", ".claude/agents", "agents/x.md", "agents", "agents/sub/x.md"):
-        assert guard.guard_config_class(str(root / path)) == CLASS, path
+        assert guard.guard_config_class(str(root / path), root=r) == CLASS, path
+    assert guard.guard_config_class("agents/x.md", root=r) == CLASS  # the merge check's root-relative form
+    assert guard.guard_config_class("~/.claude/agents/x.md", root=r) == CLASS
     for path in ("agents-old/x.md", "docs/agents/x.md", ".claude/agents-notes.md", ".claude/skills/x/SKILL.md"):
-        assert guard.guard_config_class(str(root / path)) is None, path
+        assert guard.guard_config_class(str(root / path), root=r) is None, path
     assert guard.guard_config_class("/r/.claude/workflows/review-panel.js") == "a workflow script"
+    # a session in a subfolder reads the link of the folder above it; with no root no link is read at all
+    (root / "docs").mkdir()
+    assert guard.guard_config_class(str(root / "agents" / "x.md"), root=str(root / "docs")) == CLASS
+    assert guard.guard_config_class(str(root / "agents" / "x.md")) is None
+    assert guard.guard_config_class(str(root / ".claude" / "agents" / "x.md")) == CLASS
+
+
+def test_the_class_reads_no_folder_the_path_names(guard, tmp_path, monkeypatch):
+    # review of #90, round 1 (MAJOR): a path on a network mount must not make the hook touch that mount. The class
+    # reads only the `.claude/agents` link of the call's folder and of the folders above it
+    root = tmp_path / "r"
+    _layout(root, "kit")
+    seen = []
+    for name in ("islink", "realpath", "exists", "isdir", "lexists"):
+        real = getattr(os.path, name)
+        monkeypatch.setattr(os.path, name, lambda p, *a, _real=real, **k: seen.append(str(p)) or _real(p, *a, **k))
+    real_readlink = os.readlink  # the calls the class makes; realpath of a link it found follows only that link
+    monkeypatch.setattr(os, "readlink", lambda p, *a, **k: seen.append(str(p)) or real_readlink(p, *a, **k))
+    assert guard.guard_config_class("/net/host/share/agents/x.md", root=str(root)) is None
+    # every look is the call's folder, a folder above it or a path inside it (Python 3.9's realpath of the link it
+    # found also looks at each folder of the link's own path); none is a folder the written path names
+    above = {str(root), *map(str, root.parents)}
+    links = {os.path.join(d, ".claude", "agents") for d in above}
+    outside = [p for p in seen if p not in above | links and not p.startswith(str(root) + os.sep)]
+    assert str(root / ".claude" / "agents") in seen and outside == [], outside
+
+
+def test_a_nested_project_link_is_a_named_limit(guard, tmp_path):
+    # DECISIONS.md, 2026-11-24 (item #90): a link below the call's folder is not read; `.claude/agents/**` of the
+    # nested project still asks by its parts
+    root = tmp_path / "r"
+    _layout(root / "sub", "kit")
+    assert guard.guard_config_class(str(root / "sub" / "agents" / "x.md"), root=str(root)) is None
+    assert guard.guard_config_class(str(root / "sub" / ".claude" / "agents" / "x.md"), root=str(root)) == CLASS
+    assert guard.guard_config_class(str(root / "sub" / "agents" / "x.md"), root=str(root / "sub")) == CLASS
 
 
 def test_a_link_loop_or_a_nul_byte_is_no_crash(guard, tmp_path):
     root = tmp_path / "r"
     (root / ".claude").mkdir(parents=True)
     os.symlink("agents", root / ".claude" / "agents")  # .claude/agents -> .claude/agents: a loop
-    assert guard.guard_config_class(str(root / "docs" / "x.md")) is None
-    assert guard.guard_config_class(str(root / "docs" / "x\0.md")) is None
-    assert guard.guard_config_class(str(root / ".claude" / "agents" / "x\0.md")) == CLASS
+    r = str(root)
+    assert guard.guard_config_class(str(root / "docs" / "x.md"), root=r) is None
+    assert guard.guard_config_class(str(root / "docs" / "x\0.md"), root=r) is None
+    assert guard.guard_config_class(str(root / ".claude" / "agents" / "x\0.md"), root=r) == CLASS
 
 
 # ----------------------------------------------------------------------------

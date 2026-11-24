@@ -8,6 +8,7 @@ Updated 2026-11-21 for guard 0.11.0 (step 1.0b, tracker item #66): the profile `
 Updated 2026-11-21 for the task page (tracker item #77, `docs/PLAN-2026-11-dashboard.md`): the rows for `tools/telemetry/page.py` and for its pages, and their data class.
 Updated 2026-11-22 for guard 0.12.0 (steps 1.1, 1.2, tracker item #67): the depth pin, `onFailure: block`, `workflow-launch` and a named workflow's file read by `cloud-launch` in the guard's row, `tool` and `total` in the spawn log's row.
 Updated 2026-11-22 for guard 0.12.1 and the review panel (tracker item #69): an entry of `workflows` binds a name to its file's sha256, in the guard's row; the row for `review-panel`; a new task repo's `guard.json` lists no workflows, in the install row.
+Updated 2026-11-23 for the rules table (step 1.6 of `docs/PLAN-2026-11-phase-1.md`, tracker item #70): the row for `docs/RULES.md` and its test.
 Components marked *planned* do not exist yet; the plan step that creates them is named.
 
 ## Purpose
@@ -24,6 +25,7 @@ external verification with shown output, decisions recorded.
 | Component | Today | Read by | Data |
 |---|---|---|---|
 | `AGENTS.md` (+ `CLAUDE.md` = `@AGENTS.md`) | exists | Claude Code; Copilot (VS Code, CLI, cloud); Codex; Gemini CLI | rules only |
+| `docs/RULES.md` + `tools/tests/test_rules_table.py` | exists (Phase 1 step 1.6, item #70) | humans and auditors; the `test` job | one row per rule of `AGENTS.md` with what enforces it (`guard:`, `ci:`, `test:`, `hook:`) or `judgment`, the judgment controls of plan rev 3 D12, the relaxations of the build with their ends; the test reads `AGENTS.md`, plan rev 3, the guard's `RULES` (with `ast`), the workflows' jobs and the hooks of `.claude/settings.json`, and fails on a rule without a row, a missing enforcer and a relaxation in force past its end; not in `kit.manifest` |
 | `agents/*.md` | exists (12, each pins `model:` opus/fable) | Claude Code via `~/.claude/agents` (`install.sh`); VS Code reads `.claude/agents` in task repos | prompts |
 | `skills/*/SKILL.md` | exists | Claude Code via `~/.claude/skills`; Copilot via `.claude/skills` in task repos | procedures |
 | `kit.manifest` + `install.sh --into <repo>` | exists (1.2; A5 forge column) | — | copies the listed files into a task repo, `@github` or `@ado` entries by `--forge` or the origin host; writes `.claude/kit-version` (with `forge:`) and a hash manifest so locally edited files are kept; a new `.claude/guard.json` gets the chosen boundary and an empty `workflows` (the kit's list binds the kit's own reviewed files) |

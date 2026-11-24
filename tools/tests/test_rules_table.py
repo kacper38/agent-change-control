@@ -5,6 +5,7 @@ import datetime
 import json
 import pathlib
 import re
+import shlex
 
 import pytest
 
@@ -18,6 +19,7 @@ D12_IDS = {"D12-1", "D12-2", "D12-3", "D12-4", "D12-5"}  # plan rev 3, D12: the 
 RELAXATION_IDS = {"P5-1", "P5-2", "P5-3", "P5-4", "P5-5", "P5-6", "L-fleet", "L-rules-off", "S-1"}
 TESTPATHS = re.findall(r'"([^"]+)"', re.search(r"testpaths\s*=\s*\[(.*?)\]",
                                                (ROOT / "pyproject.toml").read_text(encoding="utf-8")).group(1))
+PROJECT_DIR = "${CLAUDE_PROJECT_DIR:-.}/"  # how a hook command of `.claude/settings.json` starts a repository path
 ENFORCER_RE = re.compile(r"`([a-z]+):([^`]+)`")
 JUDGMENT = "judgment"
 
@@ -119,19 +121,24 @@ def enforcer_problem(kind: str, ref: str, root: pathlib.Path) -> str:
         ok = ref in ci_jobs(root)
         return "" if ok else f"`ci:{ref}` is no job of a workflow in .github/workflows/ that a pull request starts"
     if kind == "hook":
-        run = re.compile(r'(?:^|[\s"/])' + re.escape(ref) + r"(?:\s|$)")  # the script's path as a word of the command
-        ok = (root / ref).is_file() and any(run.search(c) for c in hook_commands(root))
+        words = {w[len(PROJECT_DIR):] if w.startswith(PROJECT_DIR) else w
+                 for c in hook_commands(root) for w in shlex.split(c)}  # the script's path is one word of a command
+        ok = (root / ref).is_file() and ref in words
         return "" if ok else f"`hook:{ref}` is no file that a hook of .claude/settings.json runs"
     if kind == "test":
         path, _, name = ref.partition("::")
         file = root / path
-        if not file.is_file() or not any(path.startswith(p.rstrip("/") + "/") for p in TESTPATHS):
-            return f"`test:{ref}`: {path} is no file under pytest's testpaths {TESTPATHS}"
+        collected = re.fullmatch(r"test_.*\.py|.*_test\.py", file.name)  # pytest's default `python_files`
+        if not file.is_file() or not collected or not any(path.startswith(p.rstrip("/") + "/") for p in TESTPATHS):
+            return f"`test:{ref}`: {path} is no test file (test_*.py, *_test.py) under pytest's testpaths {TESTPATHS}"
         body = ast.parse(file.read_text(encoding="utf-8")).body
-        tests = [n for n in body if isinstance(n, ast.FunctionDef)]  # module level, or a method of a test class
-        tests += [m for c in body if isinstance(c, ast.ClassDef) for m in c.body if isinstance(m, ast.FunctionDef)]
+        tests = [n for n in body if isinstance(n, ast.FunctionDef)]  # module level, or a method of a class pytest
+        for c in body:                                                 # collects: `Test*` and no `__init__`
+            if isinstance(c, ast.ClassDef) and c.name.startswith("Test"):
+                methods = [m for m in c.body if isinstance(m, ast.FunctionDef)]
+                tests += [] if any(m.name == "__init__" for m in methods) else methods
         ok = name.startswith("test_") and any(n.name == name for n in tests)
-        return "" if ok else f"`test:{ref}`: no test function {name!r} at module or class level in {path}"
+        return "" if ok else f"`test:{ref}`: no test function {name!r} that pytest collects in {path}"
     return f"`{kind}:{ref}`: unknown enforcer kind (guard, ci, hook, test)"
 
 
@@ -331,8 +338,12 @@ def test_an_enforcer_counts_only_where_it_runs(tmp_path):
         {"hooks": {"PreToolUse": [{"hooks": [{"type": "command", "command": command}]}]}}))
     (tmp_path / "tools/tests").mkdir(parents=True)
     (tmp_path / "tools/x.py").write_text("")
+    (tmp_path / "x.py").write_text("")  # exists, but the hook runs tools/x.py
     (tmp_path / "tools/tests/test_x.py").write_text(
-        "def test_ok():\n    def test_inner():\n        pass\n\nclass TestC:\n    def test_m(self):\n        pass\n")
+        "def test_ok():\n    def test_inner():\n        pass\n\nclass TestC:\n    def test_m(self):\n        pass\n\n"
+        "class Helper:\n    def test_h(self):\n        pass\n\n"
+        "class TestI:\n    def __init__(self):\n        pass\n\n    def test_i(self):\n        pass\n")
+    (tmp_path / "tools/tests/helpers.py").write_text("def test_y():\n    pass\n")
     assert enforcer_problem("ci", "build", tmp_path)  # no pull_request trigger
     (tmp_path / ".github/workflows/pr.yml").write_text("on:\n  pull_request:\njobs:\n  build:\n    runs-on: x\n")
     assert enforcer_problem("ci", "build", tmp_path) == ""
@@ -340,4 +351,6 @@ def test_an_enforcer_counts_only_where_it_runs(tmp_path):
     assert enforcer_problem("hook", "x.py", tmp_path) and enforcer_problem("hook", "tools", tmp_path)
     assert enforcer_problem("test", "tools/tests/test_x.py::test_ok", tmp_path) == ""
     assert enforcer_problem("test", "tools/tests/test_x.py::test_m", tmp_path) == ""
-    assert "module or class level" in enforcer_problem("test", "tools/tests/test_x.py::test_inner", tmp_path)
+    for name in ("test_inner", "test_h", "test_i"):  # nested; a class pytest skips; a class with __init__
+        assert "pytest collects" in enforcer_problem("test", f"tools/tests/test_x.py::{name}", tmp_path), name
+    assert "no test file" in enforcer_problem("test", "tools/tests/helpers.py::test_y", tmp_path)

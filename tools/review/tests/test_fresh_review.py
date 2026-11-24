@@ -11,6 +11,7 @@ import pytest
 
 ENV = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t",
        "PATH": os.environ.get("PATH", "")}
+ISOLATED = {**ENV, "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": "/dev/null"}
 
 
 def repo_with_branch(tmp_path, change="assert x == 1  # touched\n"):
@@ -389,22 +390,22 @@ def test_repository_diff_config_does_not_change_the_hash(review, tmp_path):
     r = tmp_path / "repo"
     r.mkdir()
 
-    def g(*args, **kw):
-        return subprocess.run(["git", "-C", str(r), *args], check=True, capture_output=True, text=True, **kw)
+    def g(*args):  # plain git with no system or global config: only the repository's own config counts
+        return subprocess.run(["git", "-C", str(r), *args], check=True, capture_output=True, text=True, env=ISOLATED)
 
     g("init", "-q", "-b", "main")
     lines = [f"line {i}\n" for i in range(20)]
     (r / "a.txt").write_text("".join(lines))
     (r / "b.txt").write_text("b\n")
     g("add", "a.txt", "b.txt")
-    g("commit", "-q", "-m", "feat: start", env=ENV)
+    g("commit", "-q", "-m", "feat: start")
     g("switch", "-q", "-c", "step-x")
     lines[3], lines[14] = "changed 3\n", "changed 14\n"  # two hunks at the default context, one at 10
     (r / "a.txt").write_text("".join(lines))
     (r / "b.txt").write_text("b2\n")
     g("update-index", "--add", "--cacheinfo", f"160000,{'1' * 40},mod")  # a submodule pointer, no submodule
     g("add", "a.txt", "b.txt")
-    g("commit", "-q", "-m", "feat: two hunks and a gitlink", env=ENV)
+    g("commit", "-q", "-m", "feat: two hunks and a gitlink")
     claude, _ = fake_claude(tmp_path, {"verdict": "APPROVE", "summary": "", "findings": []})
     assert review.main(["--base", "main", "--claude-bin", claude], cwd=str(r), out=io.StringIO()) == 0
     _, plain = newest_receipt(r)
@@ -418,3 +419,25 @@ def test_repository_diff_config_does_not_change_the_hash(review, tmp_path):
     assert review.main(["--base", "main", "--claude-bin", claude], cwd=str(r), out=io.StringIO()) == 0
     _, configured = newest_receipt(r)
     assert configured["diff_sha256"] == plain["diff_sha256"]
+
+
+def test_a_gitmodules_ignore_setting_cannot_hide_a_submodule_change(review, tmp_path):
+    r = tmp_path / "repo"
+    r.mkdir()
+
+    def g(*args):
+        return subprocess.run(["git", "-C", str(r), *args], check=True, capture_output=True, text=True, env=ISOLATED)
+
+    g("init", "-q", "-b", "main")
+    (r / "a.txt").write_text("a\n")
+    g("add", "a.txt")
+    g("commit", "-q", "-m", "feat: start")
+    g("switch", "-q", "-c", "step-x")
+    (r / ".gitmodules").write_text('[submodule "mod"]\n\tpath = mod\n\turl = https://example.invalid/mod\n'
+                                   "\tignore = all\n")  # what a pull request author controls
+    g("update-index", "--add", "--cacheinfo", f"160000,{'1' * 40},mod")
+    g("add", ".gitmodules")
+    g("commit", "-q", "-m", "feat: a submodule its .gitmodules ignores")
+    assert "Subproject commit" not in g("diff", "main...HEAD").stdout, "plain git really hides it"
+    text, _ = review.diff_text(g("rev-parse", "main").stdout.strip(), g("rev-parse", "HEAD").stdout.strip(), str(r))
+    assert f"+Subproject commit {'1' * 40}" in text

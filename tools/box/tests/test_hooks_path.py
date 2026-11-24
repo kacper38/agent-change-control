@@ -32,6 +32,8 @@ def test_prepare_sets_hooks_path_inside_the_container(box, monkeypatch, tmp_path
     assert argv[:2] == ["docker", "run"] and "agent-box:abc" in argv
     assert f"type=bind,src={tmp_path}/boxes/b1/clone,dst=/work" in argv
     assert argv[argv.index("--network") + 1] == "none" and argv[argv.index("--entrypoint") + 1] == "sh"
+    assert argv[argv.index("--user") + 1] == "1000:1000"
+    assert argv[argv.index("--security-opt") + 1] == "no-new-privileges"
     assert not any(token in a for a in argv for token in box.TOKEN_ENV.values())  # no token, no firewall fetch
     script = argv[-1]
     assert "[ -f /work/.githooks/commit-msg ]" in script and "git -C /work config core.hooksPath .githooks" in script
@@ -54,6 +56,6 @@ def test_the_step_sets_hooks_path_only_when_the_clone_has_the_hook(box, monkeypa
         (clone / ".githooks").mkdir()
         (clone / ".githooks" / "commit-msg").write_text("#!/bin/sh\n", encoding="utf-8")
     subprocess.run(["sh", "-c", seen[0][-1].replace("/work", str(clone))], check=True)
-    got = subprocess.run(["git", "-C", str(clone), "config", "--get", "core.hooksPath"], capture_output=True,
+    got = subprocess.run(["git", "-C", str(clone), "config", "--local", "--get", "core.hooksPath"], capture_output=True,
                          text=True)
     assert got.stdout == expected

@@ -178,7 +178,8 @@ def test_receipt_diff_command_recomputes_the_hash(review, tmp_path):
     assert review.main(["--base", "main", "--claude-bin", claude], cwd=str(r), out=io.StringIO()) == 0
     _, receipt = newest_receipt(r)
     cmd = receipt["diff_command"]
-    assert cmd.startswith("GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null git diff --full-index")
+    assert cmd.startswith("env -u GIT_CONFIG_PARAMETERS -u GIT_CONFIG_COUNT -u GIT_DIFF_OPTS GIT_CONFIG_NOSYSTEM=1 "
+                          "GIT_CONFIG_GLOBAL=/dev/null git diff --full-index")
     assert f"{rev(r, 'main')}...{rev(r, 'HEAD')}" in cmd
     text = subprocess.run(cmd, shell=True, cwd=str(r), capture_output=True, check=True).stdout
     assert hashlib.sha256(text).hexdigest() == receipt["diff_sha256"]
@@ -195,14 +196,16 @@ def test_receipt_carries_the_tree_ids(review, tmp_path):
     assert receipt["base_sha"] == rev(r, "main") and receipt["base"] == "main"
 
 
-def fake_gh(tmp_path, head, code=0):
-    """`gh pr view` answers with head as the pull request's head; `gh pr comment` logs its arguments and body."""
+def fake_gh(tmp_path, head, code=0, view_code=0, view_out=None):
+    """`gh pr view` answers with head as the pull request's head (or view_out, exit view_code); `gh pr comment`
+    logs its arguments and body and exits code."""
     d = tmp_path / "ghbin"
     d.mkdir(exist_ok=True)
     log = tmp_path / "gh-args"
     body = tmp_path / "gh-body"
     script = d / "gh"
-    script.write_text(f"#!/bin/sh\nif [ \"$2\" = view ]; then printf '{{\"headRefOid\": \"{head}\"}}\\n'; exit 0; fi\n"
+    view_out = view_out if view_out is not None else json.dumps({"headRefOid": head})
+    script.write_text(f"#!/bin/sh\nif [ \"$2\" = view ]; then printf '%s\\n' '{view_out}'; exit {view_code}; fi\n"
                       f"printf '%s\\n' \"$@\" > '{log}'\ncp \"$5\" '{body}'\nexit {code}\n")
     script.chmod(script.stat().st_mode | stat.S_IXUSR)
     return str(script), log, body
@@ -327,3 +330,56 @@ def test_backticks_in_the_receipt_cannot_close_the_comment_fence(review, tmp_pat
     lines = body.read_text().splitlines()
     assert lines[3] == "````json" and lines[-1] == "````"
     assert json.loads("\n".join(lines[4:-1])) == newest_receipt(r)[1]
+
+
+@pytest.mark.parametrize("view_code, view_out", [(1, "{}"), (0, "not json")])
+def test_a_failed_pr_view_is_exit_2_and_posts_nothing(review, tmp_path, view_code, view_out):
+    r = repo_with_branch(tmp_path)
+    claude, _ = fake_claude(tmp_path, {"verdict": "APPROVE", "summary": "", "findings": []})
+    gh, log, _ = fake_gh(tmp_path, rev(r, "HEAD"), view_code=view_code, view_out=view_out)
+    out = io.StringIO()
+    assert review.main(["--base", "main", "--claude-bin", claude, "--pr", "7", "--gh-bin", gh],
+                       cwd=str(r), out=out) == 2
+    assert not log.exists() and "--pr 7 --post-only" in out.getvalue()
+    assert newest_receipt(r)[0].exists()
+
+
+def test_post_only_reads_optional_fields_of_any_type(review, tmp_path):
+    r = repo_with_branch(tmp_path)
+    d = r / ".git" / "fresh-review"
+    d.mkdir()
+    head = rev(r, "HEAD")
+    (d / f"{head}.json").write_text(json.dumps({"sha": head, "verdict": "APPROVE", "findings": None, "models": 5,
+                                                "base_sha": 7}))
+    gh, _, body = fake_gh(tmp_path, head)
+    out = io.StringIO()
+    assert review.main(["--pr", "7", "--post-only", "--gh-bin", gh], cwd=str(r), out=out) == 0, out.getvalue()
+    assert "APPROVE (0 findings)" in body.read_text().splitlines()[1]
+
+
+def test_the_comment_names_the_range_reviewed(review, tmp_path):
+    r = repo_with_branch(tmp_path)
+    claude, _ = fake_claude(tmp_path, {"verdict": "APPROVE", "summary": "", "findings": []})
+    gh, _, body = fake_gh(tmp_path, rev(r, "HEAD"))
+    base = rev(r, "main")
+    assert review.main(["--base", base, "--claude-bin", claude, "--pr", "7", "--gh-bin", gh],
+                       cwd=str(r), out=io.StringIO()) == 0
+    assert f"reviewed {base[:12]}...{rev(r, 'HEAD')[:12]};" in body.read_text().splitlines()[1]
+
+
+def test_diff_opts_and_a_relative_diff_do_not_change_the_hash(review, tmp_path, monkeypatch):
+    r = repo_with_branch(tmp_path)
+    (r / "sub").mkdir()
+    (r / "sub" / "y.txt").write_text("y\n")
+    subprocess.run(["git", "-C", str(r), "add", "-A"], check=True)
+    subprocess.run(["git", "-C", str(r), "commit", "-q", "-m", "feat: sub"], check=True, env=ENV)
+    claude, _ = fake_claude(tmp_path, {"verdict": "APPROVE", "summary": "", "findings": []})
+    assert review.main(["--base", "main", "--claude-bin", claude], cwd=str(r), out=io.StringIO()) == 0
+    _, plain = newest_receipt(r)
+    subprocess.run(["git", "-C", str(r), "config", "diff.relative", "true"], check=True)
+    monkeypatch.setenv("GIT_DIFF_OPTS", "--unified=0")
+    seen = subprocess.run(["git", "diff", "main...HEAD"], cwd=str(r / "sub"), capture_output=True, text=True).stdout
+    assert "test_x.py" not in seen, "plain git really reads diff.relative"
+    assert review.main(["--base", "main", "--claude-bin", claude], cwd=str(r / "sub"), out=io.StringIO()) == 0
+    _, configured = newest_receipt(r)
+    assert configured["diff_sha256"] == plain["diff_sha256"]

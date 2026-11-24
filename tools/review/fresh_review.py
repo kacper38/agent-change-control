@@ -51,10 +51,13 @@ SCHEMA = {
 EXIT_BY_VERDICT = {"APPROVE": 0, "COMMENT": 0, "BLOCKER": 1}
 TARGET = "claude"  # the destination is always `claude -p`; the egress label must say so, not a flag
 SEVERITY_RANK = {"MINOR": 1, "MAJOR": 2, "BLOCKER": 3}
-# pin what a repository's .git/config could change; the env removes the system and global config files
+# pin, at git's defaults, what a repository's .git/config could change; the env removes the system and global
+# config files, and DIFF_UNSET what the environment itself could change (GIT_DIFF_OPTS overrides --unified)
 DIFF_FLAGS = ["--full-index", "--no-ext-diff", "--no-color", "--no-textconv", "--diff-algorithm=myers",
-              "--src-prefix=a/", "--dst-prefix=b/", "--unified=3", "--find-renames"]
+              "--src-prefix=a/", "--dst-prefix=b/", "--unified=3", "--find-renames", "--no-relative",
+              "--indent-heuristic", "--inter-hunk-context=0", "--submodule=short", "-O/dev/null"]
 DIFF_ENV = {"GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": "/dev/null"}
+DIFF_UNSET = ("GIT_CONFIG_PARAMETERS", "GIT_CONFIG_COUNT", "GIT_DIFF_OPTS")
 COMMENT_LIMIT = 65000  # GitHub refuses a comment body over 65,536 characters
 
 
@@ -83,7 +86,7 @@ def diff_text(base_sha: str, head_sha: str, cwd: str) -> tuple:
     """The diff the screen reads, the model reviews and the hash covers, and the shell command that remakes it."""
     args = ["git", "diff", *DIFF_FLAGS, f"{base_sha}...{head_sha}"]
     # config given through the environment (GIT_CONFIG_PARAMETERS, GIT_CONFIG_COUNT/KEY_n/VALUE_n) is dropped too
-    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_CONFIG")}
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_CONFIG") and k not in DIFF_UNSET}
     r = subprocess.run(args, cwd=cwd, capture_output=True, env={**env, **DIFF_ENV})
     if r.returncode != 0:
         raise ReviewError(f"git diff: {r.stderr.decode('utf-8', 'replace').strip()}")
@@ -91,7 +94,8 @@ def diff_text(base_sha: str, head_sha: str, cwd: str) -> tuple:
         text = r.stdout.decode("utf-8")
     except UnicodeDecodeError as exc:
         raise ReviewError(f"the diff is not UTF-8: {exc}") from exc
-    return text, " ".join(f"{k}={v}" for k, v in DIFF_ENV.items()) + " " + " ".join(shlex.quote(a) for a in args)
+    command = ["env", *(w for k in DIFF_UNSET for w in ("-u", k)), *(f"{k}={v}" for k, v in DIFF_ENV.items()), *args]
+    return text, " ".join(shlex.quote(a) for a in command)
 
 
 def default_base(cwd: str) -> str:
@@ -122,9 +126,14 @@ def newest_receipt(rdir: str, head: str) -> Optional[str]:
 
 
 def summary_line(receipt: dict, model: str, name: str) -> str:
+    """One line for stdout and the comment, with the range reviewed (a delta review shows its own base); it reads
+    the optional fields of a receipt file whatever their type."""
     cost = f"${receipt['cost_usd']:.2f}" if isinstance(receipt.get("cost_usd"), (int, float)) else "cost n/a"
-    return (f"fresh-review: {receipt['verdict']} ({len(receipt.get('findings', []))} findings) "
-            f"model {', '.join(receipt.get('models') or []) or model}, {cost}; receipt {name}")
+    findings, models, base = receipt.get("findings"), receipt.get("models"), receipt.get("base_sha")
+    names = ", ".join(m for m in models if isinstance(m, str)) if isinstance(models, list) else ""
+    span = f"{base[:12] if isinstance(base, str) else '?'}...{receipt['sha'][:12]}"
+    return (f"fresh-review: {receipt['verdict']} ({len(findings) if isinstance(findings, list) else 0} findings) "
+            f"model {names or model}, {cost}; reviewed {span}; receipt {name}")
 
 
 def post_receipt(rpath: str, pr: int, gh_bin: str, cwd: str) -> Optional[str]:

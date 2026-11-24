@@ -37,7 +37,7 @@ import time
 from collections.abc import Mapping
 from typing import Callable, Optional
 
-VERSION = "0.12.1"
+VERSION = "0.12.2"
 
 # ----------------------------------------------------------------------------
 # Harness normalization
@@ -3183,15 +3183,61 @@ GUARD_CONFIG_MSG = (
 )
 
 
-def guard_config_class(path: Optional[str]) -> Optional[str]:
+def guard_config_class(path: Optional[str], root: Optional[str] = None) -> Optional[str]:
     """What kind of hook configuration a path is, or None for an ordinary file. 0.9.0: read as written and in
     lower case, as secret_class reads a path since 0.8.0 (the owner's file system ignores case); the home prefix
-    is compared the same way."""
+    is compared the same way. 0.12.2: `root` is the folder the call runs in (the event's cwd; the judge's folder for
+    the box's merge check): a relative path is read from it, and the `.claude/agents` links of it, of the project
+    folder the harness names (CLAUDE_PROJECT_DIR) and of the folders above either name the agent folder they point
+    to. With neither, no link is read."""
     if not path:
         return None
     home_claude = os.path.join(os.path.expanduser("~"), ".claude")
     return (_guard_config_as_written(path, home_claude)
-            or _guard_config_as_written(path.lower(), home_claude.lower()))
+            or _guard_config_as_written(path.lower(), home_claude.lower())
+            or _agent_link_class(path, root))
+
+
+# 0.12.2 (item #90): an agent type takes its tools and prompt from its definition file, in a workflow and in an Agent
+# call alike, and the sha256 binding of 0.12.1 covers the workflow's script only. `.claude/agents` and every path
+# below it are named by their parts; the folder a `.claude/agents` link points to (`agents/` in this kit) is named by
+# reading that link in the call's own folder, in the project folder the harness names (round 2: the cwd can lie
+# outside the project, in an added working folder) and in the folders above either. The path itself is compared as
+# text and never resolved, so no folder or mount it names is touched (review of #90, round 1: a hook must stay fast
+# and off the network). Named limits: a link in a nested project below those folders or in another repository is
+# not read; a write through another link into an agent folder (`ln -s "$PWD/agents" /tmp/a`, then `/tmp/a/x.md`) is
+# read as written, as for every path of guard-config; a link to a single file inside `.claude/agents` (the user's
+# folder may hold such links into another repo) counts when the edit names the link, not its target.
+AGENT_CLASS = "an agent definition"
+
+
+def _agent_link_class(path: str, root: Optional[str]) -> Optional[str]:
+    """AGENT_CLASS when the path (normalized, not resolved; as written and in lower case) is at or below the folder
+    the `.claude/agents` link of `root`, of CLAUDE_PROJECT_DIR or of a folder above either points to; None otherwise,
+    and when a path cannot be read (a NUL byte)."""
+    anchors = [a for a in (root, os.environ.get("CLAUDE_PROJECT_DIR")) if a]
+    if not anchors:
+        return None
+    try:
+        full = os.path.normpath(os.path.join(anchors[0], os.path.expanduser(path)))
+        for anchor in anchors:
+            folder = os.path.normpath(os.path.abspath(anchor))
+            while True:
+                link = os.path.join(folder, ".claude", "agents")
+                if os.path.islink(link):
+                    targets = (os.path.normpath(os.path.join(os.path.dirname(link), os.readlink(link))),
+                               os.path.realpath(link))
+                    for t in targets:
+                        for p, q in ((full, t), (full.lower(), t.lower())):
+                            if p == q or p.startswith(q.rstrip(os.sep) + os.sep):
+                                return AGENT_CLASS
+                up = os.path.dirname(folder)
+                if up == folder:
+                    break
+                folder = up
+    except (OSError, ValueError):
+        return None
+    return None
 
 
 def _guard_config_as_written(path: str, home_claude: str) -> Optional[str]:
@@ -3212,6 +3258,8 @@ def _guard_config_as_written(path: str, home_claude: str) -> Optional[str]:
             return "a CI workflow"
         if part == ".claude" and nxt == "workflows" and not last:  # 0.12.0: what a listed name starts
             return "a workflow script"
+        if part == ".claude" and nxt == "agents":  # 0.12.2: the link or folder itself too (a box merge sees it)
+            return AGENT_CLASS
         if part == "tools" and nxt in _GUARDED_TOOLS and (nxt != "commit_msg.py" or last):
             return _GUARDED_TOOLS[nxt]
     return None
@@ -3224,7 +3272,7 @@ def rule_guard_config(ev: Event, cfg: dict) -> Optional[Decision]:
         return _guard_config_shell(ev)
     if ev.kind not in ("write", "edit"):
         return None
-    what = guard_config_class(ev.abspath())
+    what = guard_config_class(ev.abspath(), root=ev.cwd)
     if what is None:
         return None
     return "ask", GUARD_CONFIG_MSG.format(path=ev.path, what=what)
@@ -3247,7 +3295,8 @@ _GC_PATH_RE = re.compile(r"[\w.~/$-]+")
 def _gc_class(path: str, cwd: str, below: bool = False) -> Optional[str]:
     """guard_config_class of a word as the shell names a file; `below`: a directory a file is written into."""
     full = _expand(path.strip("\"'`,;)"), cwd)
-    return guard_config_class(full) or (guard_config_class(os.path.join(full, "x")) if below else None)
+    return (guard_config_class(full, root=cwd)
+            or (guard_config_class(os.path.join(full, "x"), root=cwd) if below else None))
 
 
 def _gc_operands(args: list[str]) -> list[str]:
@@ -3643,7 +3692,7 @@ def _merge_paths_failed(cwd: str, sha: str, judge: Optional[str]) -> Optional[st
         return f"the guard cannot list what {sha} changes"
     fields = out.split("\0")
     for status, path in zip(fields[0::2], fields[1::2]):
-        what = guard_config_class(path)
+        what = guard_config_class(path, root=guard_root())  # 0.12.2: the agent link as the judge's folder holds it
         if what:
             return f"the pull request changes {path}, which is {what}; that merge is the owner's"
         if status.startswith("D") and _is_test_file(path.split("/")):

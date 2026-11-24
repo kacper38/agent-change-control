@@ -97,6 +97,14 @@ def _workflow_call(inp: dict) -> bool:
     return (inp.get("call") or inp.get("fixture", {}).get("tool_name")) == "Workflow"
 
 
+def _agent_definition(inp: dict) -> bool:
+    """0.12.2 (item #90): an edit of an agent definition asks now (guard-config); the equality with 0.10.0 covers
+    every other input, and test_guard_0120.py lists the five that change."""
+    raw = inp.get("fixture", {}).get("tool_input") or {}
+    path = inp.get("path") or raw.get("file_path") or raw.get("path") or ""
+    return inp.get("rule") == "guard-config" and "/.claude/agents/" in "/" + path.lower()
+
+
 def _event(inp: dict) -> tuple:
     """(raw event, branch, boundary, rule, extra config): test_never_weaker's reading, and a tool row of 0.10.0."""
     if "call" in inp:
@@ -164,7 +172,7 @@ def test_the_baseline_covers_the_corpus_of_090_and_the_tables_of_0100():
 def _differences(guard, facts) -> list:
     out = []
     for row in _baseline():
-        if _workflow_call(row["in"]):
+        if _workflow_call(row["in"]) or _agent_definition(row["in"]):
             continue
         pre, rule = answers(guard, row["in"], facts)
         if (pre, rule) != (row["pre"], row["rule"]):
@@ -196,7 +204,7 @@ def test_in_a_box_no_deny_changes_and_no_ask_remains(guard):
     profile (criterion 2): it answers as 0.10.0, its asks stay asks."""
     bad = []
     for row in _baseline():
-        if _workflow_call(row["in"]):
+        if _workflow_call(row["in"]) or _agent_definition(row["in"]):
             continue
         pre, _rule = answers(guard, row["in"], VALID)
         allowed = {"deny": ("deny",), "ask": ("deny", "logged"), "silent": ("silent",)}[row["pre"]]

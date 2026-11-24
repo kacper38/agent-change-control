@@ -127,6 +127,17 @@ fixture:secret-read/copilot/ask/06-config-gh-hosts-yml.json | pre | ask | deny |
 fixture:secret-read/copilot/ask/06-config-gh-hosts-yml.json | rule | ask | deny | D8
 test_table_forms.ROWS_B4:121 | pre | silent | deny | D9
 test_table_forms.ROWS_B4:121 | rule | silent | deny | D9
+# 0.12.2 (item #90): an edit of an agent definition (`.claude/agents/**`) asks (guard-config)
+test_table_forms.FILE_ROWS:27 | pre | silent | ask | #90
+test_table_forms.FILE_ROWS:27 | rule | silent | ask | #90
+fixture:guard-config/claude/allow/02-claude-agents-x-md.json | pre | silent | ask | #90
+fixture:guard-config/claude/allow/02-claude-agents-x-md.json | rule | silent | ask | #90
+fixture:guard-config/claude/allow/06-claude-agents-x-md.json | pre | silent | ask | #90
+fixture:guard-config/claude/allow/06-claude-agents-x-md.json | rule | silent | ask | #90
+fixture:guard-config/copilot/allow/02-claude-agents-x-md.json | pre | silent | ask | #90
+fixture:guard-config/copilot/allow/02-claude-agents-x-md.json | rule | silent | ask | #90
+fixture:guard-config/copilot/allow/06-claude-agents-x-md.json | pre | silent | ask | #90
+fixture:guard-config/copilot/allow/06-claude-agents-x-md.json | rule | silent | ask | #90
 """  # noqa: E501
 
 

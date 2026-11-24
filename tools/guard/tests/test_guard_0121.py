@@ -202,4 +202,5 @@ def test_listed_workflows_maps_names_to_their_hashes(guard):
 
 
 def test_the_version_is_0_12_1(guard):
-    assert guard.VERSION == "0.12.1"
+    """The rows of this module hold from 0.12.1 on; test_guard_0122.py pins the version of today."""
+    assert tuple(int(p) for p in guard.VERSION.split(".")) >= (0, 12, 1)

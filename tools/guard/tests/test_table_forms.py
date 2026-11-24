@@ -1023,7 +1023,7 @@ Ys | Write | guard-config | silent | docs/SETTINGS.json
 Ys | Write | guard-config | silent | docs/settings.json
 Ys | Write | guard-config | silent | .claude/skills/x/SKILL.md
 Ys | Write | guard-config | silent | .claude/SKILLS/x/SKILL.md
-Ys | Edit | guard-config | silent | .claude/agents/GUARD.md
+Yt | Edit | guard-config | ask | .claude/agents/GUARD.md
 Ys | Edit | guard-config | silent | tools/GUARDRAILS/x.py
 Ys | Edit | guard-config | ask | tools/tracker/tracker.py
 Ys | Write | guard-config | silent | src/Guard.py

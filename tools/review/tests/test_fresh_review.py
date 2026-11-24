@@ -1,10 +1,13 @@
 """fresh-review against a fake `claude` binary: screening first, receipt always, verdict drives the exit code."""
+import hashlib
 import io
 import json
 import os
 import pathlib
 import stat
 import subprocess
+
+import pytest
 
 ENV = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t",
        "PATH": os.environ.get("PATH", "")}
@@ -129,3 +132,133 @@ def test_blocker_finding_overrides_a_softer_verdict(review, tmp_path):
     assert review.effective_verdict("APPROVE", [{"severity": "MINOR"}]) == "COMMENT"
     assert review.effective_verdict("APPROVE", []) == "APPROVE"
 
+
+
+def rev(r, what):
+    return subprocess.run(["git", "-C", str(r), "rev-parse", what], capture_output=True, text=True,
+                          check=True).stdout.strip()
+
+
+def newest_receipt(r):
+    head = rev(r, "HEAD")
+    d = r / ".git" / "fresh-review"
+    n = 1
+    while (d / f"{head}.{n + 1}.json").exists():
+        n += 1
+    path = d / (f"{head}.json" if n == 1 else f"{head}.{n}.json")
+    return path, json.loads(path.read_text())
+
+
+def test_hash_ignores_a_global_diff_config(review, tmp_path, monkeypatch):
+    r = repo_with_branch(tmp_path)
+    (r / "\u00e9.txt").write_text("x\n")  # core.quotePath, which no flag pins, quotes this name or not
+    subprocess.run(["git", "-C", str(r), "add", "-A"], check=True)
+    subprocess.run(["git", "-C", str(r), "commit", "-q", "-m", "feat: name"], check=True, env=ENV)
+    approve = {"verdict": "APPROVE", "summary": "", "findings": []}
+    claude, _ = fake_claude(tmp_path, approve)
+    assert review.main(["--base", "main", "--claude-bin", claude], cwd=str(r), out=io.StringIO()) == 0
+    _, plain = newest_receipt(r)
+    home = tmp_path / "home"
+    home.mkdir()
+    cfg = home / ".gitconfig"
+    cfg.write_text("[diff]\n\talgorithm = patience\n\tnoprefix = true\n[core]\n\tquotePath = false\n")
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(cfg))
+    noprefix = subprocess.run(["git", "-C", str(r), "diff", "main...HEAD"], capture_output=True, text=True).stdout
+    assert "--- test_x.py" in noprefix, "the global config really is read by plain git"
+    assert review.main(["--base", "main", "--claude-bin", claude], cwd=str(r), out=io.StringIO()) == 0
+    _, configured = newest_receipt(r)
+    assert configured["diff_sha256"] == plain["diff_sha256"]
+    assert review.diff_text(rev(r, "main"), rev(r, "HEAD"), str(r))[0].startswith("diff --git a/test_x.py b/test_x.py")
+
+
+def test_receipt_diff_command_recomputes_the_hash(review, tmp_path):
+    r = repo_with_branch(tmp_path)
+    claude, _ = fake_claude(tmp_path, {"verdict": "APPROVE", "summary": "", "findings": []})
+    assert review.main(["--base", "main", "--claude-bin", claude], cwd=str(r), out=io.StringIO()) == 0
+    _, receipt = newest_receipt(r)
+    cmd = receipt["diff_command"]
+    assert cmd.startswith("GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null git diff --full-index")
+    assert f"{rev(r, 'main')}...{rev(r, 'HEAD')}" in cmd
+    text = subprocess.run(cmd, shell=True, cwd=str(r), capture_output=True, check=True).stdout
+    assert hashlib.sha256(text).hexdigest() == receipt["diff_sha256"]
+
+
+def test_receipt_carries_the_tree_ids(review, tmp_path):
+    r = repo_with_branch(tmp_path)
+    claude, _ = fake_claude(tmp_path, {"verdict": "APPROVE", "summary": "", "findings": []})
+    assert review.main(["--base", "main", "--claude-bin", claude], cwd=str(r), out=io.StringIO()) == 0
+    _, receipt = newest_receipt(r)
+    assert receipt["merge_base"] == rev(r, "main")
+    assert receipt["base_tree"] == rev(r, "main^{tree}")
+    assert receipt["head_tree"] == rev(r, "HEAD^{tree}")
+    assert receipt["base_sha"] == rev(r, "main") and receipt["base"] == "main"
+
+
+def fake_gh(tmp_path, code=0):
+    d = tmp_path / "ghbin"
+    d.mkdir(exist_ok=True)
+    log = tmp_path / "gh-args"
+    body = tmp_path / "gh-body"
+    script = d / "gh"
+    script.write_text(f"#!/bin/sh\nprintf '%s\\n' \"$@\" > '{log}'\ncp \"$5\" '{body}'\nexit {code}\n")
+    script.chmod(script.stat().st_mode | stat.S_IXUSR)
+    return str(script), log, body
+
+
+def test_pr_posts_the_receipt_as_a_comment(review, tmp_path):
+    r = repo_with_branch(tmp_path)
+    claude, _ = fake_claude(tmp_path, {"verdict": "BLOCKER", "summary": "s", "findings": []})
+    gh, log, body = fake_gh(tmp_path)
+    out = io.StringIO()
+    assert review.main(["--base", "main", "--claude-bin", claude, "--pr", "7", "--gh-bin", gh],
+                       cwd=str(r), out=out) == 1
+    args = log.read_text().splitlines()
+    assert args[:4] == ["pr", "comment", "7", "--body-file"] and len(args) == 5
+    path, receipt = newest_receipt(r)
+    text = body.read_text()
+    assert text.splitlines()[0] == f"<!-- fresh-review-receipt: {rev(r, 'HEAD')} -->"
+    assert "BLOCKER" in text.splitlines()[1] and path.name in text.splitlines()[1]
+    assert json.loads(text.split("```json\n", 1)[1].rsplit("\n```", 1)[0]) == receipt
+
+
+def test_a_failed_post_is_exit_2_and_keeps_the_receipt(review, tmp_path):
+    r = repo_with_branch(tmp_path)
+    claude, _ = fake_claude(tmp_path, {"verdict": "APPROVE", "summary": "", "findings": []})
+    for gh in (fake_gh(tmp_path, code=1)[0], str(tmp_path / "no-such-gh")):
+        out = io.StringIO()
+        assert review.main(["--base", "main", "--claude-bin", claude, "--pr", "7", "--gh-bin", gh],
+                           cwd=str(r), out=out) == 2
+        path, _ = newest_receipt(r)
+        assert path.exists() and path.name in out.getvalue() and "--pr 7 --post-only" in out.getvalue()
+
+
+def test_an_oversized_comment_is_not_posted(review, tmp_path):
+    r = repo_with_branch(tmp_path)
+    claude, _ = fake_claude(tmp_path, {"verdict": "APPROVE", "summary": "x" * 70000, "findings": []})
+    gh, log, _ = fake_gh(tmp_path)
+    out = io.StringIO()
+    assert review.main(["--base", "main", "--claude-bin", claude, "--pr", "7", "--gh-bin", gh],
+                       cwd=str(r), out=out) == 2
+    assert not log.exists(), "gh was never called"
+    path, _ = newest_receipt(r)
+    assert path.name in out.getvalue() and "--pr 7 --post-only" in out.getvalue()
+
+
+def test_post_only_posts_the_newest_receipt_without_the_model(review, tmp_path):
+    r = repo_with_branch(tmp_path)
+    gh, log, body = fake_gh(tmp_path)
+    out = io.StringIO()
+    assert review.main(["--base", "main", "--pr", "7", "--post-only", "--gh-bin", gh], cwd=str(r), out=out) == 2
+    assert not log.exists() and "no receipt" in out.getvalue()
+    for verdict in ("BLOCKER", "APPROVE"):
+        claude, _ = fake_claude(tmp_path, {"verdict": verdict, "summary": verdict, "findings": []})
+        review.main(["--base", "main", "--claude-bin", claude], cwd=str(r), out=io.StringIO())
+    out = io.StringIO()
+    code = review.main(["--pr", "7", "--post-only", "--gh-bin", gh, "--claude-bin", "/nonexistent/claude"],
+                       cwd=str(r), out=out)
+    assert code == 0, out.getvalue()
+    assert f"{rev(r, 'HEAD')}.2.json" in body.read_text().splitlines()[1]
+    with pytest.raises(SystemExit) as exc:
+        review.main(["--post-only"], cwd=str(r), out=io.StringIO())
+    assert exc.value.code == 2

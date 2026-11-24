@@ -200,6 +200,7 @@ def test_a_cwd_outside_the_project_reads_the_project_folders_link(guard, monkeyp
     other = tmp_path / "other"
     other.mkdir()
     target = str(work / "agents" / "x.md")
+    # conftest's autouse fixture clears CLAUDE_PROJECT_DIR before every test, so no folder of the runner counts here
     assert guard.guard_config_class(target, root=str(other)) is None  # neither folder holds the link
     monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(work))
     assert guard.guard_config_class(target, root=str(other)) == CLASS

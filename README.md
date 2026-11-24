@@ -253,7 +253,8 @@ variables (`KZ_TRACKER_REPO`, `KZ_TRACKER_AREA`, `KZ_TRACKER_ADO_MODE`,
   the guard reads only those links: the path itself is compared as text,
   never resolved, so this class touches no folder or mount the path names
   (other rules may still look at the path). Not covered: a link in a nested
-  project below those folders or in another repository, a write
+  project below those folders or in another repository, the project
+  folder's link where the harness sets no `CLAUDE_PROJECT_DIR`, a write
   through another link into an agent folder, and the target of a link to a
   single file inside `.claude/agents` (the edit that names the link counts).
 - Since guard 0.12.1 (item #69) an entry of `workflows` binds a name to

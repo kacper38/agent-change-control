@@ -1,6 +1,6 @@
 # Plan — Phase 2: an agent identity, the owner's approval as a required check, and the end of the build's relaxations (plan rev 3, rows 2.1, 2.2, 2.5 and 2.6; new steps 2.0, 2.1c and 2.7)
 
-Status: PROPOSED on 2026-11-26. Nothing in it is built before the owner's approval (section 7, act 6).
+Status: APPROVED by the owner on 2026-11-26 at 16:53 UTC, in his words "i approve" in the session (`DECISIONS.md`, block "Phase 2 plan put up", last line). He struck no line of section 6. It was put up as PROPOSED the same day, and nothing in it was built before the approval. Items, filed at the approval: J #106, K #107, L #108, M #109, N #110, O #111, P #112. Six were promoted by the session's `delegate ready` with his word (act 6, its second form); #111 waits for his own `owner ready 111` (row S-2). The text below is the approved text, unchanged.
 
 Parent: `docs/PLAN-2026-11-orchestration-ci.md` (rev 3), rows 2.1 to 2.6 (lines 248 to 257). "Row" below means that plan's row; where the owner's decisions of 2026-11-26 change a row, the change is written out. Line numbers refer to `main` at `3aeba29`, read on 2026-11-26; each step's brief reads its places again at its start.
 

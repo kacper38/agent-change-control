@@ -29,8 +29,9 @@ Verbs
   delegate ready N [N ...] --word TEXT   `owner ready` for a session (CLAUDE_CODE_SESSION_ID set, no box marker,
                                          KZ_BOUNDARY unset or own) where .claude/guard.json on the default branch
                                          says "boundary": "own" and "owner_verbs": "delegated"; TEXT = the owner's
-                                         words (one line, at most 500 characters, no `<!--`, `-->` or `--!>`); the
-                                         mark names the session (a plain token) and the file's blob
+                                         words (one line, at most 500 characters, no `<` before a letter, `!`, `?`
+                                         or `/`, no `-->` or `--!>`); the mark names the session (a plain token)
+                                         and the file's blob
   delegate done N [N ...] --word TEXT --evidence FILE
                                          `owner done` with every check of it, under the same delegation; FILE is
                                          JSON {"N": {"criterion index": "line"}}: one line for each criterion,
@@ -53,6 +54,7 @@ import os
 import re
 import subprocess
 import sys
+import urllib.parse
 from typing import Optional
 
 VERSION = "0.3.0"
@@ -603,6 +605,7 @@ _INDEX_RE = re.compile(r"0|[1-9][0-9]*")
 # relative paths only: never inside an absolute path or a URL (the look-behind); `README.md:12-14` gives README.md
 _PATH_CANDIDATE_RE = re.compile(r"(?<![\w/.-])(?:[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)+|[A-Za-z0-9_.-]*\.[A-Za-z0-9]+)")
 _URL_RE = re.compile(r"https?://\S+")
+_MARKUP_RE = re.compile(r"<[A-Za-z!?/]|--!?>")  # a tag, a comment or a processing instruction opens; `a < b` does not
 EVIDENCE_TRIES = 6  # path candidates tried per line: bounds the forge calls
 
 
@@ -614,8 +617,9 @@ def free_text_problem(text: str) -> Optional[str]:
         return "has more than one line"
     if len(text) > FREE_TEXT_MAX:
         return f"is longer than {FREE_TEXT_MAX} characters"
-    if any(marker in text for marker in ("<!--", "-->", "--!>")):
-        return "contains `<!--`, `-->` or `--!>`, which would open or end an HTML comment and hide part of the record"
+    if _MARKUP_RE.search(text):
+        return ("contains `<` before a letter, `!`, `?` or `/`, or `-->` or `--!>`: the forge may drop it as HTML and "
+                "hide part of the record")
     return None
 
 
@@ -1085,8 +1089,8 @@ class Tracker:
         """None when the line holds a URL under the pull request's repository or a path that exists at `sha`."""
         m = re.fullmatch(r"(.+)/pull/[0-9]+", pr_url or "")
         base = m.group(1) + "/" if m else None
-        urls = [url for url in _URL_RE.findall(line) if base and url.startswith(base)]
-        if any(not {".", ".."} & set(url.split("/")) for url in urls):  # no `..` out of the repository
+        urls = [urllib.parse.unquote(url) for url in _URL_RE.findall(line)]  # a URL parser reads %2e%2e as ..
+        if base and any(url.startswith(base) and not {".", ".."} & set(url.split("/")) for url in urls):
             return None
         tried = path_candidates(line)
         if any(self.b.has_path(sha, path) for path in tried):
@@ -1113,7 +1117,9 @@ class Tracker:
             check_transition(status_of(issue), "done", DELEGATE)
             problems, facts = self.done_checks(issue, {}, accept=True)  # unticked boxes: the evidence answers them
             lines, criteria = evidence.get(issue.number, {}), parse_ac(issue.body)
-            sha = facts.get("merge_sha")  # none: the unmerged pull request is already a problem
+            sha = facts.get("merge_sha")
+            if criteria and not sha:  # fail closed: no tree to look in
+                problems.append("no merge commit to check the evidence against")
             for k, (_, text) in enumerate(criteria, 1):
                 bad = evidence_problem(lines.get(k))
                 if not bad and sha:

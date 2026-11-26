@@ -123,17 +123,28 @@ def test_a_session_id_that_is_not_a_plain_token_refuses(tracker, fb, tmp_path, m
     assert code == 2 and "CLAUDE_CODE_SESSION_ID is not a plain token" in out, out
 
 
+HTML = "the forge may drop it as HTML and hide part of the record"
+MARKUP = ["ok --> then", "ok <!-- then", "ok --!> then", "ok <!x> then", "ok <?x> then", "ok <b> then", "ok </b> then"]
+MARKUP_IDS = ["comment-end", "comment-start", "bang-end", "bang-tag", "question-tag", "tag", "end-tag"]
+
+
 @pytest.mark.parametrize("verb", ["ready", "done"])
 @pytest.mark.parametrize("word, reason", [("", "is empty"), ("   ", "is empty"), ("one\ntwo", "more than one line"),
-                                          ("x" * 501, "longer than 500"), ("ok --> then", "`<!--`, `-->` or `--!>`"),
-                                          ("ok <!-- then", "`<!--`, `-->` or `--!>`"),
-                                          ("ok --!> then", "`<!--`, `-->` or `--!>`")],
-                         ids=["empty", "blank", "two-lines", "too-long", "comment-end", "comment-start", "bang-end"])
+                                          ("x" * 501, "longer than 500"), *((m, HTML) for m in MARKUP)],
+                         ids=["empty", "blank", "two-lines", "too-long", *MARKUP_IDS])
 def test_a_bad_word_refuses(tracker, fb, tmp_path, verb, word, reason):
     backlog(tracker, fb, 1)
     no_reads(fb)
     code, out = run(tracker, fb, ready_argv(word=word) if verb == "ready" else done_argv(tmp_path, word=word))
     assert code == 2 and "--word" in out and reason in out, out
+
+
+def test_a_less_than_sign_that_opens_no_markup_is_allowed(tracker, fb, tmp_path):
+    reviewed(tracker, fb, tmp_path, delegated=True)
+    assert tracker.marks(fb.get_issue(1), "ready")[-1]["word"] == WORD
+    code, out = run(tracker, fb, done_argv(tmp_path, line2("docs/SYSTEM.md: a < b, x<3"), word="a < b and x<3"))
+    assert code == 0, out
+    assert tracker.marks(fb.get_issue(1), "done")[-1]["word"] == "a < b and x<3"
 
 
 # -- decisions 5, 6: delegate ready ----------------------------------------------------------------------------
@@ -217,13 +228,12 @@ def line2(line):
     (line2(CAP), NOWHERE + "(tried a1.md, a2.md, a3.md, a4.md, a5.md, a6.md)"),
     (line2("a.py\nb.py"), "the line has more than one line"),
     (line2("a.py " + "x" * 500), "the line is longer than 500 characters"),
-    (line2("a.py --> b"), "the line contains `<!--`, `-->` or `--!>`"),
-    (line2("a.py <!-- b"), "the line contains `<!--`, `-->` or `--!>`"),
-    (line2("a.py --!> b"), "the line contains `<!--`, `-->` or `--!>`"),
+    *((line2("docs/SYSTEM.md " + m), "criterion 2 (docs updated): the line contains `<` before") for m in MARKUP[3:]),
+    *((line2("docs/SYSTEM.md " + m), HTML) for m in MARKUP[:3]),
     ({"1": {**LINES, "3": "c.py"}}, "evidence for criterion 3, which #1 does not have"),
     ({"1": LINES, "2": LINES}, "evidence for #2, which is not given"),
 ], ids=["missing", "no-path", "a-time", "a-version", "e.g", "not-in-the-tree", "absolute", "other-host", "cap-of-6",
-        "two-lines", "too-long", "comment-end", "comment-start", "bang-end", "no-such-criterion", "item-not-given"])
+        "two-lines", "too-long", *MARKUP_IDS[3:], *MARKUP_IDS[:3], "no-such-criterion", "item-not-given"])
 def test_evidence_that_does_not_cover_every_criterion_refuses(tracker, fb, tmp_path, data, reason):
     reviewed(tracker, fb, tmp_path)
     code, out = run(tracker, fb, done_argv(tmp_path, data))
@@ -232,8 +242,9 @@ def test_evidence_that_does_not_cover_every_criterion_refuses(tracker, fb, tmp_p
 
 
 @pytest.mark.parametrize("line", ["see (docs/SYSTEM.md).", "tools/tracker covers it", "README.md:12-14",
-                                  CAP.replace("a6.md", "a1.md"), "https://fake/actions/runs/7"],
-                         ids=["file", "folder", "line-reference", "six-distinct", "url-under-the-repo"])
+                                  CAP.replace("a6.md", "a1.md"), "https://fake/actions/runs/7",
+                                  "https://fake/blob/main/docs/a%20b.md"],
+                         ids=["file", "folder", "line-reference", "six-distinct", "url-under-the-repo", "url-escape"])
 def test_a_line_that_points_at_something_that_exists_passes(tracker, fb, tmp_path, line):
     reviewed(tracker, fb, tmp_path)
     code, out = run(tracker, fb, done_argv(tmp_path, line2(line)))
@@ -244,7 +255,9 @@ def test_a_url_counts_only_under_the_repository_of_the_pull_request(tracker, fb)
     t, pr = tracker.Tracker(fb, tracker.DELEGATE), "https://github.com/o/r/pull/7"
     assert t.evidence_target_problem("run https://github.com/o/r/actions/runs/1 green", pr, "sha1") is None
     for url in ("https://github.com/o/r2/x", "https://github.com/o/other/x", "https://gitlab.com/o/r/x",
-                "https://github.com/o/r/../evil/x"):
+                "https://github.com/o/r/../evil/x", "https://github.com/o/r/%2e%2e/evil/x",
+                "https://github.com/o/r/%2E%2E/evil/x", "https://github.com/o/r/%2e./evil/x",
+                "https://github.com/o/r%2f../evil/x"):
         assert "no URL under https://github.com/o/r/" in t.evidence_target_problem(url, pr, "sha1"), url
     ado = "https://dev.azure.com/org/p/_git/r/pullrequest/7"
     assert t.evidence_target_problem("https://dev.azure.com/org/p/_git/r/x", ado, "sha1"), "no /pull/: no URL counts"
@@ -279,10 +292,32 @@ def test_the_checks_of_owner_done_still_bite(tracker, fb, tmp_path, change, reas
         fb.issues[1].body += "\nscope creep\n"
     if change == "no-claim":
         fb.issues[1].comments = [c for c in fb.issues[1].comments if '"kind": "claim"' not in c.body]
-    code, out = run(tracker, fb, done_argv(tmp_path, line2("docs/MISSING.md")))
+    code, out = run(tracker, fb, done_argv(tmp_path))  # evidence that holds at the merge commit
     assert code == 2 and reason in out, out
-    assert ("exists at the merge commit" in out) == (change != "unmerged"), "no merge commit: no existence check"
+    assert "exists at the merge commit" not in out, "the done check refuses, not the evidence"
+    assert ("no merge commit to check the evidence against" in out) == (change == "unmerged")
     assert writes(fb) == [] and fb.get_issue(1).state == "open"
+
+
+def test_a_merge_without_a_merge_commit_refuses_the_evidence(tracker, fb, tmp_path):
+    reviewed(tracker, fb, tmp_path)
+    fb.prs["https://fake/pull/1"].merge_sha = ""
+    code, out = run(tracker, fb, done_argv(tmp_path))
+    assert code == 2 and "#1: " in out and "no merge commit to check the evidence against" in out, out
+    assert out.count("no merge commit to check the evidence against") == 1, "once per item"
+    assert writes(fb) == [] and fb.get_issue(1).state == "open"
+
+
+def test_a_forge_error_while_the_evidence_is_checked_writes_nothing(tracker, fb, tmp_path):
+    reviewed(tracker, fb, tmp_path, 2)
+
+    def has_path(ref, path):
+        raise tracker.TrackerError(f"gh api repos/o/r/contents/{path}?ref={ref} failed: gh: Bad Gateway (HTTP 502)")
+
+    fb.has_path = has_path
+    code, out = run(tracker, fb, done_argv(tmp_path, None, "1", "2"))
+    assert code == 1 and "HTTP 502" in out, out
+    assert writes(fb) == [] and all(statuses(fb.get_issue(n)) == ["status/review"] for n in (1, 2))
 
 
 def test_owner_ready_then_delegate_done_and_delegate_ready_then_owner_done(tracker, fb, tmp_path):

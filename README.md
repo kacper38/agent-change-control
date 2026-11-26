@@ -89,12 +89,13 @@ then runs `tracker delegate ready N [N ...] --word "…"` and
 
 - `--word` quotes the owner's words the session acts on (one line).
 - `delegate done` runs every check of `owner done`. In place of ticks it
-  wants one evidence line for each acceptance criterion. A line has to point
-  at something that exists: a file or folder in the tree of the merge commit
+  wants one evidence line for each acceptance criterion. A line has to name
+  a file or folder that exists in the tree of the merge commit
   (`tools/box/box.py:313` counts as `tools/box/box.py`), or a URL under the
-  repository's own address on the forge. FILE is JSON, `{"N": {"1": "line"}}`.
-  It ticks no box and waives nothing, and one criterion without such a line
-  refuses the whole call.
+  repository's own address on the forge. A URL is matched by its start and
+  is not fetched, so the tracker does not know that it leads anywhere. FILE
+  is JSON, `{"N": {"1": "line"}}`. It ticks no box and waives nothing, and
+  one criterion without such a line refuses the whole call.
 - Each mark says `delegated: true` and carries the session id, the quoted
   words, the blob id of the file that delegated and, for done, the evidence
   lines. The comment names the session before anything else, so the record

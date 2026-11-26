@@ -636,6 +636,13 @@ def path_candidates(line: str) -> list:
     return [p for p in paths if not {"", ".", ".."} & set(p.split("/"))][:EVIDENCE_TRIES]
 
 
+def trim_url(token: str) -> str:
+    """Sentence punctuation after a link: one final `.` unless it ends a `.` or `..` segment, then `,;:)`."""
+    if token.endswith(".") and not token[:-1].endswith((".", "/")):
+        token = token[:-1]
+    return token.rstrip(",;:)")
+
+
 def is_plain_repo_link(url: str, base: str) -> bool:
     """`base` plus plain path segments, an optional `/` and `#fragment`: an allowlist, nothing is decoded, so `%`,
     `?`, `\\`, `@`, `//` never count; nor does a `.` or `..` segment."""
@@ -1095,7 +1102,7 @@ class Tracker:
         """None when the line holds a URL under the pull request's repository or a path that exists at `sha`."""
         m = re.fullmatch(r"(.+)/pull/[0-9]+", pr_url or "")
         base = m.group(1) + "/" if m else None
-        urls = [url.rstrip(".,;:)") for url in _URL_RE.findall(line)]
+        urls = [trim_url(url) for url in _URL_RE.findall(line)]
         if base and any(is_plain_repo_link(url, base) for url in urls):
             return None
         tried = path_candidates(line)

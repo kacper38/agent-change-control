@@ -255,7 +255,8 @@ LINK = BASE + "blob/abc123/tools/x.py#L10"
 
 
 @pytest.mark.parametrize("line", [f"run {BASE}actions/runs/123 green", f"{BASE}pull/96", LINK, f"see {LINK};",
-                                  f"see {LINK}.", f"(see {LINK})", f"{BASE}tree/main/"])
+                                  f"see {LINK}.", f"(see {LINK})", f"{BASE}tree/main/", f"{BASE}actions/runs/123.",
+                                  f"({BASE}actions/runs/123)."])
 def test_a_plain_link_under_the_repository_counts(tracker, fb, line):
     assert tracker.Tracker(fb, tracker.DELEGATE).evidence_target_problem(line, PR7, "sha1") is None
 
@@ -264,6 +265,8 @@ def test_a_plain_link_under_the_repository_counts(tracker, fb, line):
     "https://github.com%2Fo%2Fr%2F@evil.example/x", BASE + "..\\evil\\x", BASE + "%2e%2e/evil/x",
     BASE + "%2E%2E/evil/x", BASE + "%2e./evil/x", "https://github.com/o/r%2f../evil/x",
     BASE + "docs/a%20b.md",  # round 2 let this harmless escape pass; the allowlist counts no `%` at all
+    BASE + "x\\..\\..\\other\\y",  # a valid segment before the `\`: pins that a backslash never counts
+    BASE + "x/..", BASE + "x/.", BASE + "..",  # a final dot segment is not cut off as sentence punctuation
     BASE + "x?y=1", BASE + "../evil/x", BASE + "./x", BASE + "a//b", BASE, BASE[:-1], "https://gitlab.com/o/r/x",
     "https://github.com/o/r2/x", "https://github.com/o/other/x", "http://github.com/o/r/x"])
 def test_any_other_url_does_not_count(tracker, fb, line):

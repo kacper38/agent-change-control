@@ -39,15 +39,21 @@ install_into() {
   [[ -d "$target" ]] || { echo "install.sh: target directory not found: $target" >&2; exit 1; }
   target="$(cd "$target" && pwd)"
   # A new target's guard config gets the chosen boundary in place of the kit's own line, and an empty `workflows`:
-  # the kit's list binds the kit's own reviewed files, which no task repo reviewed (item #69). Checked before any copy.
+  # the kit's list binds the kit's own reviewed files, which no task repo reviewed (item #69). No `owner_verbs` either:
+  # the kit owner's delegation of the owner verbs is never a new target's (item #103). Checked before any copy.
   local own_line='^[[:space:]]*"boundary": "own",?[[:space:]]*$' boundary_note="left as is (existing file)"
   local wf_line='^[[:space:]]*"workflows": \[.*\],?[[:space:]]*$'
+  local verbs_line='^[[:space:]]*"owner_verbs": "[[:alnum:]_-]+",[[:space:]]*$'  # with the comma: dropping it is safe
   if [[ ! -e "$target/.claude/guard.json" ]]; then
     [[ "$(grep -cE "$own_line" "$HERE/.claude/guard.json" || true)" == 1 ]] || {
       echo "install.sh: expected exactly one \"boundary\": \"own\" line in $HERE/.claude/guard.json" >&2; exit 1; }
     [[ "$(grep -cE "$wf_line" "$HERE/.claude/guard.json" || true)" == 1 &&
        "$(grep -c '"workflows"' "$HERE/.claude/guard.json" || true)" == 1 ]] || {
       echo "install.sh: expected \"workflows\": [...] on exactly one line in $HERE/.claude/guard.json" >&2; exit 1; }
+    local verbs; verbs="$(grep -c '"owner_verbs"' "$HERE/.claude/guard.json" || true)"
+    [[ "$verbs" == 0 || ( "$verbs" == 1 && "$(grep -cE "$verbs_line" "$HERE/.claude/guard.json" || true)" == 1 ) ]] || {
+      echo "install.sh: expected \"owner_verbs\": \"<word>\", (with the comma) on exactly one line of its own in" \
+        "$HERE/.claude/guard.json, or no \"owner_verbs\"" >&2; exit 1; }
     boundary_note="$boundary (new file)"
   fi
   if [[ -z "$forge" ]]; then
@@ -108,7 +114,8 @@ install_into() {
           if [[ "$src" == "CLAUDE.md" ]]; then printf '@AGENTS.md\n' > "$target/CLAUDE.md"
           elif [[ "$src" == ".claude/guard.json" ]]; then
             sed -E -e "s/^([[:space:]]*\"boundary\": )\"own\"(,?[[:space:]]*)\$/\\1\"$boundary\"\\2/" \
-              -e "s/^([[:space:]]*\"workflows\": )\\[.*\\](,?[[:space:]]*)\$/\\1[]\\2/" "$HERE/$src" > "$target/$dst"
+              -e "s/^([[:space:]]*\"workflows\": )\\[.*\\](,?[[:space:]]*)\$/\\1[]\\2/" \
+              -e "/$verbs_line/d" "$HERE/$src" > "$target/$dst"
           else cp "$HERE/$src" "$target/$dst"; fi
           inited=$((inited + 1))
         fi ;;

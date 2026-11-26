@@ -1,10 +1,13 @@
 """bin/box (tools/box/box.py) without a container: names, tokens, policy, judge settings, mounts, argv."""
+import http.server
 import io
 import json
 import os
 import pathlib
 import subprocess
+import threading
 import urllib.error
+import urllib.request
 
 import pytest
 
@@ -54,6 +57,46 @@ def test_check_github_sends_the_token_in_a_header_only(box):
     (req,) = seen
     assert req.full_url == "https://api.github.com/repos/o/r" and "secret-value" not in req.full_url
     assert req.get_header("Authorization") == "Bearer secret-value"
+
+
+def test_check_github_keeps_the_token_off_a_redirect(box):
+    seen = {}
+
+    class Quiet(http.server.BaseHTTPRequestHandler):
+        def log_message(self, *args):
+            pass
+
+    class Target(Quiet):
+        def do_GET(self):
+            seen["target"] = self.headers.get("Authorization")
+            self.send_response(200)
+            self.end_headers()
+
+    servers = [http.server.HTTPServer(("127.0.0.1", 0), Target)]
+
+    class Redirect(Quiet):
+        def do_GET(self):
+            seen["first"] = self.headers.get("Authorization")
+            self.send_response(302)
+            self.send_header("Location", f"http://127.0.0.1:{servers[0].server_port}/repos/o/r")
+            self.end_headers()
+
+    servers.append(http.server.HTTPServer(("127.0.0.1", 0), Redirect))
+    for srv in servers:
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+
+    def opener(req, timeout):
+        """check_github's own request, sent to the first local server instead of api.github.com."""
+        req.full_url = f"http://127.0.0.1:{servers[1].server_port}/repos/o/r"
+        return urllib.request.build_opener(urllib.request.ProxyHandler({})).open(req, timeout=timeout)  # no proxy
+
+    try:
+        box.check_github("secret-value", "o/r", opener=opener)
+    finally:
+        for srv in servers:
+            srv.shutdown()
+            srv.server_close()
+    assert seen == {"first": "Bearer secret-value", "target": None}
 
 
 @pytest.mark.parametrize("code, fragment", [(401, "expired or revoked"), (404, "cannot see"), (403, "refused")])

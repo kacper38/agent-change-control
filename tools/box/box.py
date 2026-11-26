@@ -129,10 +129,11 @@ def repo_slug(url: str) -> str:
 
 
 def check_github(token: str, slug: str, opener=urllib.request.urlopen) -> None:
-    """The GitHub token must open this repository; it is sent in a header, never in a URL or on a command line."""
+    """The GitHub token must open this repository; it is sent in a header, never in a URL or on a command line, and
+    in one urllib does not carry across a redirect, so it reaches no host but api.github.com."""
     req = urllib.request.Request(f"https://api.github.com/repos/{slug}",
-                                 headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json",
-                                          "User-Agent": "agent-box"})
+                                 headers={"Accept": "application/vnd.github+json", "User-Agent": "agent-box"})
+    req.add_unredirected_header("Authorization", f"Bearer {token}")
     try:
         with opener(req, timeout=20) as resp:
             if resp.status == 200:

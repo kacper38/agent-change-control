@@ -255,7 +255,8 @@ def test_a_new_target_gets_boundary_client_and_a_second_run_changes_nothing(tmp_
     assert r.returncode == 0, r.stderr
     assert boundary_of(t) == "client"
     assert "  boundary: client (new file)" in r.stdout
-    kit = (ROOT / ".claude/guard.json").read_text().splitlines()
+    # item #103: the kit's own `owner_verbs` line, if it has one, is the only line a new target does not get
+    kit = [ln for ln in (ROOT / ".claude/guard.json").read_text().splitlines() if '"owner_verbs"' not in ln]
     got = (t / ".claude/guard.json").read_text().splitlines()
     changed = [(a, b) for a, b in zip(kit, got) if a != b]
     assert [a for a, _ in changed][0] == '  "boundary": "own",' and len(kit) == len(got)
@@ -288,6 +289,62 @@ def test_init_stops_before_any_copy_unless_workflows_is_on_one_line(tmp_path, wo
                        capture_output=True)
     assert r.returncode == 1, r.stdout + r.stderr
     assert 'expected "workflows": [...] on exactly one line' in r.stderr
+    assert sorted(p.name for p in t.iterdir()) == [".git"]
+
+
+def kit_copy(tmp_path: pathlib.Path, guard: str) -> pathlib.Path:
+    """A kit of install.sh, a one-line kit.manifest and the given .claude/guard.json."""
+    kit = tmp_path / "kit"
+    (kit / ".claude").mkdir(parents=True)
+    (kit / "install.sh").write_bytes(INSTALL.read_bytes())
+    (kit / "kit.manifest").write_text("init .claude/guard.json\n")
+    (kit / ".claude/guard.json").write_text(guard)
+    return kit
+
+
+def into_from(kit: pathlib.Path, target: pathlib.Path, *args: str) -> subprocess.CompletedProcess[str]:
+    env = {"PATH": os.environ["PATH"], "HOME": str(target.parent)}
+    return subprocess.run(["bash", str(kit / "install.sh"), "--into", str(target), *args], cwd=kit, env=env,
+                          text=True, capture_output=True)
+
+
+def delegating_guard() -> str:
+    """The kit's own guard.json with the owner verbs delegated, as the kit owner commits it (item #103)."""
+    lines = (ROOT / ".claude/guard.json").read_text().splitlines(keepends=True)
+    if not any('"owner_verbs"' in ln for ln in lines):
+        at = next(i for i, ln in enumerate(lines) if '"boundary"' in ln) + 1
+        lines.insert(at, '  "owner_verbs": "delegated",\n')
+    return "".join(lines)
+
+
+@pytest.mark.parametrize("boundary", ["client", "own"])
+def test_a_new_target_never_inherits_the_kits_owner_verbs(tmp_path, boundary):
+    kit = kit_copy(tmp_path, delegating_guard())
+    t = target_repo(tmp_path, None)
+
+    r = into_from(kit, t, "--boundary", boundary)
+
+    assert r.returncode == 0, r.stderr
+    mine = json.loads((kit / ".claude/guard.json").read_text())
+    got = json.loads((t / ".claude/guard.json").read_text())
+    assert mine["owner_verbs"] == "delegated" and "owner_verbs" not in got
+    assert got == {**{k: v for k, v in mine.items() if k != "owner_verbs"}, "boundary": boundary, "workflows": []}
+
+
+@pytest.mark.parametrize("tail", [
+    '  "telemetry_dir": "x",\n  "owner_verbs": "delegated"\n}\n',
+    '  "owner_verbs":\n    "delegated",\n  "telemetry_dir": "x"\n}\n',
+    '  "owner_verbs": "delegated",\n  "owner_verbs": "delegated",\n  "telemetry_dir": "x"\n}\n',
+    '  "telemetry_dir": "x", "owner_verbs": "delegated",\n  "scratch_md_mode": "ask"\n}\n',
+], ids=["last-without-comma", "two-lines", "twice", "shares-a-line"])
+def test_init_stops_before_any_copy_unless_owner_verbs_can_be_dropped_safely(tmp_path, tail):
+    kit = kit_copy(tmp_path, '{\n  "boundary": "own",\n  "workflows": [],\n' + tail)
+    t = target_repo(tmp_path, None)
+
+    r = into_from(kit, t)
+
+    assert r.returncode == 1, r.stdout + r.stderr
+    assert 'expected "owner_verbs": "<word>", (with the comma) on exactly one line of its own' in r.stderr
     assert sorted(p.name for p in t.iterdir()) == [".git"]
 
 

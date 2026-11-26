@@ -13,7 +13,7 @@ def test_label_families_cover_every_type_and_status(tracker):
 def test_every_triple_outside_the_table_raises(tracker):
     states = [None, *tracker.STATUSES]
     seen_ok = 0
-    for frm, to, actor in itertools.product(states, tracker.STATUSES, (tracker.HUMAN, tracker.AGENT)):
+    for frm, to, actor in itertools.product(states, tracker.STATUSES, (tracker.HUMAN, tracker.AGENT, tracker.DELEGATE)):
         allowed = tracker.TRANSITIONS.get((frm, to))
         if allowed and actor in allowed:
             tracker.check_transition(frm, to, actor)
@@ -25,13 +25,19 @@ def test_every_triple_outside_the_table_raises(tracker):
 
 
 HUMAN_ONLY = [("backlog", "ready"), ("blocked", "ready"), ("review", "done"), ("ready", "dropped"), ("done", "backlog")]
+DELEGATED = HUMAN_ONLY[:3]  # #103: a session under the owner's committed delegation, through the `delegate` verbs
 
 
 @pytest.mark.parametrize("frm,to", HUMAN_ONLY)
 def test_human_only_transitions(tracker, frm, to):
     tracker.check_transition(frm, to, tracker.HUMAN)
-    with pytest.raises(tracker.TransitionError, match="for human, not agent"):
+    with pytest.raises(tracker.TransitionError, match="human, not agent"):
         tracker.check_transition(frm, to, tracker.AGENT)
+    if (frm, to) in DELEGATED:
+        tracker.check_transition(frm, to, tracker.DELEGATE)
+    else:
+        with pytest.raises(tracker.TransitionError, match="for human, not delegate"):
+            tracker.check_transition(frm, to, tracker.DELEGATE)
 
 
 def test_agent_transitions(tracker):

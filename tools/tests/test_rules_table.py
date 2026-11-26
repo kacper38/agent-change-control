@@ -16,7 +16,7 @@ SECTIONS = {"NN": "Non-negotiables", "CP": "Coding principles", "WF": "Working f
             "ST": "Default stack choices", "MR": "Model routing", "OR": "Orchestration"}
 EXTRA_RULE_IDS = {"MR-5", "MR-6"}  # the paragraph under the model table, which `items` does not count
 D12_IDS = {"D12-1", "D12-2", "D12-3", "D12-4", "D12-5"}  # plan rev 3, D12: the controls `docs/RULES.md` lists
-RELAXATION_IDS = {"P5-1", "P5-2", "P5-3", "P5-4", "P5-5", "P5-6", "L-fleet", "L-rules-off", "S-1"}
+RELAXATION_IDS = {"P5-1", "P5-2", "P5-3", "P5-4", "P5-5", "P5-6", "L-fleet", "L-rules-off", "S-1", "S-2"}
 TESTPATHS = re.findall(r'"([^"]+)"', re.search(r"testpaths\s*=\s*\[(.*?)\]",
                                                (ROOT / "pyproject.toml").read_text(encoding="utf-8")).group(1))
 PROJECT_DIR = "${CLAUDE_PROJECT_DIR:-.}/"  # how a hook command of `.claude/settings.json` starts a repository path
@@ -296,7 +296,7 @@ def row_of(md: str, rid: str) -> str:
     return next(line for line in md.splitlines() if line.startswith(f"| {rid} |"))
 
 
-@pytest.mark.parametrize("rid", ["NN-7", "MR-5", "MR-6", "D12-5", "S-1", "P5-1", "L-fleet"])
+@pytest.mark.parametrize("rid", ["NN-7", "MR-5", "MR-6", "D12-5", "S-1", "S-2", "P5-1", "L-fleet"])
 def test_a_missing_row_fails(rid):
     md = read("docs/RULES.md")
     problems = all_problems(md.replace(row_of(md, rid) + "\n", "", 1))

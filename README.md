@@ -54,17 +54,17 @@ open, and the Copilot cloud agent turns every `ask` into `deny`.
 
 Issues are the system of record. State lives in two label families, `type/*`
 and `status/*` (tags or work item states on Azure DevOps). An agent may create,
-claim, block and submit for review; only a human at a terminal may promote or
-close.
+claim, block and submit for review. Promoting and closing are the owner's acts
+at a terminal, unless the owner has delegated them in a committed file (below).
 
 | State | Moved by | Verb | What is checked |
 |---|---|---|---|
 | backlog | agent | `tracker new` | title, acceptance criteria, scope, scope limit, source |
-| ready | human | `tracker owner ready N [N ...]` | definition of ready; the body is frozen from here |
+| ready | human, or a session by delegation | `tracker owner ready N [N ...]`, `tracker delegate ready …` | definition of ready; the body is frozen from here |
 | in-progress | agent | `tracker claim N --branch B` | one item in progress per login and seat (a box's seat, or the host); the branch is recorded |
 | blocked | agent | `tracker block N --question "…"` | the question names a path or a field |
 | review | agent | `tracker review N --pr URL` | PR head is the claimed branch; the body carries `Refs #N` |
-| done | human | `tracker owner done N [N ...]` | merged by a human, green checks on the merge commit, every box ticked or waived |
+| done | human, or a session by delegation | `tracker owner done N [N ...]`, `tracker delegate done …` | merged by a human, green checks on the merge commit, every box ticked or waived (by delegation: an evidence line per criterion) |
 
 Also `tracker list`, `show N`, `note N "…"` (no status change) and
 `owner labels-sync`. Owner verbs refuse without a terminal.
@@ -79,6 +79,40 @@ first and change none when one fails. Both refuse in an agent session and
 inside a box (`/etc/agent-box/box.json` exists), even at a terminal. A claim
 made in a box carries the box's seat from that marker, so the host and each
 box hold one item in progress each.
+
+The owner can hand both acts to a session (tracker 0.3.0, GitHub only). One
+committed line does it, `"owner_verbs": "delegated"` in `.claude/guard.json`.
+It counts only as it stands on the default branch of the forge, never in a
+working tree, and only where that file says `"boundary": "own"`. A session
+then runs `tracker delegate ready N [N ...] --word "…"` and
+`tracker delegate done N [N ...] --word "…" --evidence FILE`:
+
+- `--word` quotes the owner's words the session acts on (one line).
+- `delegate done` runs every check of `owner done`. In place of ticks it
+  wants one evidence line for each acceptance criterion. A line has to name
+  a file or folder that exists in the tree of the merge commit
+  (`tools/box/box.py:313` counts as `tools/box/box.py`), or a URL under the
+  repository's own address on the forge. A URL counts only as a plain link:
+  that address, then path segments of letters, digits and `_.~-`, and an
+  optional `#fragment` (no `%`, `?`, `\` or `@`). It is not fetched, so the
+  tracker does not know that it leads anywhere. FILE is JSON,
+  `{"N": {"1": "line"}}`. It ticks no box and waives nothing, and one
+  criterion without such a line refuses the whole call.
+- Each mark says `delegated: true` and carries the session id, the quoted
+  words, the blob id of the file that delegated and, for done, the evidence
+  lines. The comment names the session before anything else, so the record
+  never shows a session's act as the owner's.
+- The verbs refuse in a box, with `KZ_BOUNDARY` set to anything but `own`,
+  without `CLAUDE_CODE_SESSION_ID`, and on Azure DevOps.
+
+What the tracker cannot check: that the quoted words are the owner's, that
+the session id is the real one, and that what an evidence line points at
+proves its criterion. The transcript on the owner's machine and a read of
+the record answer those.
+With the line on the default branch, a change can be promoted, merged and
+closed with no act of the owner on record; `docs/RULES.md` (row S-2) names
+when that ends. `install.sh` leaves the line out of a new target's file, so
+no repository inherits the delegation from the kit.
 
 PR bodies say `Refs #N`, never `Fixes` or `Closes`: closing is the owner's
 protocol, not the forge's. Before the PR, `bin/fresh-review` sends the diff to
@@ -159,7 +193,8 @@ On the laptop, before a tool call runs:
 
 In the tracker, on every write: all guards first, then one comment, then one
 label change (add the new status, then remove its siblings, so a crash leaves
-two labels rather than none). Owner verbs refuse without a TTY. Items outside
+two labels rather than none). Owner verbs refuse without a TTY; the delegated
+ones refuse without the owner's committed line (above). Items outside
 the configured repository or area path are refused.
 
 On the server and in CI:

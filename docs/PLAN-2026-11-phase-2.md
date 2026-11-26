@@ -1,0 +1,188 @@
+# Plan — Phase 2: an agent identity, the owner's approval as a required check, and the end of the build's relaxations (plan rev 3, rows 2.1, 2.2, 2.5 and 2.6; new steps 2.0, 2.1c and 2.7)
+
+Status: PROPOSED on 2026-11-26. Nothing in it is built before the owner's approval (section 7, act 6).
+
+Parent: `docs/PLAN-2026-11-orchestration-ci.md` (rev 3), rows 2.1 to 2.6 (lines 248 to 257). "Row" below means that plan's row; where the owner's decisions of 2026-11-26 change a row, the change is written out. Line numbers refer to `main` at `3aeba29`, read on 2026-11-26; each step's brief reads its places again at its start.
+
+Method: drafted by the `platform-planner` agent from a brief with the owner's four decisions of 2026-11-26 and the seven findings of that day's review. The decisions are taken as given and cited by number: (1) the ruleset's approval count stays 0 and `agent-approval-check` is required; (2) the session merges the approved head as the App; (3) no `pull_request_target`; (4) the App's token in the box. The session that put it up (agent-change-control-c8) corrected one fact of the draft: it had J and M built in boxes, but a box merges no head that changes a path `guard-config` guards (`tools/guard/guard.py:3641-3647`; the tracker and the guard are such paths), so every step is built on the host (section 3).
+
+## 0. One screen for the owner
+
+**What you get.** Every commit, push, pull request, comment and merge of a session shows on GitHub as `<app>[bot]`, no longer as you. A pull request with agent commits cannot merge until you write `/approve <sha>` on it; the session then merges exactly that head. A pull request that changes a control cannot merge without a `DECISIONS.md` line. The box holds no GitHub token of yours. The standing word and the build's relaxations end.
+
+**What you do.** Three sittings and one line per pull request in between; section 7 counts 18 acts.
+
+1. Now, about 20 minutes: read this screen, strike what you do not want, create the GitHub App, store its key, approve.
+2. During the build: one merge (the workflow) and three `/approve` lines.
+3. The switch, about 10 minutes: the box's GitHub token revoked, one pasted line that applies the ruleset, one `/approve`.
+4. Delivery, about 10 minutes: one `/approve`, two local switches set back, one `owner done` line, your word on three choices, one look at VS Code.
+
+After delivery: one `/approve` per pull request. A change under `.github/workflows/` costs you two pasted lines, because the App cannot push it and (to be probed) cannot merge it.
+
+**What you give up.** Merges without you. And in this clone git commits as the App by default, so a commit you make by hand here needs one extra option (section 6, line 4).
+
+**Yours to decide, defaults in section 6:** what happens if the unknown ruleset parameter blocks the App's pull requests; whether the box lives on after delivery; whether `--accept-all` stays. Two defaults you may not expect, each one line to strike: git in this clone commits as the App for everyone, your own terminal included (line 4); and the host's exact-head merge stops asking you once the approval check is in force, the one place guard 0.13.0 gets quieter (line 8).
+
+**Not in this plan.** Step 2.4, the review job in CI, gets its own plan after delivery (section 6, line 12).
+
+**Cost.** $0 a month. About 7.5 session days, one step after another on the host; target 2026-12-08, 2026-12-31 at the latest. As API-equivalent spend, a guess: $300 to $650.
+
+## 1. Assumptions, and what was not checked
+
+- **GitHub, read through the API on 2026-11-26.** One ruleset (id 26124070, created 2026-10-29): pull request required, 0 approvals, `dismiss_stale_reviews_on_push: false`, required check `ci` with no source pin, `bypass_actors: []`. The repository is public, on a personal account. Actions: `sha_pinning_required: false`; no environments. Workflows `ci.yml` and `label-lint.yml`; neither names `pull_request_target`. The check run `ci` is posted by the app `github-actions`, id 15368.
+- **What commits show today.** Pull requests #96 and #97 hold box commits by `agent-box@box.invalid`, linked to no account and unsigned. Pull request #102, built by a host session, holds four commits under the owner's address with `verified: true`. All three were opened and merged as `kacper38` with no review. So the forge cannot tell his work from a session's, and a host session's commits carry his signature.
+- **The parameter the parent plan never names.** The ruleset carries `require_extra_approval_for_unattributed_changes: true`. Known: its name, its value, and that #96 and #97 merged under it with no approval although they hold commits no account owns. Not known: what "unattributed" means, whether it is evaluated at a count of 0, and what it does to a pull request the App opens. It stays as found; the first commit of step 2.1a reads its effect on the App's first pull request (section 6, line 13).
+- **Tracker.** `whoami` asks `gh api user` (`tools/tracker/tracker.py:404-406`), which an installation token cannot call. `owner done` refuses a `[bot]` merger (`:823-824`).
+- **Guard 0.12.2 and the box.** `guard-config` covers the settings and guard files, `.github/hooks/`, both workflow folders, agent definitions and five tools (`tools/guard/guard.py:3178-3179`, `:3243-3265`); an approving review asks (`:3453-3454`). `bin/box` reads the Keychain entry `agent-box-github` into `GH_TOKEN` (`tools/box/box.py:40-41`, `:150-153`), the firewall's request carries it (`tools/box/firewall.py:39`), and git in a box takes its credential from `gh` (`tools/box/gitconfig`).
+- **The Mac.** `openssl` on the `PATH` is Homebrew's OpenSSL 3.6.4 and `/usr/bin/openssl` is LibreSSL 3.3.6, so the helper calls `/usr/bin/openssl` by its full path. `origin` is an HTTPS address, so a git credential helper applies.
+- **The peer's work.** Item #103 (`delegate ready` and `delegate done`, switched on by `owner_verbs: delegated` in `.claude/guard.json`) is taken as merged before step 2.0 starts; if it is not, see section 8.
+- **Not checked.** Each is a probe in the first commit of the step named; fallbacks are in section 8. (a) Claude Code reads `CLAUDE_ENV_FILE` before each Bash call, and a command in it runs each time (2.1a). (b) `/usr/bin/openssl dgst -sha256 -sign /dev/stdin` takes a key from standard input (2.1a). (c) GraphQL `viewer.login` answers `<app>[bot]` for an installation token (2.1a). (d) An App without the `workflows` permission cannot merge a pull request that touches a workflow (2.1a). (e) A pull request the App opens starts `ci` (2.1a). (f) The action at its pin: its inputs, the status it posts, how it finds the pull request on `workflow_run`, whether a review counts only for its own head, whether an edited comment counts (2.2; last read at `9fa68854da5f` on 2026-11-15). (g) A status posted with a job's token satisfies a check pinned to app 15368 (2.2). (h) GitHub dismisses an approving review on a push while the count is 0; until (f) or (h) is answered he approves by comment only.
+
+## 2. Steps
+
+Each row is one pull request; its commits are numbered, one topic each. Every row also changes `README.md`, `docs/SYSTEM.md` and `DECISIONS.md`, uses the standard library only and passes `ruff check tools` and `pytest` on Python 3.9 and 3.13.
+
+| id | What is built | Files | Verification | Size | PR | After |
+|---|---|---|---|---|---|---|
+| 2.0 | **Tracker, new step (decision 2).** (1) `whoami` falls back to GraphQL `viewer.login` when `/user` is refused. (2) `owner done` accepts a bot merger when the merged head carries the owner's approval in a form the check counts: a comment `/approve <40-hex SHA>` equal to the merged head, by a login that is no bot and has write access, written before the merge and never edited; or an approving review whose `commit_id` is that head. The done mark names approver, form and merger. Any other bot merge is refused as today, and every bot merge on Azure Repos. | `tools/tracker/tracker.py`, `tools/tracker/tests/` | `pytest tools/tracker`: the approved head is accepted; an approval of an older head, a short SHA, an edited comment, a bot's comment, a comment after the merge and a stranger's are each refused; a human merger passes as before; the planted break (no SHA comparison) is caught. | M | J | approval |
+| 2.2, 2.6 | **The checks; rows changed by decisions 1 and 3.** (1) `tools/guard/decision_line.py`: it reads the changed paths through the API (`previous_filename` too; a listing of 3000 entries fails) and fails when a path is on the list of section 6, line 7, and `DECISIONS.md` has no added line. (2) `.github/workflows/agent-approval-check.yml`, started by `workflow_run` (after `ci`, for runs of a pull request) and by `issue_comment` (a body that starts `/approve`, never put into a shell line); top-level `permissions: {}`. Job `approval`: `anthropics/claude-code-action/agent-approval-check` at a full SHA, `required_approvals: 1` (the action's count; the ruleset's stays 0), agent logins and addresses read through the API from the key `identity` of `.claude/guard.json` on `main` (the App, the Claude App, `agent-box@box.invalid`). Job `decision-line`: checks out `main` only and runs the script. Both post a commit status on the pull request's head, since a run of these events belongs to `main`. Without `identity` both report "not configured": the inert job of a fresh target. (3) `.github/rulesets/main.json` (three required checks pinned to app 15368, stale approvals dismissed, count 0, no bypass) and `assert_run.py ruleset`, which compares the live ruleset with it. (4) A test: every `uses:` has a full SHA, and no workflow names `pull_request_target`. | the workflow, `tools/guard/decision_line.py`, `tools/guard/tests/`, `.github/rulesets/main.json`, `tools/orchestration/` (`assert_run.py`, tests), `tools/tests/test_workflows.py`, `.claude/guard.json` | `pytest`: `guard.py` alone fails; with a `DECISIONS.md` line it passes; docs only passes; a rename out of a listed path fails; removals only in `DECISIONS.md` fail. Live on L, with the workflow merged and not yet required: pending; `/approve <sha>`, green; a push, pending again; a second `/approve`, green; the statuses' creator is `github-actions[bot]`. | L | K | act 2 |
+| 2.1a | **Host identity, row 2.1.** (1) The probes (a) to (e) and the parameter of section 1, into `verified.json`. (2) `tools/identity/app_token.py`. `token` prints an installation token for this repository with the App's three permissions; it keeps one in a file of mode 0600 in the clone's git directory and makes a new one when less than 10 minutes are left. `/usr/bin/openssl` signs the JWT and gets the key from the Keychain entry `agent-app-key` on standard input; the key is never an argument, a file or output. `git-credential` answers git; `setup` writes the clone's git configuration (section 6, line 4). (3) A `SessionStart` hook, `app_token.py session-env`, writes one line into `CLAUDE_ENV_FILE`, so each Bash call takes `GH_TOKEN` from the helper; it warns when `setup` has not run. When no token can be made, `GH_TOKEN` gets a non-empty invalid value and git gets no answer: both fail with 401, and nothing falls back to his login. | `tools/identity/` (helper, tests), `.claude/settings.json`, `tools/orchestration/probe.py`, `verified.json`, `docs/USING-AT-WORK.md` | `pytest tools/identity` with a key made in the test: the signature verifies; an old token is replaced; no key byte is in an argument list, a file or a log. Live, on this pull request, which the session opens as the App: commit, pull request, comment and tracker note show `<app>[bot]`; `gh api repos/<slug>/activity` names the App as pusher; `expires_at` lies within the hour; a workflow push is rejected and a status post refused; the commit has no signature; the key is in no file of the repository, no settings file and no shell history; the rotation date is recorded. | L | L | K, J |
+| 2.1b | **Guard 0.13.0: the guard parts of rows 2.1 and 2.2, and finding 6.** Rows first (section 4). Denied from a session: a commit or push under another identity, a change of the clone's identity or helper, dropping or replacing the session's GitHub token, a read of the App's key, an approving review and an `/approve` comment (today an ask). The exact-head merge runs without the ask once `identity` is committed (section 6, line 8). `guard-config` gains `tools/egress/`, `tools/box/`, `tools/identity/` and `.github/rulesets/`. | `tools/guard/guard.py`, `tools/guard/tests/` | `pytest tools/guard` on both Python versions with the rows of section 4; the 45-day replay. | L | M | approval |
+| 2.1c | **Box token, new step (decision 4).** `bin/box` no longer reads `agent-box-github`. The wrapper on the host mints an installation token with the helper, writes it into a host folder that the box mounts read-only as a directory, and replaces the file in one rename when less than 15 minutes are left, for as long as the wrapper lives. In the image a root-owned `gh` shim reads the file at each call; git's credential line and the firewall's one request go through it. The box's git identity becomes the bot's. The key never enters the box, since minting is the host process's; when the wrapper dies, the box's access ends within the hour. Last commit: `box_probe.py` rerun on the committed head and its `verified.json`, which `probe_gate` demands of every change under `tools/box`. | `tools/box/` (wrapper, entrypoint, `gitconfig`, image, firewall, probe, doctor, tests), `verified.json` | `pytest tools/box`; `bin/box doctor`; new probe questions: no token of the owner in the box's environment or files; `gh api installation/repositories` lists one repository; with the renewal set to one minute a second token arrives and `gh` uses it; a workflow push is rejected; a box commit shows the bot. | L | N | L |
+| 2.7 | **The switch, new step.** The owner revokes the box's old token and applies the ruleset file (acts 11 and 12). The session reads the ruleset back and opens the record: a `DECISIONS.md` block with the time, the read-back and the evidence of rows 2.1 and 2.2; row S-1 of `docs/RULES.md` says `ended`; `owner_verbs: delegated` leaves `.claude/guard.json`; the merge sentence of `AGENTS.md`, Orchestration, names the approval. This pull request is the first under the regime. | `docs/RULES.md`, `.claude/guard.json`, `AGENTS.md` | `assert_run.py ruleset` exits 0; the pull request shows three required checks and merges only after his `/approve`; an `/approve` typed by the session is denied by the guard and, posted as the bot by the probe script, is not counted; `pytest tools/tests`. | S | O | L, M, N; K's live rows |
+| 2.5 | **Kit and documents, row 2.5, and the rules table.** `kit.manifest`: the helper and `decision_line.py` as `managed`, the workflow as `managed @github`, the ruleset file as `init @github`; `.claude/settings.json` is `init`, so the upgrade note gives the hook's lines. `docs/RULES.md`: the relaxation rows leave; a new enforcer form `check:NAME`, a status the committed ruleset file requires and a workflow on `main` posts; rows NN-4, NN-6.2 and OR-5 name what now enforces them. One install into a fresh target. | `kit.manifest`, `tools/tests/` (`test_install.py`, `test_rules_table.py`), `docs/RULES.md`, `docs/USING-AT-WORK.md` | The idempotence step of CI (`.github/workflows/ci.yml:27-34`); `pytest tools/tests`. In a new `git init` folder: two installs, the second with `changes: 0`; `boundary: client`; each installed Python file compiles on 3.9 and 3.13; the installed guard denies a force push; without `identity` the checks report "not configured". The transcript goes into `DECISIONS.md`. | M | P | O |
+
+New paths at the end: `tools/identity/`, `tools/guard/decision_line.py`, `.github/workflows/agent-approval-check.yml`, `.github/rulesets/main.json`, `tools/tests/test_workflows.py`, and this file. `ci.yml` and `install.sh` do not change.
+
+## 3. Pull requests, items and order
+
+Seven pull requests, one tracker item each, filed in `status/backlog` when this plan is put up. Who pushes and who merges (finding 3):
+
+| PR | Step | Built | Pushed by | Merged by | His acts |
+|---|---|---|---|---|---|
+| J | 2.0 | host | a host session, his token | the session, under the standing word | 0 |
+| K | 2.2, 2.6 | host | a host session, his token | **the owner**: it adds a workflow | 1 |
+| L | 2.1a | host | the session, as the App | the session, as the App, after `/approve` | 2 |
+| M | 2.1b | host | a host session, his token | the session, under the standing word | 0 |
+| N | 2.1c | host | the session, as the App | the session, as the App, after `/approve` | 1 |
+| O | 2.7 | host | as the App | as the App, after `/approve` | 1 |
+| P | 2.5 | host | as the App | as the App, after `/approve` | 1 |
+
+- **One of seven touches `.github/workflows/`.** Steps 2.2 and 2.6 share one file that is kit-ready from its first version, so 2.5 does not touch it. A later fix to it costs him two pasted lines: his push, then approve and merge.
+- **All seven on the host, one after another.** A box merges no head that changes a path `guard-config` guards and leaves that merge to the owner (`tools/guard/guard.py:3641-3647`); J (the tracker), K (a workflow), L (`.claude/settings.json`), M (the guard) and O (`.claude/guard.json`) are such changes, and N rewrites the box itself. The host seat holds one item in progress at a time; an item waiting in review does not block the next claim.
+- **Order.** J, then M, both merged under the standing word; then K, which waits for his merge while nothing else is in progress; L when J and K are on `main`; N when L is merged; O when L, M and N are merged and K's live rows hold; P last.
+- **From the hour `setup` runs** (L's first live row) every session in this clone, a peer's included, commits and pushes as the App. From L's merge on a host session asks for `/approve` before each merge, because `owner done` cannot close an item a bot merged without it.
+- **A headless box run cannot wait for him:** it ends at the pull request, and the host session that started it asks him and merges.
+- **Item #10** gets a note that this plan and decision 1 answer it; he drops or keeps it at delivery (act 17).
+
+## 4. Guard and check rows: written and committed before the code
+
+- **2.1b, guard 0.13.0.** Kinds of rows. Identity: `-c user.*=`, `--author=`, `GIT_AUTHOR_*`, `GIT_COMMITTER_*`, `git config` on `user.*`, `commit.gpgsign` and `credential.*`, a write to `.git/config`; each as prefix, `export` and `env` form, against the silent neighbours (`git log --author=`, `git config --get`). Token: `GH_TOKEN=`, `GITHUB_TOKEN=`, `env -u`, `unset`, `GH_CONFIG_DIR`, `GIT_ASKPASS`, `GIT_CONFIG_*`, `-c credential.helper=` and the `gh auth` verbs that change or print a login, against `gh auth status`. Key: the Keychain entry by name, `security dump-keychain` and `export`. Approval: `gh pr review --approve`, a comment whose body on the line starts `/approve`, the reviews API with `APPROVE`, and the harness's GitHub tools that do the same. Merge: the exact-head form with and without `identity`, a short SHA, `--admin`, `--auto`, the merge API; the box and cloud profiles unchanged. `guard-config`: writes and shell writes to the four new places against reads; `tools/orchestration/` and `tools/review/` silent. `app_token.py setup` is the one accepted writer of the clone's identity.
+- **Never weaker.** Every row and fixture of 0.12.2 keeps its verdict or gets a stricter one, with one named exception: the host's exact-head merge once `identity` is committed. A test lists each change and fails on any other move toward silence; the 45-day replay is repeated. Not read for this plan: what the box's merge check does with a `guard-config` path; the step's brief reads it, since four places join the class.
+- **2.2, 2.6 and 2.0.** The cases named in section 2 are the rows. Held out for `decision_line.py`: a removed file on a listed path, a rename into one, a listing the API cut short.
+
+## 5. Rules relaxed during the build, and where each ends
+
+This plan asks for no new relaxation. It ends the ones in force.
+
+1. **The standing word (S-1)** holds until the switch and ends by its own text when steps 2.1 and 2.2 are in force. That moment is the read-back of step 2.7: L, M and N are on `main`, the box's old token is revoked by his word, and the live ruleset equals the file. O records it, and S-1's row says `ended` with that date. J and M are the last pull requests merged under it.
+2. **The peer's delegated verbs (#103)** end at the same moment. From the read-back on a session runs neither verb, and O removes `owner_verbs: delegated` from the committed file the same day.
+3. **P5-2 to P5-6 and the two local switches (L-fleet, L-rules-off)** hold until delivery and leave `docs/RULES.md` with P. Before P is merged he sets the two switches back or gives each a new end (act 15); the table cannot read them. The closing line of act 16 is the last use of P5-3.
+4. **P5-4 (`--accept-all`)** is his to keep as a rule or to drop at delivery, as its row says (act 17).
+
+**Not relaxed.** A session runs no owner verb, beyond what #103 delegates until the switch. Five agents at once without asking. No installs on his machine. Deletes, deploys and force pushes on the host. A workflow change waits for him. The App's key stays in the Keychain. Client and secret repositories get none of this.
+
+## 6. Decisions taken in this plan
+
+Each line is the owner's to strike; where two ways exist, both are named.
+
+1. **The checks are merged first and required last.** `workflow_run` and `issue_comment` run only the file on `main` (decision 3), so the workflow cannot be tried before it is merged. It is merged, proven on L, then required. Alternative: required on merge; a defect would then block its own fix.
+2. **One workflow file for 2.2 and 2.6.** Alternative: two files, two more merges by him.
+3. **The ruleset is a file**, reviewed in K, applied by his one line, read back by `assert_run.py ruleset`. Alternative: clicks in the browser, with nothing to review or compare. Compliance: the gate's own configuration gets change control and a read-back.
+4. **In this clone git commits and pushes as the App by default.** `setup` writes the bot's name and address, `commit.gpgsign=false` and, for this repository's address, the helper (after an emptied helper list) into the clone's git configuration, which its worktrees share. Commits keep the model's trailer and have no signature. A session without its wiring still shows as the App, so the check sees agent work. Alternative: identity only in a session's environment; his terminal stays untouched, and a session without the wiring passes as him with no approval. Cost to him: a commit by hand here needs `-c user.name=… -c user.email=…`, and a push as himself the line the session prints.
+5. **`gh` gets its token at each call** through `CLAUDE_ENV_FILE`. Alternative: a launcher that sets it once; it dies after an hour.
+6. **The key and the cache.** The Keychain entry holds the PEM as one base64 line; the token cache is a file in the clone's git directory, since the Keychain would put each token on a command line.
+7. **Finding 6, per folder.** `decision-line` imports the guard's own path rules, so there is no second list, and adds `tools/orchestration/`, `tools/review/`, `tools/egress/`, `tools/box/`, `tools/identity/` and `.github/rulesets/`: each gates a merge, screens what leaves the boundary or handles a credential. `guard-config`, whose ask is a prompt, gains only the last four: their working-tree copy acts before any pull request exists. The first two stay out of it: every probe run rewrites `verified.json`, and the required checks stand behind the review and `merge-ready`.
+8. **The merge on the host.** With `identity` committed, `gh pr merge N --match-head-commit <40-hex SHA>` without `--admin` or `--auto` runs with no ask and is logged. The forge decides: the App's merge passes only with the three checks green. Without this a prompt would follow his `/approve`. `merge-ready` runs `assert_run.py ruleset` first; until the switch the form runs under the standing word.
+9. **The action, pinned.** Alternative: a script of our own, about 150 lines of standard library; it comes if probe (f) shows that an edited comment counts or that `workflow_run` is not served.
+10. **No bypass actor.** Break-glass is a ruleset edit by the owner, recorded with its two times (section 8).
+11. **The box's token is a file the host renews.** Alternative: a token service on a socket; more code, the same trust.
+12. **Step 2.4 gets its own plan after delivery**, with the D4 additions of #39 to `assert_run.py run` and item #99. Why: under decision 3 each run is his `workflow_dispatch`, since the App holds no `actions` permission, so its worth to him is asked with Phase 2's measured acts in hand; it needs a long-lived token in a GitHub environment (the Q1 deviation); #99 is not probed, and items filed now would freeze guesses.
+13. **The unknown parameter stays as found.** If the probe shows that it blocks the App's pull requests, the question returns to him with two answers: he sets it to `false` in the ruleset file, or he approves by a review where he would have written the comment (the action counts both, parent fact 13).
+14. **The box after delivery.** Default: Phase 1's section 7 holds, `agent-box-claude` is revoked, and P5-2 and P5-6 end. If he keeps the box he says so; the token stays and both become rules.
+15. **Phase 4.** Since decision 4 a box session holds no GitHub credential of his, the structural fix the parent plan deferred (D6); steps 4.1 and 4.3 keep still less of their reason, a question for the Phase 4 plan.
+
+## 7. The owner's acts
+
+**At approval, one sitting (about 20 minutes):**
+
+1. Strike lines of section 6 if he wishes, by telling the session.
+2. Create the App: Settings → Developer settings → GitHub Apps → New. A name with no private repository or host name in it. No webhook. Repository permissions Contents, Pull requests and Issues, read and write; nothing else. "Only on this account".
+3. Generate a private key and store it with the line the session prints (`security add-generic-password -U -a "$USER" -s agent-app-key -w "$(base64 -i FILE)"`), then delete the downloaded file. Named: for an instant the value is an argument of `security`.
+4. Install the App on this repository only.
+5. Tell the session the App's name; the session reads its ids through the API.
+6. The approval: one pasted `owner ready` line with the seven numbers, printed by the session. Where #103's delegation is committed, his word in the session and the session's `delegate ready` are the other form; the record says which.
+
+**During the build:** 7. merge K; 8. and 9. `/approve <sha>` on L, twice, because a push makes the first one stale on purpose (the proof that an approval holds for one head only); 10. the same on N, once. The session prints each line whole.
+
+**The switch, one sitting (about 10 minutes):**
+
+11. Revoke the fine-grained token of `agent-box-github` on GitHub and delete the Keychain entry.
+12. One pasted line that applies `.github/rulesets/main.json` to ruleset 26124070.
+13. `/approve <sha>` on O.
+
+**Delivery, one sitting (about 10 minutes):**
+
+14. `/approve <sha>` on P.
+15. Set `FLEET_VERIFY` and `rules_off` back in his two local files, or give each a new end.
+16. `python3 tools/tracker/tracker.py owner done <numbers> --accept-all`, one line, printed by the session.
+17. His word on three choices: the box after delivery (section 6, line 14), `--accept-all` (section 5, row 4) and item #10.
+18. Confirm in VS Code that the hooks load and that the new `SessionStart` hook does no harm there.
+
+Eighteen acts. Not counted: a fix after a review costs one more `/approve`, a fix to the workflow two pasted lines. After delivery: a new key once a quarter.
+
+## 8. Error paths and edge cases
+
+- **Probe (a) fails:** a `gh` shim first on the session's `PATH` sets the token per call. Until it exists a session's `gh` acts as him, while its commits and pushes are the App's (section 6, line 4), so the check still waits for him.
+- **Probe (b) fails:** the key goes through a named pipe in a folder of mode 0700; it never rests in a file. **(c) fails:** the login comes from `identity`. **(d) is wrong:** the session merges workflow changes too, and one of his acts falls away. **(e) fails:** the phase stops and the question returns to him. **(g) fails:** the file pins `ci` only, and the gap is named.
+- **No token can be made** (Keychain locked, entry missing, App suspended, GitHub down): `gh` and `git push` fail with 401. Nothing falls back to his login.
+- **He approves head A and a push makes head B:** pending again. The session pushes nothing between asking and merging; if it must, it asks again. A short or mistyped SHA counts for nothing.
+- **After the switch a defect in the workflow leaves every pull request pending, its own fix included:** he applies the ruleset file without the failing check, merges the fix and applies the file again; `DECISIONS.md` gets a block with both times.
+- **The wrapper dies or the Mac sleeps:** the box's token ends within the hour; on waking the wrapper mints at once.
+- **#103 is not merged when Phase 2 starts:** step 2.0 is built on `main` and whichever lands second is rebased; the approval is his own `owner ready` line; O has no key to remove.
+
+## 9. Skeleton or production-grade, and what is deferred
+
+- **Production-grade:** the tracker change, the guard rows, the helper with its tests, `decision_line.py`, the ruleset file with its read-back.
+- **Skeleton:** the `gh` wiring (Claude Code only; a Copilot session's `gh` acts as the person, and only its commits show the App); a third-party action read at one pin; a key rotated by hand; on the host his own `gh` login stays within a session's reach, and the guard matches command text (the parent plan's residual, D6).
+- **Deferred, each with its trigger:** step 2.4 with the D4 additions and #99 (delivery); a scheduled comparison of the ruleset with its file (parent step 3.1); the forge setting that requires pinned actions (a second third-party action); a second App that posts the gate's status (a forged check is seen once).
+- **Cut line.** If time runs short, the rules table's form `check:NAME` goes first, then `assert_run.py ruleset` inside `merge-ready`. Not cut: J to N and the switch. In production the first additions would be the scheduled ruleset comparison and the forge's own pinning rule.
+
+## 10. Effort and cost
+
+Days of session work: J 0.5, K 1.25, L 1.25, M 1.25, N 1, O 0.5, P 1, and 0.75 for fixes after the live rows; about 7.5 in all, and as many elapsed, since every step is built on the one host seat (section 3). Rev 3 said about 2 days for these rows (parent plan, line 248). The difference, named: the box token and the tracker change are new; the guard step is written rows first; the workflow cannot be tried before it is on `main`; and recent pull requests took one to three review rounds (the `DECISIONS.md` blocks of #70, #39 and #92).
+
+Money: $0 a month. A GitHub App and a public repository's Actions minutes cost nothing; in a private target the two jobs are a few billed minutes per pull request, under $1 a month at 20 pull requests. As API-equivalent spend, a guess from Phase 1's $40 to $90 per pull request: $300 to $650. A fresh review has cost $0.17 to $1.64 a run (`DECISIONS.md`, 2026-11-21 to 2026-11-26).
+
+## 11. Delivered means
+
+Delivered = pull requests J to P merged on `main`, which are parent rows 2.1, 2.2, 2.5 and 2.6 with the three new steps, plus one install into a fresh target that passes its checks (step 2.5). On that day the standing word and the peer's delegated verbs have ended at the switch, the relaxation rows have left `docs/RULES.md`, his fine-grained box token is revoked, and `owner done` has closed the seven items. Latest date 2026-12-31: from 2027-01-01 the table's test fails for a row still in force. Step 2.4 follows under the strict rules with its own plan and approval.
+
+## 12. What an auditor gains, and does not
+
+- **Gains.** The forge names the App for every commit, push, pull request, comment and merge of a session, and no session commit carries the owner's signature. A change with agent commits reaches `main` only after a comment by the owner's account that names the exact head, required by the ruleset from a pinned source. A change to a control carries a decision line or does not merge. The ruleset is a reviewed file with a read-back. The done mark names approver and merger. A box holds no GitHub credential of his. Each relaxation has ended with a date.
+- **Does not gain.** On the host the approval is only as strong as keeping his credentials out of a session's reach. The key can be read by any process of his user that asks the Keychain. Whoever can push a workflow can post the check's status (parent fact 25): the App cannot, his account can. `/approve` says that he approved a head, not that he read it. `decision-line` counts a line and does not judge it. Author and reviewer are one model family. Until step 2.4 the review receipt is a local file that the reviewed session could write, and nothing in CI reads an `execution_file`.
+
+## 13. `DECISIONS.md`
+
+One block comes with this pull request, "2026-11-26 — Phase 2 plan put up": his four decisions in his words, with the transcript, the seven findings, and the lines below; each costs $0 a month. The parent plan's text is not changed, as with the Phase 1 plan. His approval is added when he gives it, with its time and form. Each of the seven pull requests adds its own line.
+
+- Approval (decision 1): the ruleset's count stays 0 and `agent-approval-check` is a required check; why: with an empty bypass list a count of 1 locks his own pull requests; changes it: a second maintainer; compliance: an approval by a named account for one head SHA.
+- Merge (decision 2): the session merges the approved head as the App, and `owner done` accepts that bot merge; why: one act per pull request; changes it: an approval found on a head he did not mean; compliance: approver and merger are two identities, both in the done mark.
+- Triggers (decision 3): `workflow_run` after `ci` and `issue_comment`, never `pull_request_target`; why: GitHub's default block from 2026-12-02; changes it: nothing foreseen; compliance: the checks run the file on `main`, so a pull request cannot change its judge.
+- Box (decision 4): the App's token, renewed by the host wrapper through a mounted file, the key in the Keychain; why: a box does not ask, so his token could post an approval from it; changes it: a box engine that keeps tokens from the session (#80); compliance: D6's structural fix, for box sessions.
+- The ruleset is a file with a read-back, and the checks are required only after they ran on `main`; why: no pull request reviewed the gate's configuration; changes it: an organisation's rulesets and audit log; compliance: change control and evidence for the gate, and the record of step 2.7 names the hour.
+- Git identity is the clone's default; why: a session without its wiring must not pass as the owner; changes it: he commits by hand here often; compliance: attributable (ALCOA+) by default.
+- `decision-line` covers the guard's list and six places more, `guard-config` four of them; why: plan section 6, line 7; changes it: more than two mechanical changes a month blocked; compliance: change control for the controls.
+- Step 2.4 gets its own plan; why: plan section 6, line 12; changes it: his word to plan it now; compliance: until then the review receipt is a local file, named.
+- The unknown ruleset parameter stays as found; why: its meaning is not known; changes it: the probe of step 2.1a; compliance: an unknown in the gate, named and dated.

@@ -29,12 +29,13 @@ Verbs
   delegate ready N [N ...] --word TEXT   `owner ready` for a session (CLAUDE_CODE_SESSION_ID set, no box marker,
                                          KZ_BOUNDARY unset or own) where .claude/guard.json on the default branch
                                          says "boundary": "own" and "owner_verbs": "delegated"; TEXT = the owner's
-                                         words (one line, at most 500 characters, no `<!--` or `-->`); the mark
-                                         names the session (a plain token) and the file's blob
+                                         words (one line, at most 500 characters, no `<!--`, `-->` or `--!>`); the
+                                         mark names the session (a plain token) and the file's blob
   delegate done N [N ...] --word TEXT --evidence FILE
                                          `owner done` with every check of it, under the same delegation; FILE is
-                                         JSON {"N": {"criterion index": "line naming a path or URL"}}, one line for
-                                         each criterion of each item; ticks no box, waives nothing; closes the issue
+                                         JSON {"N": {"criterion index": "line"}}: one line for each criterion,
+                                         naming a file or folder that exists at the merge commit or a URL under
+                                         the repository; ticks no box, waives nothing; closes the issue
 
 Options: --repo OWNER/NAME (GitHub) or ORG/PROJECT/REPO (Azure DevOps); default: the cwd's origin
 Backend: env KZ_TRACKER_BACKEND=github|ado, else the origin host (dev.azure.com, *.visualstudio.com
@@ -314,6 +315,10 @@ class Backend:
         """(blob id, text) of a file on the forge's default branch; None when it is not there."""
         raise Refused(f"delegated verbs are not available on the {self.name} backend")
 
+    def has_path(self, ref: str, path: str) -> bool:
+        """A file or a folder at `path` in the tree of commit `ref`."""
+        raise Refused(f"delegated verbs are not available on the {self.name} backend")
+
 
 class FakeBackend(Backend):
     name = "fake"
@@ -325,6 +330,7 @@ class FakeBackend(Backend):
         self.prs: dict = {}
         self.checks: dict = {}
         self.files: dict = {}  # path -> text, the default branch
+        self.trees: dict = {}  # commit -> set of file paths in its tree
         self.log: list = []
         self._next = 1
 
@@ -398,6 +404,10 @@ class FakeBackend(Backend):
             return None
         data = self.files[path].encode("utf-8")
         return hashlib.sha1(b"blob %d\0" % len(data) + data).hexdigest(), self.files[path]  # git's blob id
+
+    def has_path(self, ref: str, path: str) -> bool:
+        paths = self.trees.get(ref, set())
+        return path in paths or any(p.startswith(path + "/") for p in paths)
 
 
 class GitHubBackend(Backend):
@@ -531,6 +541,17 @@ class GitHubBackend(Backend):
         except (KeyError, TypeError, ValueError) as exc:  # binascii.Error and UnicodeDecodeError are ValueErrors
             raise TrackerError(f"gh api {api}: no file content in the answer ({exc})") from exc
 
+    def has_path(self, ref: str, path: str) -> bool:
+        """The contents API at `ref` answers a file with an object and a folder with an array; --jq prints the type."""
+        api = f"repos/{self.repo_full()}/contents/{path}?ref={ref}"
+        try:
+            kind = self._run(["api", api, "--jq", 'if type == "array" then "dir" else .type end']).strip()
+        except TrackerError as exc:
+            if "HTTP 404" in str(exc):
+                return False
+            raise
+        return kind in ("file", "dir")
+
 
 _REMOTE_HOST_RE = re.compile(r"^(?:[A-Za-z][\w+.-]*://)?(?:[^@/]+@)?([^/:]+)")
 
@@ -579,6 +600,10 @@ _CLOSING_RE = re.compile(r"\b(close[sd]?|fix(?:e[sd])?|resolve[sd]?|"
                          + r")\s*:?\s+(?:AB)?#\d+", re.IGNORECASE)
 _PATHLIKE_RE = re.compile(r"[\w-]+(?:[./:][\w-]+)+")
 _INDEX_RE = re.compile(r"0|[1-9][0-9]*")
+# relative paths only: never inside an absolute path or a URL (the look-behind); `README.md:12-14` gives README.md
+_PATH_CANDIDATE_RE = re.compile(r"(?<![\w/.-])(?:[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)+|[A-Za-z0-9_.-]*\.[A-Za-z0-9]+)")
+_URL_RE = re.compile(r"https?://\S+")
+EVIDENCE_TRIES = 6  # path candidates tried per line: bounds the forge calls
 
 
 def free_text_problem(text: str) -> Optional[str]:
@@ -589,21 +614,23 @@ def free_text_problem(text: str) -> Optional[str]:
         return "has more than one line"
     if len(text) > FREE_TEXT_MAX:
         return f"is longer than {FREE_TEXT_MAX} characters"
-    if "<!--" in text or "-->" in text:
-        return "contains `<!--` or `-->`, which would open or end an HTML comment: part of the record would not show"
+    if any(marker in text for marker in ("<!--", "-->", "--!>")):
+        return "contains `<!--`, `-->` or `--!>`, which would open or end an HTML comment and hide part of the record"
     return None
 
 
 def evidence_problem(line: Optional[str]) -> Optional[str]:
-    """Why an evidence line does not answer its criterion; None when it does."""
+    """Why an evidence line cannot be recorded; None when it can (what it points at is checked at the merge commit)."""
     if line is None:
         return "no evidence line"
     bad = free_text_problem(line)
-    if bad:
-        return "the line " + bad
-    if not _PATHLIKE_RE.search(line):
-        return "the line names no path or URL"
-    return None
+    return "the line " + bad if bad else None
+
+
+def path_candidates(line: str) -> list:
+    """The first EVIDENCE_TRIES distinct relative paths of a line, in order; a `.` or `..` segment never counts."""
+    paths = dict.fromkeys(m.group(0).rstrip(".") for m in _PATH_CANDIDATE_RE.finditer(line))  # distinct, in order
+    return [p for p in paths if not {"", ".", ".."} & set(p.split("/"))][:EVIDENCE_TRIES]
 
 
 def read_evidence(path: str) -> dict:
@@ -1054,6 +1081,20 @@ class Tracker:
         return {"delegated": True, "session": session, "word": word,
                 "delegation": {"file": DELEGATION_FILE, "blob": blob}}
 
+    def evidence_target_problem(self, line: str, pr_url: str, sha: str) -> Optional[str]:
+        """None when the line holds a URL under the pull request's repository or a path that exists at `sha`."""
+        m = re.fullmatch(r"(.+)/pull/[0-9]+", pr_url or "")
+        base = m.group(1) + "/" if m else None
+        urls = [url for url in _URL_RE.findall(line) if base and url.startswith(base)]
+        if any(not {".", ".."} & set(url.split("/")) for url in urls):  # no `..` out of the repository
+            return None
+        tried = path_candidates(line)
+        if any(self.b.has_path(sha, path) for path in tried):
+            return None
+        return (f"the line names no file or folder that exists at the merge commit {sha[:10]} "
+                f"({'tried ' + ', '.join(tried) if tried else 'none found in the line'}) and no URL under "
+                f"{base or '(no repository address in the pull request URL)'}")
+
     def delegate_ready(self, numbers: list, word: str) -> int:
         fields = self._delegation(word)
         items = self._check_all("delegate ready", numbers, lambda issue: self._ready_problems(issue, DELEGATE))
@@ -1072,8 +1113,11 @@ class Tracker:
             check_transition(status_of(issue), "done", DELEGATE)
             problems, facts = self.done_checks(issue, {}, accept=True)  # unticked boxes: the evidence answers them
             lines, criteria = evidence.get(issue.number, {}), parse_ac(issue.body)
+            sha = facts.get("merge_sha")  # none: the unmerged pull request is already a problem
             for k, (_, text) in enumerate(criteria, 1):
                 bad = evidence_problem(lines.get(k))
+                if not bad and sha:
+                    bad = self.evidence_target_problem(lines[k], facts["pr"], sha)
                 if bad:
                     problems.append(f"acceptance criterion {k} ({text}): {bad}")
             problems += [f"evidence for criterion {k}, which #{issue.number} does not have ({len(criteria)} criteria)"

@@ -4,8 +4,9 @@
 Standard library only, Python >= 3.9. Labels carry the state. Every write runs all
 guards first, then posts one comment, then makes one label change (add the new
 status, then remove its siblings, so a crash leaves two labels rather than none).
-No delete, force or close verb exists for agents: `owner done` is the one way an
-issue closes, and owner verbs refuse without a terminal (a human).
+No delete or force verb exists for agents. An issue closes through `owner done`,
+which refuses without a terminal (a human), or through `delegate done`, which a
+session runs only where the owner's delegation is merged on the default branch.
 
 Verbs
   help                                   this text
@@ -25,6 +26,14 @@ Verbs
                                          review -> done after the closing protocol; closes the issue; every item
                                          is checked first; --waive with one number only; --accept-all prints
                                          each item, asks once and ticks every unchecked box
+  delegate ready N [N ...] --word TEXT   `owner ready` for a session (CLAUDE_CODE_SESSION_ID set, no box marker,
+                                         KZ_BOUNDARY unset or own) where .claude/guard.json on the default branch
+                                         says "boundary": "own" and "owner_verbs": "delegated"; TEXT = the owner's
+                                         words (one line, at most 500 characters, no `-->`); the mark names both
+  delegate done N [N ...] --word TEXT --evidence FILE
+                                         `owner done` with every check of it, under the same delegation; FILE is
+                                         JSON {"N": {"criterion index": "line naming a path or URL"}}, one line for
+                                         each criterion of each item; ticks no box, waives nothing; closes the issue
 
 Options: --repo OWNER/NAME (GitHub) or ORG/PROJECT/REPO (Azure DevOps); default: the cwd's origin
 Backend: env KZ_TRACKER_BACKEND=github|ado, else the origin host (dev.azure.com, *.visualstudio.com
@@ -33,6 +42,7 @@ Exit codes: 0 ok; 2 refused by a guard or the transition table; 1 error.
 """
 
 import argparse
+import base64
 import dataclasses
 import datetime as _dt
 import hashlib
@@ -43,9 +53,11 @@ import subprocess
 import sys
 from typing import Optional
 
-VERSION = "0.2.0"
+VERSION = "0.3.0"
 BOX_MARKER = "/etc/agent-box/box.json"  # tools/box/marker.py: root-owned, 0444, written once by the box's entrypoint
 _SEAT_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}")  # marker.py's plain token
+DELEGATION_FILE = ".claude/guard.json"  # its copy on the default branch delegates the owner verbs, never the work tree
+FREE_TEXT_MAX = 500  # --word and each evidence line
 
 # ----------------------------------------------------------------------------
 # Data model (step 2.4): label families and the transition table
@@ -68,14 +80,15 @@ LABELS = {  # name -> (color, description)
     "status/dropped": ("cfd3d7", "Closed without doing"),
 }
 HUMAN, AGENT = "human", "agent"
+DELEGATE = "delegate"  # a session under the owner's committed delegation; only the `delegate` verbs act as it
 TRANSITIONS: dict = {
     (None, "backlog"): {HUMAN, AGENT},
-    ("backlog", "ready"): {HUMAN},
-    ("blocked", "ready"): {HUMAN},
+    ("backlog", "ready"): {HUMAN, DELEGATE},
+    ("blocked", "ready"): {HUMAN, DELEGATE},
     ("ready", "in-progress"): {HUMAN, AGENT},
     ("in-progress", "blocked"): {HUMAN, AGENT},
     ("in-progress", "review"): {HUMAN, AGENT},
-    ("review", "done"): {HUMAN},
+    ("review", "done"): {HUMAN, DELEGATE},
     ("done", "backlog"): {HUMAN},
     ("dropped", "backlog"): {HUMAN},
 }
@@ -296,6 +309,10 @@ class Backend:
     def pr_checks(self, sha: str) -> list:
         raise NotImplementedError
 
+    def committed_file(self, path: str) -> Optional[tuple]:
+        """(blob id, text) of a file on the forge's default branch; None when it is not there."""
+        raise Refused(f"delegated verbs are not available on the {self.name} backend")
+
 
 class FakeBackend(Backend):
     name = "fake"
@@ -306,6 +323,7 @@ class FakeBackend(Backend):
         self.labels: dict = {}
         self.prs: dict = {}
         self.checks: dict = {}
+        self.files: dict = {}  # path -> text, the default branch
         self.log: list = []
         self._next = 1
 
@@ -373,6 +391,12 @@ class FakeBackend(Backend):
 
     def pr_checks(self, sha: str) -> list:
         return list(self.checks.get(sha, []))
+
+    def committed_file(self, path: str) -> Optional[tuple]:
+        if path not in self.files:
+            return None
+        data = self.files[path].encode("utf-8")
+        return hashlib.sha1(b"blob %d\0" % len(data) + data).hexdigest(), self.files[path]  # git's blob id
 
 
 class GitHubBackend(Backend):
@@ -491,6 +515,21 @@ class GitHubBackend(Backend):
                 checks.append(Check(*parts))
         return checks
 
+    def committed_file(self, path: str) -> Optional[tuple]:
+        """The contents API without a ref reads the default branch; only an HTTP 404 means the file is not there."""
+        api = f"repos/{self.repo_full()}/contents/{path}"
+        try:
+            raw = self._run(["api", api])
+        except TrackerError as exc:
+            if "HTTP 404" in str(exc):
+                return None
+            raise
+        try:
+            d = json.loads(raw)
+            return d["sha"], base64.b64decode(d["content"]).decode("utf-8")
+        except (KeyError, TypeError, ValueError) as exc:  # binascii.Error and UnicodeDecodeError are ValueErrors
+            raise TrackerError(f"gh api {api}: no file content in the answer ({exc})") from exc
+
 
 _REMOTE_HOST_RE = re.compile(r"^(?:[A-Za-z][\w+.-]*://)?(?:[^@/]+@)?([^/:]+)")
 
@@ -538,6 +577,58 @@ _CLOSING_RE = re.compile(r"\b(close[sd]?|fix(?:e[sd])?|resolve[sd]?|"
                          + "|".join(w.replace(" ", r"\s+") for w in _STATE_WORDS)
                          + r")\s*:?\s+(?:AB)?#\d+", re.IGNORECASE)
 _PATHLIKE_RE = re.compile(r"[\w-]+(?:[./:][\w-]+)+")
+_INDEX_RE = re.compile(r"0|[1-9][0-9]*")
+
+
+def free_text_problem(text: str) -> Optional[str]:
+    """Why a stripped --word or evidence line cannot go into a mark and its comment; None when it can."""
+    if not text:
+        return "is empty"
+    if len(text.splitlines()) > 1:
+        return "has more than one line"
+    if len(text) > FREE_TEXT_MAX:
+        return f"is longer than {FREE_TEXT_MAX} characters"
+    if "-->" in text:
+        return "contains `-->`, which would end the HTML comment that carries the mark"
+    return None
+
+
+def evidence_problem(line: Optional[str]) -> Optional[str]:
+    """Why an evidence line does not answer its criterion; None when it does."""
+    if line is None:
+        return "no evidence line"
+    bad = free_text_problem(line)
+    if bad:
+        return "the line " + bad
+    if not _PATHLIKE_RE.search(line):
+        return "the line names no path or URL"
+    return None
+
+
+def read_evidence(path: str) -> dict:
+    """--evidence FILE, JSON {"<item>": {"<criterion>": "<line>"}} -> {item: {criterion: stripped line}}."""
+    try:
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError) as exc:
+        raise TrackerError(f"--evidence {path} cannot be read as JSON: {exc}") from exc
+    shape = TrackerError(f'--evidence {path} is not shaped {{"<item number>": {{"<criterion index>": "<line>"}}}}')
+    if not isinstance(data, dict):
+        raise shape
+    out: dict = {}
+    for item, lines in data.items():
+        if not _INDEX_RE.fullmatch(item) or not isinstance(lines, dict):
+            raise shape
+        if not all(_INDEX_RE.fullmatch(k) and isinstance(line, str) for k, line in lines.items()):
+            raise shape
+        out[int(item)] = {int(k): line.strip() for k, line in lines.items()}
+    return out
+
+
+def delegation_note(d: dict) -> str:
+    return (f"Session `{d['session']}` did this on the owner's delegation: `{d['delegation']['file']}` at blob "
+            f"`{d['delegation']['blob']}` on the default branch. The owner's words, as the session quotes them: "
+            f"\"{d['word']}\"")
 
 
 def is_human() -> bool:
@@ -750,7 +841,7 @@ class Tracker:
                 failing.append(f"#{n}: " + "; ".join(problems))
             items.append((issue, facts))
         if failing:
-            raise Refused(f"`owner {verb}`: {len(failing)} of {len(items)} items fail; nothing changed:\n  "
+            raise Refused(f"`{verb}`: {len(failing)} of {len(items)} items fail; nothing changed:\n  "
                           + "\n  ".join(failing))
         return items
 
@@ -767,22 +858,23 @@ class Tracker:
                                    f"not touched: {', '.join(rest) or 'none'}") from exc
             written.append(issue.number)
 
-    def _ready_problems(self, issue: Issue) -> tuple:
-        check_transition(status_of(issue), "ready", self.actor)
+    def _ready_problems(self, issue: Issue, actor: Optional[str] = None) -> tuple:
+        check_transition(status_of(issue), "ready", actor or self.actor)
         return ["definition of ready not met, missing " + m for m in definition_of_ready(issue.body)], {}
 
-    def _write_ready(self, issue: Issue, facts: dict) -> None:
+    def _write_ready(self, issue: Issue, facts: dict, delegated: Optional[dict] = None) -> None:
         number = issue.number
         me = self.b.whoami()
         sha = body_hash(issue.body)
-        self.b.comment(number, mark("ready", by=me, body_sha256=sha, ts=utcnow())
-                       + f"\nReady. Body frozen at sha256 {sha}; edits after this point fail `owner done`.")
+        frozen = f"\nReady. Body frozen at sha256 {sha}; edits after this point fail `owner done`"
+        text = f"{frozen} and `delegate done`.\n{delegation_note(delegated)}" if delegated else f"{frozen}."
+        self.b.comment(number, mark("ready", by=me, body_sha256=sha, ts=utcnow(), **(delegated or {})) + text)
         self.set_status(issue, "ready")
         self.say(f"#{number} ready (body {sha})")
 
     def ready(self, numbers: list) -> int:
         self._owner_only()
-        self._write_all(self._check_all("ready", numbers, self._ready_problems), self._write_ready)
+        self._write_all(self._check_all("owner ready", numbers, self._ready_problems), self._write_ready)
         return 0
 
     def done_checks(self, issue: Issue, waived: dict, accept: bool = False) -> tuple:
@@ -855,7 +947,7 @@ class Tracker:
             check_transition(status_of(issue), "done", self.actor)
             return self.done_checks(issue, waived, accept_all)
 
-        items = self._check_all("done", numbers, check)
+        items = self._check_all("owner done", numbers, check)
         if not accept_all:
             self._write_all(items, self._write_done)
             return 0
@@ -911,10 +1003,78 @@ class Tracker:
             lines.append(f"Waived acceptance criterion {k}: {reason}")
         if accepted:
             lines.append(accepted)
+        if facts.get("delegated"):
+            lines += [delegation_note(facts), "Evidence per acceptance criterion; no box was ticked by this verb:"]
+            for k, (_, text) in enumerate(parse_ac(issue.body), 1):
+                lines.append(f"{k}. {text}: {facts['evidence'][str(k)]}")
         self.b.comment(number, "\n".join(lines))
         self.set_status(issue, "done")
         self.b.close_issue(number)
         self.say(f"#{number} done and closed ({facts['merge_sha'][:10]})")
+
+    # -- delegated owner verbs (#103) -------------------------------------------
+
+    def _delegation(self, word: str) -> dict:
+        """The delegation check, before any issue is read: the fields the marks of the delegated verbs carry."""
+        if os.path.lexists(BOX_MARKER):
+            raise Refused(f"a box never promotes or closes an item (the box marker {BOX_MARKER} exists)")
+        boundary = os.environ.get("KZ_BOUNDARY")
+        if boundary is not None and boundary.strip() != "own":
+            raise Refused(f"KZ_BOUNDARY is {boundary!r}; the delegated verbs run only where the boundary is own")
+        session = os.environ.get("CLAUDE_CODE_SESSION_ID", "").strip()
+        if not session:
+            raise Refused("CLAUDE_CODE_SESSION_ID is empty: the delegated verbs are a session's; "
+                          "at a terminal the owner runs `tracker owner ...`")
+        word = (word or "").strip()
+        bad = free_text_problem(word)
+        if bad:
+            raise Refused(f"--word {bad}; give the owner's words as one line of at most {FREE_TEXT_MAX} characters")
+        found = self.b.committed_file(DELEGATION_FILE)
+        off = f"the owner has not delegated the owner verbs: {DELEGATION_FILE} on the default branch "
+        if found is None:
+            raise Refused(off + "does not exist")
+        blob, text = found
+        try:
+            cfg = json.loads(text)
+        except ValueError:
+            cfg = None
+        if not isinstance(cfg, dict):
+            raise Refused(off + "is not a JSON object")
+        for key, want in (("boundary", "own"), ("owner_verbs", "delegated")):
+            if cfg.get(key) != want:
+                raise Refused(off + f"says {key} {cfg.get(key)!r}, not {want!r}")
+        return {"delegated": True, "session": session, "word": word,
+                "delegation": {"file": DELEGATION_FILE, "blob": blob}}
+
+    def delegate_ready(self, numbers: list, word: str) -> int:
+        fields = self._delegation(word)
+        items = self._check_all("delegate ready", numbers, lambda issue: self._ready_problems(issue, DELEGATE))
+        self._write_all(items, lambda issue, facts: self._write_ready(issue, facts, fields))
+        return 0
+
+    def delegate_done(self, numbers: list, word: str, evidence_file: str) -> int:
+        fields = self._delegation(word)
+        evidence = read_evidence(evidence_file)
+        stray = sorted(set(evidence) - set(numbers))
+        if stray:
+            raise Refused(f"{evidence_file} has evidence for {', '.join(f'#{n}' for n in stray)}, which is not "
+                          "given; nothing changed")
+
+        def check(issue: Issue) -> tuple:
+            check_transition(status_of(issue), "done", DELEGATE)
+            problems, facts = self.done_checks(issue, {}, accept=True)  # unticked boxes: the evidence answers them
+            lines, criteria = evidence.get(issue.number, {}), parse_ac(issue.body)
+            for k, (_, text) in enumerate(criteria, 1):
+                bad = evidence_problem(lines.get(k))
+                if bad:
+                    problems.append(f"acceptance criterion {k} ({text}): {bad}")
+            problems += [f"evidence for criterion {k}, which #{issue.number} does not have ({len(criteria)} criteria)"
+                         for k in sorted(lines) if not 1 <= k <= len(criteria)]
+            return problems, {**facts, **fields, "criteria": "evidence",
+                              "evidence": {str(k): line for k, line in sorted(lines.items())}}
+
+        self._write_all(self._check_all("delegate done", numbers, check), self._write_done)
+        return 0
 
 
 def bot_logins() -> set:
@@ -966,6 +1126,15 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("numbers", type=int, nargs="+")
     s.add_argument("--waive", nargs=2, action="append", metavar=("INDEX", "REASON"), default=[])
     s.add_argument("--accept-all", action="store_true")
+    d = sub.add_parser("delegate")
+    dsub = d.add_subparsers(dest="delegate_verb")
+    s = dsub.add_parser("ready")
+    s.add_argument("numbers", type=int, nargs="+")
+    s.add_argument("--word", required=True)
+    s = dsub.add_parser("done")
+    s.add_argument("numbers", type=int, nargs="+")
+    s.add_argument("--word", required=True)
+    s.add_argument("--evidence", required=True)
     return p
 
 
@@ -983,7 +1152,8 @@ def main(argv: list, backend: Optional[Backend] = None, human: Optional[bool] = 
     if ns.verb == "version":
         out.write(VERSION + "\n")
         return 0
-    if ns.verb is None or (ns.verb == "owner" and ns.owner_verb is None):
+    if (ns.verb is None or (ns.verb == "owner" and ns.owner_verb is None)
+            or (ns.verb == "delegate" and ns.delegate_verb is None)):
         out.write(__doc__.strip() + "\n")
         return 1
     actor = HUMAN if (is_human() if human is None else human) else AGENT
@@ -1010,6 +1180,11 @@ def main(argv: list, backend: Optional[Backend] = None, human: Optional[bool] = 
                 return t.ready(ns.numbers)
             if ns.owner_verb == "done":
                 return t.done(ns.numbers, ns.waive, ns.accept_all)
+        if ns.verb == "delegate":
+            if ns.delegate_verb == "ready":
+                return t.delegate_ready(ns.numbers, ns.word)
+            if ns.delegate_verb == "done":
+                return t.delegate_done(ns.numbers, ns.word, ns.evidence)
     except Refused as exc:
         out.write(f"tracker: refused: {exc}\n")
         return 2

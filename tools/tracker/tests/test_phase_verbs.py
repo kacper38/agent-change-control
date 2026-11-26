@@ -381,7 +381,7 @@ def test_an_unreadable_marker_refuses_the_claim(tracker, fb, tmp_path, box_marke
 
 
 def test_version_and_usage(tracker):
-    assert tracker.VERSION == "0.2.0"
+    assert tracker.VERSION == "0.3.0"
     assert "owner ready N [N ...]" in tracker.__doc__
     assert "owner done N [N ...]" in tracker.__doc__ and "--accept-all" in tracker.__doc__
 

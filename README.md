@@ -89,9 +89,12 @@ then runs `tracker delegate ready N [N ...] --word "…"` and
 
 - `--word` quotes the owner's words the session acts on (one line).
 - `delegate done` runs every check of `owner done`. In place of ticks it
-  wants one evidence line for each acceptance criterion, naming a path or a
-  URL; FILE is JSON, `{"N": {"1": "line"}}`. It ticks no box and waives
-  nothing, and one criterion without a line refuses the whole call.
+  wants one evidence line for each acceptance criterion. A line has to point
+  at something that exists: a file or folder in the tree of the merge commit
+  (`tools/box/box.py:313` counts as `tools/box/box.py`), or a URL under the
+  repository's own address on the forge. FILE is JSON, `{"N": {"1": "line"}}`.
+  It ticks no box and waives nothing, and one criterion without such a line
+  refuses the whole call.
 - Each mark says `delegated: true` and carries the session id, the quoted
   words, the blob id of the file that delegated and, for done, the evidence
   lines. The comment names the session before anything else, so the record
@@ -100,8 +103,9 @@ then runs `tracker delegate ready N [N ...] --word "…"` and
   without `CLAUDE_CODE_SESSION_ID`, and on Azure DevOps.
 
 What the tracker cannot check: that the quoted words are the owner's, that
-the session id is the real one, and that an evidence line is true. The
-transcript on the owner's machine and a read of the record answer those.
+the session id is the real one, and that what an evidence line points at
+proves its criterion. The transcript on the owner's machine and a read of
+the record answer those.
 With the line on the default branch, a change can be promoted, merged and
 closed with no act of the owner on record; `docs/RULES.md` (row S-2) names
 when that ends. `install.sh` leaves the line out of a new target's file, so

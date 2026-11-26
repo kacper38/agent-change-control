@@ -3,6 +3,7 @@ delegates them. Written before the code: each test is an expected output of deci
 import base64
 import hashlib
 import json
+import uuid
 
 import pytest
 from test_phase_verbs import backlog, writes
@@ -110,9 +111,21 @@ def test_a_box_a_client_boundary_or_no_session_refuses(tracker, fb, tmp_path, mo
 
 
 @pytest.mark.parametrize("verb", ["ready", "done"])
+@pytest.mark.parametrize("session", ["a b", "a\nb", "a-->b", "a" * 129], ids=["space", "newline", "-->", "long"])
+def test_a_session_id_that_is_not_a_plain_token_refuses(tracker, fb, tmp_path, monkeypatch, verb, session):
+    assert tracker._SEAT_RE.fullmatch(SESSION) and tracker._SEAT_RE.fullmatch(str(uuid.uuid4())), "a UUID passes"
+    backlog(tracker, fb, 1)
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", session)
+    no_reads(fb)
+    code, out = run(tracker, fb, ready_argv() if verb == "ready" else done_argv(tmp_path))
+    assert code == 2 and "CLAUDE_CODE_SESSION_ID is not a plain token" in out, out
+
+
+@pytest.mark.parametrize("verb", ["ready", "done"])
 @pytest.mark.parametrize("word, reason", [("", "is empty"), ("   ", "is empty"), ("one\ntwo", "more than one line"),
-                                          ("x" * 501, "longer than 500"), ("ok --> then", "`-->`")],
-                         ids=["empty", "blank", "two-lines", "too-long", "comment-end"])
+                                          ("x" * 501, "longer than 500"), ("ok --> then", "`<!--` or `-->`"),
+                                          ("ok <!-- then", "`<!--` or `-->`")],
+                         ids=["empty", "blank", "two-lines", "too-long", "comment-end", "comment-start"])
 def test_a_bad_word_refuses(tracker, fb, tmp_path, verb, word, reason):
     backlog(tracker, fb, 1)
     no_reads(fb)
@@ -171,10 +184,16 @@ def test_delegate_done_closes_with_one_evidence_line_per_criterion(tracker, fb, 
     assert done["delegation"] == {"file": ".claude/guard.json", "blob": blob(GUARD_ON)} and done["evidence"] == LINES
     assert (done["pr"], done["merge_sha"], done["merged_by"], done["waived"]) == ("https://fake/pull/1", "sha1",
                                                                                   "kacper", {})
-    text = issue.comments[-1].body
-    assert f"Session `{SESSION}` did this on the owner's delegation" in text
-    assert "Evidence per acceptance criterion; no box was ticked by this verb:" in text
-    assert f"1. tests pass: {LINES['1']}" in text and f"2. docs updated: {LINES['2']}" in text
+    lines = issue.comments[-1].body.split("\n")
+    assert lines[0] == tracker.mark("done", **{k: v for k, v in done.items() if k not in ("kind", "_author")})
+    assert lines[1:] == [
+        "Done with the account agent, by a session (next line). PR https://fake/pull/1 merged as sha1 by kacper.",
+        f"Session `{SESSION}` did this on the owner's delegation: `.claude/guard.json` at blob `{blob(GUARD_ON)}` on "
+        f'the default branch. The owner\'s words, as the session quotes them: "{WORD}"',
+        "Checks on the merge commit:", "- c0: success (https://fake/checks/0)",
+        "DECISIONS.md changed in this PR (decision record linked by the merge SHA).",
+        "Evidence per acceptance criterion; no box was ticked by this verb:",
+        f"1. tests pass: {LINES['1']}", f"2. docs updated: {LINES['2']}"]
 
 
 @pytest.mark.parametrize("data, reason", [
@@ -182,10 +201,12 @@ def test_delegate_done_closes_with_one_evidence_line_per_criterion(tracker, fb, 
     ({"1": {**LINES, "2": "looked at it, fine"}}, "criterion 2 (docs updated): the line names no path or URL"),
     ({"1": {**LINES, "2": "a.py\nb.py"}}, "the line has more than one line"),
     ({"1": {**LINES, "2": "a.py " + "x" * 500}}, "the line is longer than 500 characters"),
-    ({"1": {**LINES, "2": "a.py --> b"}}, "the line contains `-->`"),
+    ({"1": {**LINES, "2": "a.py --> b"}}, "the line contains `<!--` or `-->`"),
+    ({"1": {**LINES, "2": "a.py <!-- b"}}, "the line contains `<!--` or `-->`"),
     ({"1": {**LINES, "3": "c.py"}}, "evidence for criterion 3, which #1 does not have"),
     ({"1": LINES, "2": LINES}, "evidence for #2, which is not given"),
-], ids=["missing", "no-path", "two-lines", "too-long", "comment-end", "no-such-criterion", "item-not-given"])
+], ids=["missing", "no-path", "two-lines", "too-long", "comment-end", "comment-start", "no-such-criterion",
+        "item-not-given"])
 def test_evidence_that_does_not_cover_every_criterion_refuses(tracker, fb, tmp_path, data, reason):
     reviewed(tracker, fb, tmp_path)
     code, out = run(tracker, fb, done_argv(tmp_path, data))
@@ -239,7 +260,14 @@ def test_owner_ready_then_delegate_done_and_delegate_ready_then_owner_done(track
     reviewed(tracker, other, tmp_path, delegated=True)
     code, out = run(tracker, other, ["owner", "done", "1", "--waive", "1", "a", "--waive", "2", "b"], human=True)
     assert code == 0 and other.get_issue(1).state == "closed"
-    assert "delegated" not in tracker.marks(other.get_issue(1), "done")[-1]
+    done = tracker.marks(other.get_issue(1), "done")[-1]
+    assert "delegated" not in done
+    assert other.get_issue(1).comments[-1].body.split("\n") == [  # the comment of `owner done` is unchanged
+        tracker.mark("done", **{k: v for k, v in done.items() if k not in ("kind", "_author")}),
+        "Done by agent. PR https://fake/pull/1 merged as sha1 by kacper.", "Checks on the merge commit:",
+        "- c0: success (https://fake/checks/0)",
+        "DECISIONS.md changed in this PR (decision record linked by the merge SHA).",
+        "Waived acceptance criterion 1: a", "Waived acceptance criterion 2: b"]
 
 
 def test_with_the_delegation_on_a_session_still_cannot_run_the_owner_verbs(tracker, fb, tmp_path):

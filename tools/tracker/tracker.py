@@ -29,7 +29,8 @@ Verbs
   delegate ready N [N ...] --word TEXT   `owner ready` for a session (CLAUDE_CODE_SESSION_ID set, no box marker,
                                          KZ_BOUNDARY unset or own) where .claude/guard.json on the default branch
                                          says "boundary": "own" and "owner_verbs": "delegated"; TEXT = the owner's
-                                         words (one line, at most 500 characters, no `-->`); the mark names both
+                                         words (one line, at most 500 characters, no `<!--` or `-->`); the mark
+                                         names the session (a plain token) and the file's blob
   delegate done N [N ...] --word TEXT --evidence FILE
                                          `owner done` with every check of it, under the same delegation; FILE is
                                          JSON {"N": {"criterion index": "line naming a path or URL"}}, one line for
@@ -588,8 +589,8 @@ def free_text_problem(text: str) -> Optional[str]:
         return "has more than one line"
     if len(text) > FREE_TEXT_MAX:
         return f"is longer than {FREE_TEXT_MAX} characters"
-    if "-->" in text:
-        return "contains `-->`, which would end the HTML comment that carries the mark"
+    if "<!--" in text or "-->" in text:
+        return "contains `<!--` or `-->`, which would open or end an HTML comment: part of the record would not show"
     return None
 
 
@@ -993,9 +994,13 @@ class Tracker:
                 word = "criterion" if len(ticked) == 1 else "criteria"
                 accepted += f"\nTicked by this confirmation: {word} {', '.join(map(str, ticked))}."
         me = self.b.whoami()
-        lines = [mark("done", by=me, ts=utcnow(), **{k: v for k, v in facts.items() if k != "checks"}),
-                 f"Done by {me}. PR {facts['pr']} merged as {facts['merge_sha']} by {facts['merged_by']}.",
-                 "Checks on the merge commit:"]
+        merged = f"PR {facts['pr']} merged as {facts['merge_sha']} by {facts['merged_by']}."
+        lines = [mark("done", by=me, ts=utcnow(), **{k: v for k, v in facts.items() if k != "checks"})]
+        if facts.get("delegated"):  # the session is named first, so the record never reads as the owner's own act
+            lines += [f"Done with the account {me}, by a session (next line). {merged}", delegation_note(facts)]
+        else:
+            lines.append(f"Done by {me}. {merged}")
+        lines.append("Checks on the merge commit:")
         lines += [f"- {c['name']}: {c['conclusion']} ({c['url']})" for c in facts["checks"]]
         if facts.get("decisions_md"):
             lines.append("DECISIONS.md changed in this PR (decision record linked by the merge SHA).")
@@ -1004,7 +1009,7 @@ class Tracker:
         if accepted:
             lines.append(accepted)
         if facts.get("delegated"):
-            lines += [delegation_note(facts), "Evidence per acceptance criterion; no box was ticked by this verb:"]
+            lines.append("Evidence per acceptance criterion; no box was ticked by this verb:")
             for k, (_, text) in enumerate(parse_ac(issue.body), 1):
                 lines.append(f"{k}. {text}: {facts['evidence'][str(k)]}")
         self.b.comment(number, "\n".join(lines))
@@ -1025,6 +1030,9 @@ class Tracker:
         if not session:
             raise Refused("CLAUDE_CODE_SESSION_ID is empty: the delegated verbs are a session's; "
                           "at a terminal the owner runs `tracker owner ...`")
+        if not _SEAT_RE.fullmatch(session):  # it goes into the mark and, in backticks, into the comment
+            raise Refused("CLAUDE_CODE_SESSION_ID is not a plain token (a letter or digit, then letters, digits and "
+                          "._:@/-, at most 128 characters)")
         word = (word or "").strip()
         bad = free_text_problem(word)
         if bad:

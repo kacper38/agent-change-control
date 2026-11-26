@@ -3,6 +3,7 @@
   "telemetry_dir": "~/.claude/telemetry",
   "protected_branches": ["main"],
   "boundary": "own",
+  "owner_verbs": "delegated",
   "scratch_md_mode": "ask",
   "host_install": "auto",
   "workflows": [{"name": "review-panel", "sha256": "32cc97116f3cebf6169d436c3c4e936b896b17718639c44e47521b07144eeff4"}]

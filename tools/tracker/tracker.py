@@ -54,7 +54,6 @@ import os
 import re
 import subprocess
 import sys
-import urllib.parse
 from typing import Optional
 
 VERSION = "0.3.0"
@@ -637,6 +636,13 @@ def path_candidates(line: str) -> list:
     return [p for p in paths if not {"", ".", ".."} & set(p.split("/"))][:EVIDENCE_TRIES]
 
 
+def is_plain_repo_link(url: str, base: str) -> bool:
+    """`base` plus plain path segments, an optional `/` and `#fragment`: an allowlist, nothing is decoded, so `%`,
+    `?`, `\\`, `@`, `//` never count; nor does a `.` or `..` segment."""
+    m = re.fullmatch(re.escape(base) + r"([A-Za-z0-9_.~-]+(?:/[A-Za-z0-9_.~-]+)*)/?(?:#[A-Za-z0-9_.-]*)?", url)
+    return bool(m) and not {".", ".."} & set(m.group(1).split("/"))
+
+
 def read_evidence(path: str) -> dict:
     """--evidence FILE, JSON {"<item>": {"<criterion>": "<line>"}} -> {item: {criterion: stripped line}}."""
     try:
@@ -1089,8 +1095,8 @@ class Tracker:
         """None when the line holds a URL under the pull request's repository or a path that exists at `sha`."""
         m = re.fullmatch(r"(.+)/pull/[0-9]+", pr_url or "")
         base = m.group(1) + "/" if m else None
-        urls = [urllib.parse.unquote(url) for url in _URL_RE.findall(line)]  # a URL parser reads %2e%2e as ..
-        if base and any(url.startswith(base) and not {".", ".."} & set(url.split("/")) for url in urls):
+        urls = [url.rstrip(".,;:)") for url in _URL_RE.findall(line)]
+        if base and any(is_plain_repo_link(url, base) for url in urls):
             return None
         tried = path_candidates(line)
         if any(self.b.has_path(sha, path) for path in tried):

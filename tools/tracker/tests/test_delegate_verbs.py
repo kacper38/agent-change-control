@@ -242,25 +242,40 @@ def test_evidence_that_does_not_cover_every_criterion_refuses(tracker, fb, tmp_p
 
 
 @pytest.mark.parametrize("line", ["see (docs/SYSTEM.md).", "tools/tracker covers it", "README.md:12-14",
-                                  CAP.replace("a6.md", "a1.md"), "https://fake/actions/runs/7",
-                                  "https://fake/blob/main/docs/a%20b.md"],
-                         ids=["file", "folder", "line-reference", "six-distinct", "url-under-the-repo", "url-escape"])
+                                  CAP.replace("a6.md", "a1.md"), "https://fake/actions/runs/7"],
+                         ids=["file", "folder", "line-reference", "six-distinct", "url-under-the-repo"])
 def test_a_line_that_points_at_something_that_exists_passes(tracker, fb, tmp_path, line):
     reviewed(tracker, fb, tmp_path)
     code, out = run(tracker, fb, done_argv(tmp_path, line2(line)))
     assert code == 0, out
 
 
-def test_a_url_counts_only_under_the_repository_of_the_pull_request(tracker, fb):
-    t, pr = tracker.Tracker(fb, tracker.DELEGATE), "https://github.com/o/r/pull/7"
-    assert t.evidence_target_problem("run https://github.com/o/r/actions/runs/1 green", pr, "sha1") is None
-    for url in ("https://github.com/o/r2/x", "https://github.com/o/other/x", "https://gitlab.com/o/r/x",
-                "https://github.com/o/r/../evil/x", "https://github.com/o/r/%2e%2e/evil/x",
-                "https://github.com/o/r/%2E%2E/evil/x", "https://github.com/o/r/%2e./evil/x",
-                "https://github.com/o/r%2f../evil/x"):
-        assert "no URL under https://github.com/o/r/" in t.evidence_target_problem(url, pr, "sha1"), url
-    ado = "https://dev.azure.com/org/p/_git/r/pullrequest/7"
-    assert t.evidence_target_problem("https://dev.azure.com/org/p/_git/r/x", ado, "sha1"), "no /pull/: no URL counts"
+BASE, PR7 = "https://github.com/o/r/", "https://github.com/o/r/pull/7"
+LINK = BASE + "blob/abc123/tools/x.py#L10"
+
+
+@pytest.mark.parametrize("line", [f"run {BASE}actions/runs/123 green", f"{BASE}pull/96", LINK, f"see {LINK};",
+                                  f"see {LINK}.", f"(see {LINK})", f"{BASE}tree/main/"])
+def test_a_plain_link_under_the_repository_counts(tracker, fb, line):
+    assert tracker.Tracker(fb, tracker.DELEGATE).evidence_target_problem(line, PR7, "sha1") is None
+
+
+@pytest.mark.parametrize("line", [
+    "https://github.com%2Fo%2Fr%2F@evil.example/x", BASE + "..\\evil\\x", BASE + "%2e%2e/evil/x",
+    BASE + "%2E%2E/evil/x", BASE + "%2e./evil/x", "https://github.com/o/r%2f../evil/x",
+    BASE + "docs/a%20b.md",  # round 2 let this harmless escape pass; the allowlist counts no `%` at all
+    BASE + "x?y=1", BASE + "../evil/x", BASE + "./x", BASE + "a//b", BASE, BASE[:-1], "https://gitlab.com/o/r/x",
+    "https://github.com/o/r2/x", "https://github.com/o/other/x", "http://github.com/o/r/x"])
+def test_any_other_url_does_not_count(tracker, fb, line):
+    problem = tracker.Tracker(fb, tracker.DELEGATE).evidence_target_problem(line, PR7, "sha1")
+    assert problem and f"no URL under {BASE}" in problem
+
+
+def test_without_a_pull_part_in_the_pr_url_no_url_counts(tracker, fb):
+    pr = "https://dev.azure.com/org/p/_git/r/pullrequest/7"
+    problem = tracker.Tracker(fb, tracker.DELEGATE).evidence_target_problem("https://dev.azure.com/org/p/_git/r/x", pr,
+                                                                             "sha1")
+    assert problem and "no repository address in the pull request URL" in problem
 
 
 @pytest.mark.parametrize("content", [None, "{not json", "[1]", '{"1": ["a.py"]}', '{"one": {}}', '{"1": {"x": "a.py"}}',
@@ -310,14 +325,19 @@ def test_a_merge_without_a_merge_commit_refuses_the_evidence(tracker, fb, tmp_pa
 
 def test_a_forge_error_while_the_evidence_is_checked_writes_nothing(tracker, fb, tmp_path):
     reviewed(tracker, fb, tmp_path, 2)
+    real, asked = fb.has_path, []
 
-    def has_path(ref, path):
-        raise tracker.TrackerError(f"gh api repos/o/r/contents/{path}?ref={ref} failed: gh: Bad Gateway (HTTP 502)")
+    def has_path(ref, path):  # item 1 (merge commit sha1) passes every check; the error comes on item 2
+        asked.append(ref)
+        if ref == "sha2":
+            raise tracker.TrackerError(f"gh api repos/o/r/contents/{path}?ref={ref} failed: gh: Bad Gateway (HTTP 502)")
+        return real(ref, path)
 
     fb.has_path = has_path
     code, out = run(tracker, fb, done_argv(tmp_path, None, "1", "2"))
-    assert code == 1 and "HTTP 502" in out, out
+    assert code == 1 and "HTTP 502" in out and asked == ["sha1", "sha2"], out
     assert writes(fb) == [] and all(statuses(fb.get_issue(n)) == ["status/review"] for n in (1, 2))
+    assert all(fb.get_issue(n).state == "open" for n in (1, 2)), "no comment, no label change and no close on either"
 
 
 def test_owner_ready_then_delegate_done_and_delegate_ready_then_owner_done(tracker, fb, tmp_path):

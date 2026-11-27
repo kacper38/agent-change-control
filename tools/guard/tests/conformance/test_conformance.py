@@ -1,9 +1,11 @@
 """The conformance run of the guard (tracker item #116): the golden file is what the Python guard answers now, from
 any case root; two false programs fail it; and each answer keeps the verdict its source names. The golden file is
-recorded with guard.py in place from one root and compared with `control` (conftest.py), an unpatched copy at
-<tmp>/tools/guard/guard.py run from another root: one equality shows that the file is what the guard answers now and
-that neither the case root nor the guard's place changes an answer. When the guard or its corpus changes, recording
+recorded through `python3 tools/guard/guard.py` in place from one root and compared with `control` (conftest.py),
+an unpatched copy at <tmp>/tools/guard/guard.py started through a launcher from another root: one equality shows that
+the file is what the guard answers now and that neither the case root, nor the guard's place, nor the way it is
+started changes an answer. When the guard or its corpus changes, recording
 the file again is the only act needed: the numbers below are floors or derived from the file."""
+import ast
 import json
 import pathlib
 import sys
@@ -61,6 +63,14 @@ def test_counts(cases, golden):
 def test_the_golden_files_name_holds_its_version(golden):
     version = golden["cli:version"]["calls"][0]["stdout"].strip()
     assert cr.GOLDEN.name == f"guard-{version}.jsonl", f"the file holds the answers of {version}: rename it and GOLDEN"
+
+
+def test_the_guards_main_block_is_what_the_launcher_repeats():
+    """The launcher of conftest.py is guard.py's own start only while the file ends with this block and has no other."""
+    tree = ast.parse((HERE.parent.parent / "guard.py").read_text(encoding="utf-8"))
+    want = ast.dump(ast.parse('if __name__ == "__main__":\n    sys.exit(main(sys.argv[1:]))\n').body[0])
+    mains = [n for n in tree.body if isinstance(n, ast.If) and "__name__" in ast.dump(n.test)]
+    assert ast.dump(tree.body[-1]) == want and len(mains) == 1, "change the launcher in conftest.py with it"
 
 
 def test_golden_is_sorted_complete_and_small(cases, golden):

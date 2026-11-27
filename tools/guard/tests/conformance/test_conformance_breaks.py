@@ -1,7 +1,7 @@
 """Planted breaks (tracker item #116): each is one replacement in a copy of guard.py at the same depth
 (<tmp>/tools/guard/guard.py), and the run on the cases that can see it must fail and name the cases it caught. The
-unpatched copy at that place passes every case: the control, and proof that the answers do not depend on where the
-guard file lies (the copy and its run are conftest.py's)."""
+unpatched copy at that place passes every case: the control, and proof that the answers depend neither on where the
+guard file lies nor on its start through the launcher (the copy, the launcher and the run are conftest.py's)."""
 import pathlib
 import re
 import sys

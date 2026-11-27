@@ -110,14 +110,19 @@ print("== _fixture keys:", dict(keys))
 seen = {}  # the guard's own patterns: compiled by a call that stands in guard.py
 others = {}  # compiled by the standard library on the guard's behalf (shlex, pathlib's globbing, ...)
 _compile = re._compile
-RE_FILE = os.path.dirname(re.__file__)
 GUARD_FILE = str(G / "guard.py")
+# `re` is a package from Python 3.11 on and one module file before: skip its own frames, no other module's
+RE_DIR = os.path.dirname(re.__file__) + os.sep if hasattr(re, "__path__") else None
+
+
+def _in_re(filename):
+    return filename.startswith(RE_DIR) if RE_DIR else filename == re.__file__
 
 
 def _recording(pattern, flags):
     if isinstance(pattern, str):
         frame = sys._getframe(1)
-        while frame is not None and frame.f_code.co_filename.startswith(RE_FILE):  # re.compile, re.search, ...
+        while frame is not None and _in_re(frame.f_code.co_filename):  # re.compile, re.search, ...
             frame = frame.f_back
         by_guard = frame is not None and frame.f_code.co_filename == GUARD_FILE
         (seen if by_guard else others)[(pattern, int(flags))] = True
@@ -154,6 +159,8 @@ for rule_dir in sorted(d for d in FIX.iterdir() if d.is_dir() and not d.name.sta
 re._compile = _compile
 print(f"\n== the guard's own patterns: {at_import} compiled at import, {len(seen)} after {ran} fixture events",
       f"({unreadable} unreadable); compiled by other modules meanwhile, not counted: {len(others)}")
+for pattern, flags in sorted(others):
+    print("    not counted | flags", flags, "|", pattern[:110].replace("\n", "\\n"))
 
 
 def walk(tree, found):

@@ -1,5 +1,5 @@
 python 3.13.13
-head 61d60a99460c1ce86082184f169884c8b52e4a7c
+head 8fdf256207e502f7293041ae1140a5ad54c81224
 guard.py last changed in c65e9e59df7c00505505c36255f0a90db40b4cc9
 
 == non-test python lines per tool: {'box': 1597, '(top)': 141, 'egress': 189, 'guard': 6469, 'memory': 492, 'orchestration': 1389, 'review': 302, 'scan': 257, 'telemetry': 2242, 'testguard': 221, 'tracker': 2664} total 15963
@@ -13,6 +13,10 @@ guard.py last changed in c65e9e59df7c00505505c36255f0a90db40b4cc9
 == _fixture keys: {'_fixture.case': 1573, '_fixture.harness': 1601, '_fixture.rule': 1573, '_fixture.source': 1601, '_fixture.format': 785, '_fixture.config': 61, '_fixture.files': 5}
 
 == the guard's own patterns: 86 compiled at import, 90 after 1573 fixture events (0 unreadable); compiled by other modules meanwhile, not counted: 4
+    not counted | flags 0 | (?s:[^/]*\.json)\Z
+    not counted | flags 0 | /
+    not counted | flags 0 | [.。．｡]
+    not counted | flags 256 | [^\w@%+=:,./-]
 == patterns that use a feature: {'at:AT_BEGINNING': 39, 'at:AT_BOUNDARY': 7, 'at:AT_END': 42, 'at:AT_END_STRING': 3, 'backref': 1, 'cat:CATEGORY_DIGIT': 10, 'cat:CATEGORY_NOT_SPACE': 15, 'cat:CATEGORY_SPACE': 41, 'cat:CATEGORY_WORD': 5, 'conditional': 1, 'lazy': 3, 'lookahead': 3, 'lookahead_neg': 7, 'lookbehind_neg': 7}
 == patterns per flag: {'MULTILINE': 20, 'DOTALL': 1, 'IGNORECASE': 7}
 == patterns with lookaround, a backreference or a conditional: 14
@@ -35,7 +39,7 @@ guard.py last changed in c65e9e59df7c00505505c36255f0a90db40b4cc9
 == version: 0.12.2 | subprocess.run calls: 3 | environment names read: ['CLAUDE_CONFIG_DIR', 'CLAUDE_PROJECT_DIR', 'KZ_BOUNDARY', 'KZ_HOST_INSTALL', 'KZ_PROTECTED_BRANCHES', 'KZ_RULES_OFF', 'KZ_SCRATCH_MD', 'KZ_TELEMETRY_DIR']
 
 == timing in ms (median, fastest, slowest) over 30 runs; event 01-git-push-origin-feature-x.json
-   python3 -c pass          : 10.6 10.2 11.4
-   guard.py version         : 49.1 48.3 49.7
-   guard.py hook pre claude : 53.6 53.0 54.5
-   /bin/sh -c :             : 3.4 3.1 4.5
+   python3 -c pass          : 10.6 10.0 11.5
+   guard.py version         : 48.9 48.1 50.1
+   guard.py hook pre claude : 53.3 52.0 54.9
+   /bin/sh -c :             : 3.6 2.9 5.4

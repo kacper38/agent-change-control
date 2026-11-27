@@ -1,6 +1,6 @@
 """Fixtures of the conformance tests (tracker item #116). A full run takes about a minute, so the run of the
-unpatched copy is made once per session and serves both files: the control of the planted breaks, and the second
-case root of test_conformance.py."""
+unpatched copy is made once per session and serves both files: the control of the planted breaks, and the run
+test_conformance.py compares the golden file with (recorded in place from another root)."""
 import pathlib
 import shlex
 import sys

@@ -1,5 +1,9 @@
 """The conformance run of the guard (tracker item #116): the golden file is what the Python guard answers now, from
-any case root; two false programs fail it; and each answer keeps the verdict its source names."""
+any case root; two false programs fail it; and each answer keeps the verdict its source names. The golden file is
+recorded with guard.py in place from one root and compared with `control` (conftest.py), an unpatched copy at
+<tmp>/tools/guard/guard.py run from another root: one equality shows that the file is what the guard answers now and
+that neither the case root nor the guard's place changes an answer. When the guard or its corpus changes, recording
+the file again is the only act needed: the numbers below are floors or derived from the file."""
 import json
 import pathlib
 import sys
@@ -13,8 +17,8 @@ import conformance_runner as cr  # noqa: E402
 
 GUARD = [sys.executable, str(HERE.parent.parent / "guard.py")]
 JOBS = cr.DEFAULT_JOBS
-COUNTS = {"fixture": 1573, "shape": 28, "crash": 3, "table": 3234, "cli": 22, "knob": 42}
-SILENT_FAILS, DENY_FAILS = 3319, 4902  # cases the always-silent and the always-denying program fail
+FLOORS = {"fixture": 1573, "shape": 28, "crash": 3, "table": 3234, "cli": 22, "knob": 42}  # the counts of 0.12.2
+RECORD = 'python3 tools/guard/tests/conformance/conformance_runner.py record --guard "python3 tools/guard/guard.py"'
 
 # Faithfulness (scope item 5). A fixture's answer has its folder's verdict (allow = silent); a table row's `hook pre`
 # answer is at least as strict as the row's own word. Every difference: id | source's word | answer | reason. An
@@ -45,53 +49,49 @@ def cases():
     return cr.select(None)
 
 
-@pytest.fixture(scope="module")
-def live(cases, tmp_path_factory):
-    return cr.run_cases(cases, GUARD, tmp_path_factory.mktemp("root-a"), JOBS)
-
-
-def test_counts(cases):
+def test_counts(cases, golden):
     kinds: dict = {}
     for case in cases:
         kinds[_kind(case.id)] = kinds.get(_kind(case.id), 0) + 1
-    assert kinds == COUNTS
-    assert len(cc.table_rows()) == COUNTS["table"]
+    assert set(kinds) == set(FLOORS) and all(kinds[k] >= FLOORS[k] for k in FLOORS), kinds
+    assert len(cc.table_rows()) == kinds["table"]
+    assert list(golden) == sorted(c.id for c in cases), f"the cases changed: record the golden file again: {RECORD}"
+
+
+def test_the_golden_files_name_holds_its_version(golden):
+    version = golden["cli:version"]["calls"][0]["stdout"].strip()
+    assert cr.GOLDEN.name == f"guard-{version}.jsonl", f"the file holds the answers of {version}: rename it and GOLDEN"
 
 
 def test_golden_is_sorted_complete_and_small(cases, golden):
     text = cr.GOLDEN.read_text(encoding="utf-8")
-    assert text == cr.golden_text(golden), "one sorted JSON line per case: write it with `record` only"
-    assert list(golden) == sorted(c.id for c in cases)
+    assert text == cr.golden_text(golden), f"one sorted JSON line per case: write it with `record` only: {RECORD}"
     assert len(text.encode("utf-8")) <= 6_000_000
 
 
-def test_golden_is_what_the_guard_answers_now(golden, live):
-    diff = cr.differing(golden, live)
-    assert diff == [], cr.describe(diff[0], golden.get(diff[0]), live.get(diff[0]))
-
-
-def test_the_answers_do_not_depend_on_the_case_root(live, control):
-    """`live` ran guard.py in place from one root; `control` (conftest.py) a copy at <tmp>/tools/guard/guard.py from
-    a root of another name and depth: neither the case root nor the guard's place changes an answer."""
-    diff = cr.differing(live, control)
-    assert diff == [], cr.describe(diff[0], live.get(diff[0]), control.get(diff[0]))
+def test_golden_is_what_the_guard_answers_now_from_any_root_and_place(golden, control):
+    diff = cr.differing(golden, control)
+    assert diff == [], (f"{len(diff)} cases differ; if the guard changed on purpose, record the golden file again: "
+                        f"{RECORD}\n" + cr.describe(diff[0], golden.get(diff[0]), control.get(diff[0])))
 
 
 def test_two_false_programs_fail_the_run(cases, golden, tmp_path):
     silent = _program(tmp_path, "silent", "exit 0\n")
     deny = _program(tmp_path, "deny", "printf '%s\\n' '{\"permissionDecision\": \"deny\", "
                                       "\"permissionDecisionReason\": \"no\"}'\necho no >&2\nexit 2\n")
-    for argv, fails in ((silent, SILENT_FAILS), (deny, DENY_FAILS)):
+    spoke = {k for k, a in golden.items() if a["files"] or any(c["exit"] != 0 or c["stdout"] or c["stderr"]
+                                                               for c in a["calls"])}
+    for argv, fails in ((silent, spoke), (deny, set(golden))):
         got = cr.run_cases(cases, argv, tmp_path / "root", JOBS)
-        assert len(cr.differing(golden, got)) == fails, argv
+        assert set(cr.differing(golden, got)) == fails, argv
 
 
 def test_the_command_line_exit_codes(tmp_path, capsys):
     root = ["--root", str(tmp_path), "--only", "cli:version", "--only", "crash:"]
     assert cr.main(["run", "--guard", " ".join(GUARD), *root]) == 0
-    assert "4 cases, 0 differ" in capsys.readouterr().out
+    assert " cases, 0 differ" in capsys.readouterr().out
     assert cr.main(["run", "--guard", " ".join(_program(tmp_path, "silent", "")), *root]) == 1
-    assert "crash:array.json" in capsys.readouterr().out
+    assert "\n  cli:version\n" in capsys.readouterr().out
     assert cr.main(["run", "--guard", "no-such-program-here", *root]) == 2
     assert cr.main(["run", "--guard", " ".join(GUARD), "--reference", " ".join(GUARD), *root]) == 0
     below = tmp_path / "repo" / "deep"

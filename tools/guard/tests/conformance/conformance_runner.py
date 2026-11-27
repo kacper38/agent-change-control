@@ -5,11 +5,15 @@ command line and compare what comes back, byte for byte, with the recorded answe
   conformance_runner.py run --guard "<command line>" [--reference "<command line>"] [--only PREFIX]...
                             [--jobs N] [--root DIR]
   conformance_runner.py record --guard "<command line>" [--jobs N] [--root DIR]   (writes the golden file)
+
+record runs the guard in place (python3 tools/guard/guard.py), never a copy: the tests compare the file with the
+answers of a copy elsewhere, from another case root, so one equality covers the guard's place and the root too.
   conformance_runner.py list [--only PREFIX]...
 
 A case's arguments are appended to the command line; the event goes on standard input. Compared per call: exit
 code, stdout and stderr; per case: every file under its telemetry folder. Taken out first: the case folder's path
-(`<CASE>`), the values of `ts` and `build` in a JSON log line, the time stamp in a capture file's name.
+(`<CASE>`), in a JSON log line the value of `ts` and the member `build` whole (the Python guard writes none),
+and the time stamp in a capture file's name.
 Exit codes: 0 every case matches (record: written); 1 a case differs; 2 the run cannot start (usage, a git or
 Claude folder above the case root, a listener on the fan-out rule's llama port, a program that cannot start).
 Standard library only, Python 3.9 and later.
@@ -41,7 +45,10 @@ DEFAULT_JOBS = min(os.cpu_count() or 1, 8)
 CALL_TIMEOUT_S = 30  # the guard answers within its 3.5 s hook budget; a hung program is a difference, not a hang
 LLAMA_PORT = 8012  # guard.py rule_fan_out adds a note to its ask when 127.0.0.1:8012 accepts a connection
 STAMP_RE = re.compile(r"-\d{8}T\d{6,}(\.json)$")  # guard.py capture(): <event>-<tool>-<UTC stamp>.json
-RELAX_RE = re.compile(r'("(?:ts|build)"\s*:\s*)("(?:[^"\\]|\\.)*"|[-+.0-9eE]+|true|false|null)')
+_VALUE = r'(?:"(?:[^"\\]|\\.)*"|[-+.0-9eE]+|true|false|null)'
+TS_RE = re.compile(r'("ts"\s*:\s*)' + _VALUE)  # the value goes, the key keeps its place
+BUILD_AFTER_RE = re.compile(r'\s*,\s*"build"\s*:\s*' + _VALUE)  # a member after another: its comma goes too
+BUILD_FIRST_RE = re.compile(r'(\{\s*)"build"\s*:\s*' + _VALUE + r'(\s*,\s*)?')  # the first or only member
 
 
 class CannotRun(Exception):
@@ -116,8 +123,8 @@ def _text(data: bytes):
 def _relax(name: str, data: bytes) -> bytes:
     if not name.endswith(".jsonl"):
         return data
-    text = data.decode("utf-8", "surrogateescape")
-    return RELAX_RE.sub(lambda m: m.group(1) + '"<relaxed>"', text).encode("utf-8", "surrogateescape")
+    text = BUILD_FIRST_RE.sub(r"\1", BUILD_AFTER_RE.sub("", data.decode("utf-8", "surrogateescape")))
+    return TS_RE.sub(lambda m: m.group(1) + '"<relaxed>"', text).encode("utf-8", "surrogateescape")
 
 
 def telemetry(case_dir: pathlib.Path) -> list:
@@ -153,6 +160,7 @@ def run_case(argv: list[str], case: "cases_mod.Case", case_dir: pathlib.Path) ->
 def run_cases(cases: list, argv: list[str], root: pathlib.Path, jobs: int, times: Optional[dict] = None) -> dict:
     """{case id: answer} of the program on every case, each in a fresh folder below root."""
     check_root(pathlib.Path(os.path.realpath(root)))  # before anything is made there
+    check_port()  # under pytest too, where main does not run
     root.mkdir(parents=True, exist_ok=True)
     root = pathlib.Path(os.path.realpath(tempfile.mkdtemp(prefix="run-", dir=root)))  # /var is /private/var on macOS
 
@@ -241,7 +249,6 @@ def main(argv: Optional[list[str]] = None) -> int:
     try:
         program = _program(args.guard)
         reference = _program(args.reference) if args.reference else None
-        check_port()
         keep = contextlib.nullcontext(args.root) if args.root else tempfile.TemporaryDirectory(prefix="guard-conf-")
         with keep as tmp:
             times: dict = {}
